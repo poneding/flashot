@@ -184,7 +184,7 @@ Design principle: **the user never sees "crashed" or "stuck".** Every failure de
 | Clipboard write fails (rare, system contention) | One retry, then `Copy failed, please retry` toast | Toast; capture session stays open |
 | Save dialog fails | Treat as user cancel; selection state preserved | No prompt |
 | Display topology change (unplug / lock / external connect) | Listen to `available_monitors()`; rebuild affected overlays. Active capture session cancels. | A capture session in progress cancels and returns to idle |
-| Rust panic | `set_hook` writes to `~/.flashot/logs/`, one-shot toast, process kept alive by Tauri runtime | Toast: `Internal error, log written` |
+| Rust panic | `set_hook` writes the panic to `~/.flashot/logs/`. Panics inside spawned async tasks are isolated and surface as a toast; main-thread panics still abort, but the log is on disk before the process dies. | Toast: `Internal error, log written` (when recoverable) |
 
 ### 6.2 Frontend failures
 
@@ -227,7 +227,7 @@ Coverage target: pure functions ≥ 90%. No global line-coverage threshold.
 
 | Case | Approach |
 |---|---|
-| Rust commands roundtrip | `tauri::test::mock_app` + fake capture/clipboard backends |
+| Rust commands roundtrip | Tauri 2 test harness with mocked capture/clipboard backends |
 | Hotkey conflict fallback | `MockHotkeyManager` injecting registration failure |
 | Settings store persistence | in-memory backend + restart simulation |
 | Capture session lifecycle | RAII guard tests prove `end_capture` runs on every path |
