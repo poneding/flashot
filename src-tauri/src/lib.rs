@@ -5,6 +5,7 @@ pub mod clipboard;
 pub mod saver;
 pub mod settings_store;
 pub mod hotkey;
+pub mod window_mgr;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
