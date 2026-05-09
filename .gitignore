@@ -20,6 +20,7 @@ dist-ssr/
 npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*
+*.tsbuildinfo
 .pnpm-store/
 
 # editor / os
