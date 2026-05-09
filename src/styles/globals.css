@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+    --accent: 199 100% 65%;
+    --border: 220 13% 91%;
+    --radius: 0.625rem;
+    /* shadcn token extensions */
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 199 100% 65%;
+    --primary-foreground: 222 47% 8%;
+    --secondary: 220 13% 91%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 220 13% 91%;
+    --muted-foreground: 215 16% 47%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --input: 220 13% 91%;
+    --ring: 199 100% 65%;
+  }
+  .dark {
+    --background: 222 47% 8%;
+    --foreground: 0 0% 98%;
+    --accent: 199 100% 65%;
+    --border: 217 19% 27%;
+    /* shadcn token extensions */
+    --card: 222 47% 11%;
+    --card-foreground: 0 0% 98%;
+    --popover: 222 47% 11%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 199 100% 65%;
+    --primary-foreground: 222 47% 8%;
+    --secondary: 217 19% 27%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 217 19% 27%;
+    --muted-foreground: 215 20% 65%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 0 0% 98%;
+    --input: 217 19% 27%;
+    --ring: 199 100% 65%;
+  }
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    user-select: none;
+  }
+  /* Overlay window: must be transparent + click-pass-when-needed */
+  body.overlay { background: transparent !important; overflow: hidden; cursor: crosshair; }
+  * {
+    @apply border-border;
+  }
+}
