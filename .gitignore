@@ -1,0 +1,36 @@
+# brainstorming companion artifacts
+.superpowers/
+
+# claude
+.claude/settings.local.json
+
+# rust / tauri
+target/
+src-tauri/target/
+src-tauri/gen/
+**/*.rs.bk
+Cargo.lock.bak
+
+# node
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+.pnpm-store/
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+
+# secrets / local
+.env
+.env.local
+.env.*.local
