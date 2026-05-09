@@ -9,6 +9,10 @@
     --accent: 199 100% 65%;
     --border: 220 13% 91%;
     --radius: 0.625rem;
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
     /* shadcn token extensions */
     --card: 0 0% 100%;
     --card-foreground: 222 47% 11%;
