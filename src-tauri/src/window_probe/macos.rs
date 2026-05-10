@@ -18,11 +18,19 @@ extern "C" {
 pub fn enumerate() -> Result<Vec<WindowRect>> {
     let list_opt = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
     let arr_ref: CFArrayRef = unsafe { CGWindowListCopyWindowInfo(list_opt, 0) };
+
+    if arr_ref.is_null() {
+        anyhow::bail!("CGWindowListCopyWindowInfo returned NULL");
+    }
+
     let arr: CFArray<CFType> = unsafe { CFArray::wrap_under_create_rule(arr_ref) };
 
     let mut out = Vec::new();
     for i in 0..arr.len() {
-        let dict_ref = arr.get(i).unwrap();
+        let dict_ref = match arr.get(i) {
+            Some(d) => d,
+            None => continue,
+        };
         let dict: CFDictionary = match dict_ref.downcast::<CFDictionary>() {
             Some(d) => d,
             None => continue,
