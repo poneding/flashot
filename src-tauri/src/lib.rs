@@ -172,8 +172,8 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
 
     // Capture all monitors and enumerate windows in parallel
     let (capture_result, windows_result) = tokio::join!(
-        tokio::task::spawn_blocking(|| capture::capture_all_monitors()),
-        tokio::task::spawn_blocking(|| window_probe::enumerate()),
+        tokio::task::spawn_blocking(capture::capture_all_monitors),
+        tokio::task::spawn_blocking(window_probe::enumerate),
     );
 
     let (monitors, frames) = capture_result
@@ -193,7 +193,7 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     for (mon, frame) in monitors.iter().zip(frames.iter()) {
         // Save frame as PNG
         let frame_path = cache_dir.join(format!("frame_{}.png", mon.id));
-        save_frame_as_png(&frame, &frame_path)
+        save_frame_as_png(frame, &frame_path)
             .context("Failed to save frame as PNG")?;
 
         // Convert to asset:// URL
