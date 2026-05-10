@@ -8,6 +8,7 @@ pub mod hotkey;
 pub mod window_mgr;
 pub mod commands;
 pub mod tray;
+pub mod permission;
 
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -34,6 +35,11 @@ pub fn run() {
 
             // Install tray icon
             tray::install(app.handle())?;
+
+            if !permission::probe_screen_recording() {
+                tracing::warn!("screen recording permission not granted");
+                // Tray menu will show a red dot (V0.1 polish)
+            }
 
             // Spawn overlay windows (one per monitor, hidden initially)
             spawn_overlays(app.handle())?;
