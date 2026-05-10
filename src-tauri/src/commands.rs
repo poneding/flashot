@@ -1,6 +1,6 @@
 use crate::{clipboard, saver, settings_store, settings_store::Settings, types::Rect, window_mgr::WindowMgr};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[tauri::command]
 pub async fn crop_and_copy(
@@ -43,8 +43,10 @@ pub fn get_settings(_app: AppHandle) -> Result<Settings, String> {
 }
 
 #[tauri::command]
-pub fn set_settings(_app: AppHandle, settings: Settings) -> Result<(), String> {
-    settings_store::save(&settings).map_err(|e| e.to_string())
+pub fn set_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
+    settings_store::save(&settings).map_err(|e| e.to_string())?;
+    let _ = app.emit("settings:changed", ());
+    Ok(())
 }
 
 #[tauri::command]

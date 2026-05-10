@@ -45,8 +45,8 @@ pub fn run() {
             spawn_overlays(app.handle())?;
 
             // Set up hotkey service
-            let hotkey_svc = hotkey::HotkeyService::new()
-                .context("Failed to create hotkey service")?;
+            let hotkey_svc = Arc::new(hotkey::HotkeyService::new()
+                .context("Failed to create hotkey service")?);
 
             // Load settings and register hotkey
             let settings = settings_store::load().unwrap_or_default();
@@ -64,6 +64,23 @@ pub fn run() {
                             let _ = app_handle.emit("capture:trigger", ());
                         }
                     }
+                }
+            });
+
+            // Re-register hotkey when settings change. We push the HotkeyService
+            // into a Mutex-wrapped state slot for live updates.
+            use std::sync::Mutex as StdMutex;
+            let hk_arc = StdMutex::new(hotkey_svc.clone());
+            app.manage(hk_arc);
+
+            let app_for_settings = app.handle().clone();
+            app.listen("settings:changed", move |_| {
+                let app = app_for_settings.clone();
+                let s = settings_store::load().unwrap_or_default();
+                let hk_state = app.state::<StdMutex<Arc<hotkey::HotkeyService>>>();
+                let svc = hk_state.lock().unwrap().clone();
+                if let Err(e) = svc.set(&s.hotkey) {
+                    tracing::warn!("hotkey re-register failed: {e}");
                 }
             });
 
