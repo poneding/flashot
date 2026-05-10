@@ -220,14 +220,22 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
             // Emit capture:start event with payload
             #[derive(serde::Serialize, Clone)]
             struct CaptureStartPayload {
+                #[serde(rename = "monitorId")]
                 monitor_id: u32,
+                #[serde(rename = "frameUrl")]
                 frame_url: String,
+                #[serde(rename = "monitorRect")]
+                monitor_rect: types::Rect,
+                #[serde(rename = "scaleFactor")]
+                scale_factor: f32,
                 windows: Vec<types::WindowRect>,
             }
 
             window.emit("capture:start", CaptureStartPayload {
                 monitor_id: mon.id,
                 frame_url: asset_url,
+                monitor_rect: mon.rect.clone(),
+                scale_factor: mon.scale_factor,
                 windows: local_windows,
             }).context("Failed to emit capture:start event")?;
         }
