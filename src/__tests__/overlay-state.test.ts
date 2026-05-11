@@ -93,7 +93,7 @@ describe("overlay hover detection", () => {
     expect(useOverlay.getState().hoverRect).toEqual(windowRect);
   });
 
-  it("clears hover when the cursor leaves detected windows", () => {
+  it("falls back to the full monitor when the cursor leaves detected windows", () => {
     useOverlay.getState().start({
       ...capture,
       windows: [
@@ -109,7 +109,27 @@ describe("overlay hover detection", () => {
     useOverlay.getState().updateHoverAt({ x: 80, y: 90 });
     useOverlay.getState().updateHoverAt({ x: 700, y: 500 });
 
-    expect(useOverlay.getState().hoverRect).toBeNull();
+    expect(useOverlay.getState().hoverRect).toEqual({ x: 0, y: 0, width: 800, height: 600 });
+  });
+
+  it("commits the full monitor on a zero-size click outside detected windows", () => {
+    useOverlay.getState().start({
+      ...capture,
+      windows: [
+        {
+          rect: { x: 20, y: 30, width: 240, height: 160 },
+          title: "Editor",
+          appName: "Code",
+          pid: 7,
+        },
+      ],
+    });
+
+    useOverlay.getState().beginDrag({ x: 700, y: 500 });
+    useOverlay.getState().commitDrag();
+
+    expect(useOverlay.getState().mode).toBe("committed");
+    expect(useOverlay.getState().selection).toEqual({ x: 0, y: 0, width: 800, height: 600 });
   });
 });
 

@@ -1,5 +1,11 @@
 import { create } from "zustand";
-import { moveRect, rectFromDrag, resizeRect, type HandleId } from "@/lib/geometry";
+import {
+  moveRect,
+  rectContainsPoint,
+  rectFromDrag,
+  resizeRect,
+  type HandleId,
+} from "@/lib/geometry";
 import { hitTestWindow } from "@/lib/hit-test";
 import type { CaptureStartPayload, Mode, Point, Rect, WindowRect } from "@/lib/types";
 
@@ -50,6 +56,14 @@ function localMonitorBounds(monitor: Rect | null): Rect {
   };
 }
 
+function targetRectAtPoint(p: Point, windows: WindowRect[], monitor: Rect | null): Rect | null {
+  const windowRect = hitTestWindow(p, windows)?.rect;
+  if (windowRect) return windowRect;
+
+  const bounds = localMonitorBounds(monitor);
+  return rectContainsPoint(bounds, p) ? bounds : null;
+}
+
 export const useOverlay = create<State & Actions>((set, get) => ({
   mode: "idle",
   monitorId: null,
@@ -82,8 +96,8 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   setHover: (r) => set({ hoverRect: r }),
   clearHover: () => set({ cursor: null, hoverRect: null }),
   updateHoverAt: (p) => {
-    const { mode, windows } = get();
-    const hover = mode === "hover" ? hitTestWindow(p, windows)?.rect ?? null : get().hoverRect;
+    const { mode, windows, monitorRect } = get();
+    const hover = mode === "hover" ? targetRectAtPoint(p, windows, monitorRect) : get().hoverRect;
     set({ cursor: p, hoverRect: hover });
   },
   lockToPeer: (ownerMonitorId) => {
@@ -112,15 +126,15 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   },
 
   beginDrag: (p) => {
-    const currentMode = get().mode;
+    const { mode: currentMode, windows, monitorRect, hoverRect } = get();
     if (currentMode !== "hover" && currentMode !== "committed") return;
-    const keepHover = get().mode === "hover";
+    const keepHover = currentMode === "hover";
     set({
       mode: "dragging",
       dragStart: p,
       selection: null,
       selectionInteraction: null,
-      hoverRect: keepHover ? get().hoverRect : null,
+      hoverRect: keepHover ? hoverRect ?? targetRectAtPoint(p, windows, monitorRect) : null,
     });
   },
   updateDrag: (p) => {

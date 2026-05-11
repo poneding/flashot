@@ -28,8 +28,8 @@ const NS_APPLICATION_PRESENTATION_AUTO_HIDE_MENU_BAR: usize = 1 << 2;
 const NS_APPLICATION_PRESENTATION_HIDE_MENU_BAR: usize = 1 << 3;
 
 #[cfg(target_os = "macos")]
-fn overlay_level_from_shielding_level(shielding_level: isize) -> isize {
-    shielding_level + 1
+fn overlay_level_from_window_levels(shielding_level: isize, maximum_level: isize) -> isize {
+    maximum_level.max(shielding_level + 1)
 }
 
 #[cfg(all(target_os = "macos", test))]
@@ -66,8 +66,9 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_overlay_sits_above_shielding_level() {
-        assert_eq!(super::overlay_level_from_shielding_level(2000), 2001);
+    fn macos_overlay_uses_maximum_window_level() {
+        assert_eq!(super::overlay_level_from_window_levels(2000, 3000), 3000);
+        assert_eq!(super::overlay_level_from_window_levels(2000, 1999), 2001);
     }
 
     #[cfg(target_os = "macos")]
@@ -140,9 +141,17 @@ fn bring_platform_overlay_to_front(window: &WebviewWindow) -> Result<()> {
 fn capture_overlay_window_level() -> isize {
     extern "C" {
         fn CGShieldingWindowLevel() -> i32;
+        fn CGWindowLevelForKey(key: i32) -> i32;
     }
 
-    overlay_level_from_shielding_level(unsafe { CGShieldingWindowLevel() } as isize)
+    const K_CG_MAXIMUM_WINDOW_LEVEL_KEY: i32 = 14;
+
+    unsafe {
+        overlay_level_from_window_levels(
+            CGShieldingWindowLevel() as isize,
+            CGWindowLevelForKey(K_CG_MAXIMUM_WINDOW_LEVEL_KEY) as isize,
+        )
+    }
 }
 
 #[cfg(target_os = "macos")]

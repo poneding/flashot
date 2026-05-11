@@ -199,7 +199,15 @@ export function OverlayRoute() {
       onMouseDown={onMouseDown}
       onMouseUp={onMouseUp}
       onContextMenu={onContextMenu}
-      style={{ position: "fixed", inset: 0, cursor: overlayCursor }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        width: "100vw",
+        height: "100vh",
+        overflow: "hidden",
+        background: "#000",
+        cursor: overlayCursor,
+      }}
     >
       <FrozenLayer />
       <DimMask />
