@@ -1,6 +1,15 @@
 import { useEffect } from "react";
 import { useOverlay } from "@/overlay/state";
-import { onCaptureEnd, onCaptureStart, cropAndCopy, cancelCapture } from "@/lib/ipc";
+import {
+  cancelCapture,
+  claimSelection,
+  cropAndCopy,
+  onCaptureEnd,
+  onCaptureStart,
+  onSelectionClaimed,
+  onSelectionReleased,
+  releaseSelection,
+} from "@/lib/ipc";
 import { currentCursorPointInWindow } from "@/lib/cursor";
 import { cursorForHandle, hitTestHandle, rectContainsPoint } from "@/lib/geometry";
 import { FrozenLayer } from "@/overlay/FrozenLayer";
@@ -41,6 +50,22 @@ export function OverlayRoute() {
     };
   }, [start, end]);
 
+  useEffect(() => {
+    let unsubClaimed: undefined | (() => void);
+    let unsubReleased: undefined | (() => void);
+    onSelectionClaimed((p) => {
+      useOverlay.getState().lockToPeer(p.monitorId);
+    }).then((u) => (unsubClaimed = u));
+    onSelectionReleased((p) => {
+      useOverlay.getState().unlockFromPeer(p.monitorId);
+    }).then((u) => (unsubReleased = u));
+
+    return () => {
+      unsubClaimed?.();
+      unsubReleased?.();
+    };
+  }, []);
+
   // Keyboard: Esc cancels; Cmd/Ctrl+C copies when committed
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -57,21 +82,46 @@ export function OverlayRoute() {
   useEffect(() => {
     if (mode !== "hover" || !frameUrl) return;
     let cancelled = false;
+    let warned = false;
 
-    currentCursorPointInWindow()
-      .then((p) => {
-        if (!cancelled && p) {
-          useOverlay.getState().updateHoverAt(p);
-        }
-      })
-      .catch((error) => {
-        console.warn("Failed to read cursor position", error);
-      });
+    const refreshHoverFromCursor = () => {
+      currentCursorPointInWindow()
+        .then((p) => {
+          if (cancelled) return;
+          const state = useOverlay.getState();
+          if (state.mode !== "hover") return;
+          if (p) state.updateHoverAt(p);
+          else state.clearHover();
+        })
+        .catch((error) => {
+          if (!warned) {
+            warned = true;
+            console.warn("Failed to read cursor position", error);
+          }
+        });
+    };
+
+    refreshHoverFromCursor();
+    const interval = window.setInterval(refreshHoverFromCursor, 50);
 
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
     };
   }, [mode, frameUrl]);
+
+  const claimCurrentOverlay = (claimedMonitorId: number | null) => {
+    if (claimedMonitorId == null) return;
+    claimSelection(claimedMonitorId).catch((error) => {
+      console.warn("Failed to claim capture selection", error);
+    });
+  };
+  const releaseCurrentOverlay = (claimedMonitorId: number | null) => {
+    if (claimedMonitorId == null) return;
+    releaseSelection(claimedMonitorId).catch((error) => {
+      console.warn("Failed to release capture selection", error);
+    });
+  };
 
   // Mouse handling
   const onMouseMove = (e: React.MouseEvent) => {
@@ -92,18 +142,24 @@ export function OverlayRoute() {
     if (state.mode === "committed" && state.selection) {
       const handle = hitTestHandle(p, state.selection, 10);
       if (handle) {
+        claimCurrentOverlay(state.monitorId);
         beginResize(handle, p);
         return;
       }
       if (rectContainsPoint(state.selection, p)) {
+        claimCurrentOverlay(state.monitorId);
         beginMove(p);
         return;
       }
+      claimCurrentOverlay(state.monitorId);
       beginDrag(p);
       return;
     }
 
-    if (state.mode === "hover") beginDrag(p);
+    if (state.mode === "hover") {
+      claimCurrentOverlay(state.monitorId);
+      beginDrag(p);
+    }
   };
   const onMouseUp = () => {
     const state = useOverlay.getState();
@@ -111,7 +167,14 @@ export function OverlayRoute() {
       finishSelectionInteraction();
       return;
     }
-    if (state.mode === "dragging") commitDrag();
+    if (state.mode === "dragging") {
+      const ownerMonitorId = state.monitorId;
+      commitDrag();
+      const next = useOverlay.getState();
+      if (next.mode === "hover" && !next.selection) {
+        releaseCurrentOverlay(ownerMonitorId);
+      }
+    }
   };
   const onContextMenu = (e: React.MouseEvent) => { e.preventDefault(); cancelCapture(); };
 

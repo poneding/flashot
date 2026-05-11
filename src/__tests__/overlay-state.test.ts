@@ -100,3 +100,33 @@ describe("overlay hover detection", () => {
     expect(useOverlay.getState().hoverRect).toBeNull();
   });
 });
+
+describe("overlay single selection ownership", () => {
+  beforeEach(reset);
+
+  it("locks this overlay when another monitor claims the selection", () => {
+    useOverlay.getState().lockToPeer(2);
+
+    expect(useOverlay.getState().mode).toBe("locked");
+    expect(useOverlay.getState().hoverRect).toBeNull();
+    expect(useOverlay.getState().selection).toBeNull();
+
+    useOverlay.getState().beginDrag({ x: 40, y: 40 });
+
+    expect(useOverlay.getState().mode).toBe("locked");
+    expect(useOverlay.getState().dragStart).toBeNull();
+  });
+
+  it("does not lock the overlay that owns the selection", () => {
+    useOverlay.getState().lockToPeer(1);
+
+    expect(useOverlay.getState().mode).toBe("hover");
+  });
+
+  it("unlocks when the peer abandons selection before committing a region", () => {
+    useOverlay.getState().lockToPeer(2);
+    useOverlay.getState().unlockFromPeer(2);
+
+    expect(useOverlay.getState().mode).toBe("hover");
+  });
+});

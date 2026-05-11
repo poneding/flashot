@@ -25,7 +25,10 @@ type Actions = {
   start: (p: CaptureStartPayload) => void;
   setCursor: (p: Point) => void;
   setHover: (r: Rect | null) => void;
+  clearHover: () => void;
   updateHoverAt: (p: Point) => void;
+  lockToPeer: (monitorId: number) => void;
+  unlockFromPeer: (monitorId: number) => void;
   beginDrag: (p: Point) => void;
   updateDrag: (p: Point) => void;
   commitDrag: () => void;
@@ -77,13 +80,40 @@ export const useOverlay = create<State & Actions>((set, get) => ({
 
   setCursor: (p) => set({ cursor: p }),
   setHover: (r) => set({ hoverRect: r }),
+  clearHover: () => set({ cursor: null, hoverRect: null }),
   updateHoverAt: (p) => {
     const { mode, windows } = get();
     const hover = mode === "hover" ? hitTestWindow(p, windows)?.rect ?? null : get().hoverRect;
     set({ cursor: p, hoverRect: hover });
   },
+  lockToPeer: (ownerMonitorId) => {
+    const { monitorId } = get();
+    if (monitorId == null || monitorId === ownerMonitorId) return;
+    set({
+      mode: "locked",
+      cursor: null,
+      hoverRect: null,
+      selection: null,
+      dragStart: null,
+      selectionInteraction: null,
+    });
+  },
+  unlockFromPeer: (ownerMonitorId) => {
+    const { mode, monitorId } = get();
+    if (mode !== "locked" || monitorId == null || monitorId === ownerMonitorId) return;
+    set({
+      mode: "hover",
+      cursor: null,
+      hoverRect: null,
+      selection: null,
+      dragStart: null,
+      selectionInteraction: null,
+    });
+  },
 
   beginDrag: (p) => {
+    const currentMode = get().mode;
+    if (currentMode !== "hover" && currentMode !== "committed") return;
     const keepHover = get().mode === "hover";
     set({
       mode: "dragging",

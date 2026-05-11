@@ -28,7 +28,7 @@ export type CaptureStartPayload = {
   windows: WindowRect[];     // already translated to monitor-local coords
 };
 
-export type Mode = "idle" | "hover" | "dragging" | "committed";
+export type Mode = "idle" | "hover" | "dragging" | "committed" | "locked";
 
 export type ToolbarPosition =
   | { kind: "below"; x: number; y: number }

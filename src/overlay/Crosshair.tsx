@@ -5,7 +5,7 @@ const COLOR = "#4ED1FF";
 export function Crosshair() {
   const cursor = useOverlay((s) => s.cursor);
   const mode = useOverlay((s) => s.mode);
-  if (!cursor || mode === "committed") return null;
+  if (!cursor || (mode !== "hover" && mode !== "dragging")) return null;
   return (
     <>
       <div
