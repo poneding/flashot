@@ -1,4 +1,6 @@
-use crate::{clipboard, saver, settings_store, settings_store::Settings, types::Rect, window_mgr::WindowMgr};
+use crate::{
+    clipboard, saver, settings_store, settings_store::Settings, types::Rect, window_mgr::WindowMgr,
+};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -6,13 +8,21 @@ use tauri::{AppHandle, Emitter, Manager, State};
 pub async fn crop_and_copy(
     monitor_id: u32,
     rect: Rect,
+    app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
-    let cropped = crop_rgba(&frame.rgba, frame.width, frame.height, rect, frame.scale_factor)
-        .ok_or("crop failed")?;
+    let cropped = crop_rgba(
+        &frame.rgba,
+        frame.width,
+        frame.height,
+        rect,
+        frame.scale_factor,
+    )
+    .ok_or("crop failed")?;
     clipboard::copy_image(cropped.rgba, cropped.width, cropped.height)
         .map_err(|e| e.to_string())?;
+    mgr.end_session(&app);
     Ok(())
 }
 
@@ -20,20 +30,29 @@ pub async fn crop_and_copy(
 pub async fn crop_and_save(
     monitor_id: u32,
     rect: Rect,
-    _app: AppHandle,
+    app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
-    let cropped = crop_rgba(&frame.rgba, frame.width, frame.height, rect, frame.scale_factor)
-        .ok_or("crop failed")?;
+    let cropped = crop_rgba(
+        &frame.rgba,
+        frame.width,
+        frame.height,
+        rect,
+        frame.scale_factor,
+    )
+    .ok_or("crop failed")?;
     let path = saver::save_image_dialog(cropped.rgba, cropped.width, cropped.height)
         .map_err(|e| e.to_string())?;
+    if path.is_some() {
+        mgr.end_session(&app);
+    }
     Ok(path.map(|p| p.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
-pub async fn cancel_capture(_app: AppHandle) -> Result<(), String> {
-    // Intentionally a no-op — caller drops the SessionGuard, which ends the session.
+pub async fn cancel_capture(app: AppHandle, mgr: State<'_, Arc<WindowMgr>>) -> Result<(), String> {
+    mgr.end_session(&app);
     Ok(())
 }
 
@@ -106,4 +125,82 @@ fn crop_rgba(
         width: pw,
         height: ph,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rgba_frame(width: u32, height: u32) -> Vec<u8> {
+        let mut out = Vec::with_capacity((width * height * 4) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                out.extend_from_slice(&[x as u8, y as u8, (x + y) as u8, 255]);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn crop_rgba_scales_logical_selection_into_physical_frame() {
+        let src = rgba_frame(200, 100);
+        let cropped = crop_rgba(
+            &src,
+            200,
+            100,
+            Rect {
+                x: 10,
+                y: 5,
+                width: 20,
+                height: 10,
+            },
+            2.0,
+        )
+        .expect("logical rect should fit after scaling");
+
+        assert_eq!(cropped.width, 40);
+        assert_eq!(cropped.height, 20);
+        assert_eq!(&cropped.rgba[0..4], &[20, 10, 30, 255]);
+    }
+
+    #[test]
+    fn crop_rgba_accepts_full_logical_retina_monitor_when_frame_is_physical() {
+        let src = rgba_frame(200, 100);
+        let cropped = crop_rgba(
+            &src,
+            200,
+            100,
+            Rect {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 50,
+            },
+            2.0,
+        )
+        .expect("full logical monitor should map to the full physical frame");
+
+        assert_eq!(cropped.width, 200);
+        assert_eq!(cropped.height, 100);
+        assert_eq!(cropped.rgba.len(), 200 * 100 * 4);
+    }
+
+    #[test]
+    fn crop_rgba_rejects_rects_outside_physical_frame() {
+        let src = rgba_frame(200, 100);
+        let cropped = crop_rgba(
+            &src,
+            200,
+            100,
+            Rect {
+                x: 95,
+                y: 0,
+                width: 10,
+                height: 10,
+            },
+            2.0,
+        );
+
+        assert!(cropped.is_none());
+    }
 }

@@ -1,4 +1,5 @@
 import { useOverlay } from "@/overlay/state";
+import { cursorForHandle, type HandleId } from "@/lib/geometry";
 
 const COLOR = "#4ED1FF";
 
@@ -19,6 +20,12 @@ export function SelectionBox() {
 
   const hx = (x: number) => x - 4;
   const hy = (y: number) => y - 4;
+  const handle = (id: HandleId, left: number, top: number) => (
+    <div
+      style={{ ...handleStyle, left, top, cursor: cursorForHandle(id) }}
+      data-handle={id}
+    />
+  );
 
   return (
     <>
@@ -51,14 +58,14 @@ export function SelectionBox() {
       </div>
       {mode === "committed" && (
         <>
-          <div style={{ ...handleStyle, left: hx(r.x), top: hy(r.y) }} data-handle="nw" />
-          <div style={{ ...handleStyle, left: hx(r.x + r.width / 2), top: hy(r.y) }} data-handle="n" />
-          <div style={{ ...handleStyle, left: hx(r.x + r.width), top: hy(r.y) }} data-handle="ne" />
-          <div style={{ ...handleStyle, left: hx(r.x + r.width), top: hy(r.y + r.height / 2) }} data-handle="e" />
-          <div style={{ ...handleStyle, left: hx(r.x + r.width), top: hy(r.y + r.height) }} data-handle="se" />
-          <div style={{ ...handleStyle, left: hx(r.x + r.width / 2), top: hy(r.y + r.height) }} data-handle="s" />
-          <div style={{ ...handleStyle, left: hx(r.x), top: hy(r.y + r.height) }} data-handle="sw" />
-          <div style={{ ...handleStyle, left: hx(r.x), top: hy(r.y + r.height / 2) }} data-handle="w" />
+          {handle("nw", hx(r.x), hy(r.y))}
+          {handle("n", hx(r.x + r.width / 2), hy(r.y))}
+          {handle("ne", hx(r.x + r.width), hy(r.y))}
+          {handle("e", hx(r.x + r.width), hy(r.y + r.height / 2))}
+          {handle("se", hx(r.x + r.width), hy(r.y + r.height))}
+          {handle("s", hx(r.x + r.width / 2), hy(r.y + r.height))}
+          {handle("sw", hx(r.x), hy(r.y + r.height))}
+          {handle("w", hx(r.x), hy(r.y + r.height / 2))}
         </>
       )}
     </>

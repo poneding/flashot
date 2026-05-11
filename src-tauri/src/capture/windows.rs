@@ -17,17 +17,24 @@ pub fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
 
         infos.push(MonitorInfo {
             id,
-            rect: Rect { x, y, width: w, height: h },
+            rect: Rect {
+                x,
+                y,
+                width: w,
+                height: h,
+            },
             scale_factor: scale,
         });
 
         let img = mon.capture_image().context("Failed to capture monitor")?;
-        let rgba = img.to_rgba8().into_raw();
+        let frame_width = img.width();
+        let frame_height = img.height();
+        let rgba = img.into_raw();
         frames.push(FrozenFrame {
             monitor_id: id,
             rgba,
-            width: w,
-            height: h,
+            width: frame_width,
+            height: frame_height,
             scale_factor: scale,
         });
     }

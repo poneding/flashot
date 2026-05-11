@@ -58,10 +58,85 @@ export function rectFromDrag(a: Point, b: Point): Rect {
   };
 }
 
+function clamp(value: number, min: number, max: number): number {
+  if (max < min) return min;
+  return Math.max(min, Math.min(value, max));
+}
+
 export function clampRect(r: Rect, bounds: Rect): Rect {
   const x = Math.max(bounds.x, Math.min(r.x, bounds.x + bounds.width));
   const y = Math.max(bounds.y, Math.min(r.y, bounds.y + bounds.height));
   const right = Math.max(bounds.x, Math.min(r.x + r.width, bounds.x + bounds.width));
   const bottom = Math.max(bounds.y, Math.min(r.y + r.height, bounds.y + bounds.height));
   return { x, y, width: right - x, height: bottom - y };
+}
+
+export function rectContainsPoint(r: Rect, p: Point): boolean {
+  return p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
+}
+
+export function moveRect(sel: Rect, origin: Point, p: Point, bounds: Rect): Rect {
+  const dx = p.x - origin.x;
+  const dy = p.y - origin.y;
+  const maxX = bounds.x + bounds.width - sel.width;
+  const maxY = bounds.y + bounds.height - sel.height;
+
+  return {
+    x: clamp(sel.x + dx, bounds.x, maxX),
+    y: clamp(sel.y + dy, bounds.y, maxY),
+    width: sel.width,
+    height: sel.height,
+  };
+}
+
+export function resizeRect(
+  sel: Rect,
+  handle: HandleId,
+  p: Point,
+  bounds: Rect,
+  minSize = 8,
+): Rect {
+  const boundsRight = bounds.x + bounds.width;
+  const boundsBottom = bounds.y + bounds.height;
+  let left = sel.x;
+  let top = sel.y;
+  let right = sel.x + sel.width;
+  let bottom = sel.y + sel.height;
+
+  if (handle.includes("w")) {
+    left = clamp(p.x, bounds.x, right - minSize);
+  }
+  if (handle.includes("e")) {
+    right = clamp(p.x, left + minSize, boundsRight);
+  }
+  if (handle.includes("n")) {
+    top = clamp(p.y, bounds.y, bottom - minSize);
+  }
+  if (handle.includes("s")) {
+    bottom = clamp(p.y, top + minSize, boundsBottom);
+  }
+
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  };
+}
+
+export function cursorForHandle(handle: HandleId): string {
+  switch (handle) {
+    case "nw":
+    case "se":
+      return "nwse-resize";
+    case "ne":
+    case "sw":
+      return "nesw-resize";
+    case "n":
+    case "s":
+      return "ns-resize";
+    case "e":
+    case "w":
+      return "ew-resize";
+  }
 }

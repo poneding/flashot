@@ -3,9 +3,11 @@ import {
   computeToolbarPosition,
   TOOLBAR_GAP,
   hitTestHandle,
+  moveRect,
+  resizeRect,
   HandleId,
 } from "@/lib/geometry";
-import type { Rect } from "@/lib/types";
+import type { Point, Rect } from "@/lib/types";
 
 const monitor: Rect = { x: 0, y: 0, width: 1920, height: 1080 };
 const TB = { width: 240, height: 40 };
@@ -57,5 +59,44 @@ describe("hitTestHandle", () => {
 
   it.each(cases)("hit %d,%d → %s", (x, y, expected) => {
     expect(hitTestHandle({ x, y }, sel, 8)).toBe(expected);
+  });
+});
+
+describe("resizeRect", () => {
+  const sel: Rect = { x: 100, y: 100, width: 200, height: 160 };
+
+  it("expands from the south-east handle", () => {
+    const resized = resizeRect(sel, "se", { x: 360, y: 310 }, monitor);
+
+    expect(resized).toEqual({ x: 100, y: 100, width: 260, height: 210 });
+  });
+
+  it("moves the north-west corner and preserves the opposite corner", () => {
+    const resized = resizeRect(sel, "nw", { x: 80, y: 70 }, monitor);
+
+    expect(resized).toEqual({ x: 80, y: 70, width: 220, height: 190 });
+  });
+
+  it("clamps resize to the monitor and minimum size", () => {
+    const resized = resizeRect(sel, "nw", { x: 500, y: 500 }, monitor, 24);
+
+    expect(resized).toEqual({ x: 276, y: 236, width: 24, height: 24 });
+  });
+});
+
+describe("moveRect", () => {
+  it("translates by cursor delta", () => {
+    const sel: Rect = { x: 100, y: 120, width: 200, height: 160 };
+    const origin: Point = { x: 140, y: 150 };
+    const moved = moveRect(sel, origin, { x: 190, y: 190 }, monitor);
+
+    expect(moved).toEqual({ x: 150, y: 160, width: 200, height: 160 });
+  });
+
+  it("keeps the whole rect inside monitor bounds", () => {
+    const sel: Rect = { x: 1800, y: 1000, width: 200, height: 160 };
+    const moved = moveRect(sel, { x: 1810, y: 1010 }, { x: 1900, y: 1100 }, monitor);
+
+    expect(moved).toEqual({ x: 1720, y: 920, width: 200, height: 160 });
   });
 });

@@ -53,18 +53,29 @@ impl WindowMgr {
         self.inner.lock().in_session
     }
 
-    fn end(&self, app: &AppHandle) {
+    pub fn end_session(&self, app: &AppHandle) {
+        self.clear_session_state();
+        self.hide_overlays(app);
+        let _ = app.emit("capture:end", ());
+    }
+
+    fn clear_session_state(&self) {
         let mut inner = self.inner.lock();
         inner.frames.clear();
         inner.in_session = false;
-        // Hide overlay windows + emit "capture:end"
+    }
+
+    fn end(&self, app: &AppHandle) {
+        self.end_session(app);
+    }
+
+    fn hide_overlays(&self, app: &AppHandle) {
         for (_label, w) in app.webview_windows() {
             if w.label().starts_with("overlay-") {
                 let _ = w.hide();
                 let _ = w.set_ignore_cursor_events(true);
             }
         }
-        let _ = app.emit("capture:end", ());
     }
 }
 
@@ -108,5 +119,17 @@ mod tests {
         mgr.store_frame(fake_frame(7));
         assert!(mgr.frame(7).is_some());
         assert!(mgr.frame(99).is_none());
+    }
+
+    #[test]
+    fn explicit_end_clears_session_state() {
+        let mgr = WindowMgr::new();
+        mgr.inner.lock().in_session = true;
+        mgr.store_frame(fake_frame(7));
+
+        mgr.clear_session_state();
+
+        assert!(!mgr.in_session());
+        assert!(mgr.frame(7).is_none());
     }
 }

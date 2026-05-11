@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useOverlay } from "@/overlay/state";
 import { onCaptureEnd, onCaptureStart, cropAndCopy, cancelCapture } from "@/lib/ipc";
 import { hitTestWindow } from "@/lib/hit-test";
+import { cursorForHandle, hitTestHandle, rectContainsPoint } from "@/lib/geometry";
 import { FrozenLayer } from "@/overlay/FrozenLayer";
 import { DimMask } from "@/overlay/DimMask";
 import { Crosshair } from "@/overlay/Crosshair";
@@ -17,10 +18,15 @@ export function OverlayRoute() {
   const beginDrag = useOverlay((s) => s.beginDrag);
   const updateDrag = useOverlay((s) => s.updateDrag);
   const commitDrag = useOverlay((s) => s.commitDrag);
-  const commit = useOverlay((s) => s.commit);
+  const beginMove = useOverlay((s) => s.beginMove);
+  const beginResize = useOverlay((s) => s.beginResize);
+  const updateSelectionInteraction = useOverlay((s) => s.updateSelectionInteraction);
+  const finishSelectionInteraction = useOverlay((s) => s.finishSelectionInteraction);
   const mode = useOverlay((s) => s.mode);
   const monitorId = useOverlay((s) => s.monitorId);
   const selection = useOverlay((s) => s.selection);
+  const cursor = useOverlay((s) => s.cursor);
+  const selectionInteraction = useOverlay((s) => s.selectionInteraction);
 
   useEffect(() => {
     document.body.classList.add("overlay");
@@ -52,26 +58,59 @@ export function OverlayRoute() {
   const onMouseMove = (e: React.MouseEvent) => {
     const p = { x: e.clientX, y: e.clientY };
     setCursor(p);
-    if (mode === "dragging") { updateDrag(p); return; }
-    if (mode === "hover") {
-      const w = hitTestWindow(p, useOverlay.getState().windows);
+    const state = useOverlay.getState();
+    if (state.selectionInteraction) {
+      updateSelectionInteraction(p);
+      return;
+    }
+    if (state.mode === "dragging") { updateDrag(p); return; }
+    if (state.mode === "hover") {
+      const w = hitTestWindow(p, state.windows);
       setHover(w?.rect ?? null);
     }
   };
   const onMouseDown = (e: React.MouseEvent) => {
     if (e.button === 2) { cancelCapture(); return; }
-    if (mode === "hover") beginDrag({ x: e.clientX, y: e.clientY });
+    const p = { x: e.clientX, y: e.clientY };
+    const state = useOverlay.getState();
+
+    if (state.mode === "committed" && state.selection) {
+      const handle = hitTestHandle(p, state.selection, 10);
+      if (handle) {
+        beginResize(handle, p);
+        return;
+      }
+      if (rectContainsPoint(state.selection, p)) {
+        beginMove(p);
+        return;
+      }
+      beginDrag(p);
+      return;
+    }
+
+    if (state.mode === "hover") beginDrag(p);
   };
   const onMouseUp = () => {
-    if (mode === "dragging") commitDrag();
-  };
-  const onClick = () => {
-    if (mode === "hover") {
-      const r = useOverlay.getState().hoverRect;
-      if (r) commit(r);
+    const state = useOverlay.getState();
+    if (state.selectionInteraction) {
+      finishSelectionInteraction();
+      return;
     }
+    if (state.mode === "dragging") commitDrag();
   };
   const onContextMenu = (e: React.MouseEvent) => { e.preventDefault(); cancelCapture(); };
+
+  const overlayCursor = (() => {
+    if (selectionInteraction?.kind === "resize") return cursorForHandle(selectionInteraction.handle);
+    if (selectionInteraction?.kind === "move") return "move";
+    if (mode === "hover" || mode === "dragging") return "crosshair";
+    if (mode === "committed" && selection && cursor) {
+      const handle = hitTestHandle(cursor, selection, 10);
+      if (handle) return cursorForHandle(handle);
+      if (rectContainsPoint(selection, cursor)) return "move";
+    }
+    return "default";
+  })();
 
   if (mode === "idle") return null;
 
@@ -80,9 +119,8 @@ export function OverlayRoute() {
       onMouseMove={onMouseMove}
       onMouseDown={onMouseDown}
       onMouseUp={onMouseUp}
-      onClick={onClick}
       onContextMenu={onContextMenu}
-      style={{ position: "fixed", inset: 0, cursor: "crosshair" }}
+      style={{ position: "fixed", inset: 0, cursor: overlayCursor }}
     >
       <FrozenLayer />
       <DimMask />

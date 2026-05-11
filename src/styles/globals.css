@@ -59,7 +59,7 @@
     user-select: none;
   }
   /* Overlay window: must be transparent + click-pass-when-needed */
-  body.overlay { background: transparent !important; overflow: hidden; cursor: crosshair; }
+  body.overlay { background: transparent !important; overflow: hidden; }
   * {
     @apply border-border;
   }

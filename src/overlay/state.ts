@@ -1,5 +1,10 @@
 import { create } from "zustand";
+import { moveRect, rectFromDrag, resizeRect, type HandleId } from "@/lib/geometry";
 import type { CaptureStartPayload, Mode, Point, Rect, WindowRect } from "@/lib/types";
+
+type SelectionInteraction =
+  | { kind: "move"; origin: Point; startRect: Rect }
+  | { kind: "resize"; handle: HandleId; startRect: Rect };
 
 type State = {
   mode: Mode;
@@ -12,6 +17,7 @@ type State = {
   hoverRect: Rect | null;
   selection: Rect | null;
   dragStart: Point | null;
+  selectionInteraction: SelectionInteraction | null;
 };
 
 type Actions = {
@@ -23,8 +29,21 @@ type Actions = {
   commitDrag: () => void;
   commit: (r: Rect) => void;
   setSelection: (r: Rect) => void;
+  beginMove: (p: Point) => void;
+  beginResize: (handle: HandleId, p: Point) => void;
+  updateSelectionInteraction: (p: Point) => void;
+  finishSelectionInteraction: () => void;
   end: () => void;
 };
+
+function localMonitorBounds(monitor: Rect | null): Rect {
+  return {
+    x: 0,
+    y: 0,
+    width: monitor?.width ?? window.innerWidth,
+    height: monitor?.height ?? window.innerHeight,
+  };
+}
 
 export const useOverlay = create<State & Actions>((set, get) => ({
   mode: "idle",
@@ -37,6 +56,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   hoverRect: null,
   selection: null,
   dragStart: null,
+  selectionInteraction: null,
 
   start: (p) =>
     set({
@@ -50,18 +70,26 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       hoverRect: null,
       selection: null,
       dragStart: null,
+      selectionInteraction: null,
     }),
 
   setCursor: (p) => set({ cursor: p }),
   setHover: (r) => set({ hoverRect: r }),
 
-  beginDrag: (p) => set({ mode: "dragging", dragStart: p, selection: null }),
+  beginDrag: (p) => {
+    const keepHover = get().mode === "hover";
+    set({
+      mode: "dragging",
+      dragStart: p,
+      selection: null,
+      selectionInteraction: null,
+      hoverRect: keepHover ? get().hoverRect : null,
+    });
+  },
   updateDrag: (p) => {
     const a = get().dragStart;
     if (!a) return;
-    const x = Math.min(a.x, p.x), y = Math.min(a.y, p.y);
-    const w = Math.abs(a.x - p.x), h = Math.abs(a.y - p.y);
-    set({ selection: { x, y, width: w, height: h } });
+    set({ selection: rectFromDrag(a, p) });
   },
   commitDrag: () => {
     const sel = get().selection;
@@ -74,8 +102,40 @@ export const useOverlay = create<State & Actions>((set, get) => ({
     }
     set({ mode: "committed", dragStart: null });
   },
-  commit: (r) => set({ mode: "committed", selection: r }),
+  commit: (r) => set({ mode: "committed", selection: r, selectionInteraction: null }),
   setSelection: (r) => set({ selection: r }),
+  beginMove: (p) => {
+    const { mode, selection } = get();
+    if (mode !== "committed" || !selection) return;
+    set({ selectionInteraction: { kind: "move", origin: p, startRect: selection } });
+  },
+  beginResize: (handle, _p) => {
+    const { mode, selection } = get();
+    if (mode !== "committed" || !selection) return;
+    set({ selectionInteraction: { kind: "resize", handle, startRect: selection } });
+  },
+  updateSelectionInteraction: (p) => {
+    const { monitorRect, selectionInteraction } = get();
+    if (!selectionInteraction) return;
+    const bounds = localMonitorBounds(monitorRect);
+
+    if (selectionInteraction.kind === "move") {
+      set({
+        selection: moveRect(
+          selectionInteraction.startRect,
+          selectionInteraction.origin,
+          p,
+          bounds,
+        ),
+      });
+      return;
+    }
+
+    set({
+      selection: resizeRect(selectionInteraction.startRect, selectionInteraction.handle, p, bounds),
+    });
+  },
+  finishSelectionInteraction: () => set({ selectionInteraction: null }),
   end: () =>
     set({
       mode: "idle",
@@ -87,5 +147,6 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       hoverRect: null,
       selection: null,
       dragStart: null,
+      selectionInteraction: null,
     }),
 }));
