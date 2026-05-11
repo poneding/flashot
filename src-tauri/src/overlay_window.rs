@@ -1,12 +1,19 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use std::sync::mpsc;
 use tauri::WebviewWindow;
 
 pub fn configure_capture_overlay(window: &WebviewWindow) -> Result<()> {
-    configure_platform_overlay(window)
+    run_on_window_main_thread(
+        window,
+        "configure capture overlay",
+        configure_platform_overlay,
+    )
 }
 
 pub fn bring_capture_overlay_to_front(window: &WebviewWindow) -> Result<()> {
-    bring_platform_overlay_to_front(window)
+    run_on_window_main_thread(window, "bring capture overlay to front", |window| {
+        bring_platform_overlay_to_front(window)
+    })
 }
 
 pub fn capture_overlay_accepts_first_mouse() -> bool {
@@ -16,6 +23,26 @@ pub fn capture_overlay_accepts_first_mouse() -> bool {
 #[cfg(target_os = "macos")]
 fn overlay_level_from_shielding_level(shielding_level: isize) -> isize {
     shielding_level + 1
+}
+
+fn run_on_window_main_thread<F>(
+    window: &WebviewWindow,
+    task_name: &'static str,
+    task: F,
+) -> Result<()>
+where
+    F: FnOnce(&WebviewWindow) -> Result<()> + Send + 'static,
+{
+    let task_window = window.clone();
+    let (tx, rx) = mpsc::sync_channel(1);
+
+    window.run_on_main_thread(move || {
+        let result = task(&task_window);
+        let _ = tx.send(result);
+    })?;
+
+    rx.recv()
+        .map_err(|_| anyhow!("{task_name} did not return from the main thread"))?
 }
 
 #[cfg(test)]
