@@ -1,4 +1,4 @@
-use crate::types::FrozenFrame;
+use crate::{overlay_window, types::FrozenFrame};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -56,6 +56,9 @@ impl WindowMgr {
     pub fn end_session(&self, app: &AppHandle) {
         self.clear_session_state();
         self.hide_overlays(app);
+        if let Err(e) = overlay_window::restore_capture_presentation(app) {
+            tracing::warn!("failed to restore capture presentation mode: {e}");
+        }
         let _ = app.emit("capture:end", ());
     }
 
