@@ -134,14 +134,34 @@ fn init_tracing() {
 }
 
 fn spawn_overlays(app: &AppHandle) -> Result<()> {
-    let monitors = capture::capture_all_monitors()
-        .context("Failed to enumerate monitors for overlay creation")?
-        .0;
+    let monitors = capture::enumerate_monitors()
+        .context("Failed to enumerate monitors for overlay creation")?;
 
+    ensure_overlays_for_monitors(app, &monitors)
+}
+
+fn ensure_overlays_for_monitors(app: &AppHandle, monitors: &[types::MonitorInfo]) -> Result<()> {
     for mon in monitors {
-        let label = format!("overlay-{}", mon.id);
-        let url = tauri::WebviewUrl::App("index.html#/overlay".into());
+        let label = overlay_label(mon.id);
+        if let Some(window) = app.get_webview_window(&label) {
+            window
+                .set_position(tauri::Position::Logical(tauri::LogicalPosition::new(
+                    mon.rect.x as f64,
+                    mon.rect.y as f64,
+                )))
+                .context("Failed to update overlay position")?;
+            window
+                .set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+                    mon.rect.width as f64,
+                    mon.rect.height as f64,
+                )))
+                .context("Failed to update overlay size")?;
+            overlay_window::configure_capture_overlay(&window)
+                .context("Failed to configure overlay window")?;
+            continue;
+        }
 
+        let url = tauri::WebviewUrl::App("index.html#/overlay".into());
         let window = tauri::WebviewWindowBuilder::new(app, &label, url)
             .title("Flashot Overlay")
             .position(mon.rect.x as f64, mon.rect.y as f64)
@@ -166,6 +186,10 @@ fn spawn_overlays(app: &AppHandle) -> Result<()> {
     Ok(())
 }
 
+fn overlay_label(monitor_id: u32) -> String {
+    format!("overlay-{monitor_id}")
+}
+
 async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     tracing::info!("run_capture: starting");
 
@@ -179,6 +203,10 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     tracing::info!("run_capture: beginning session");
     let guard = mgr.begin(app.clone());
 
+    let current_monitors =
+        capture::enumerate_monitors().context("Failed to enumerate monitors before capture")?;
+    ensure_overlays_for_monitors(&app, &current_monitors)?;
+
     // Capture all monitors and enumerate windows in parallel
     tracing::info!("run_capture: spawning capture and window enumeration tasks");
     let (capture_result, windows_result) = tokio::join!(
@@ -191,6 +219,7 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         .context("Capture task panicked")?
         .context("Failed to capture monitors")?;
     tracing::info!("run_capture: captured {} monitors", monitors.len());
+    ensure_overlays_for_monitors(&app, &monitors)?;
 
     let windows = windows_result
         .context("Window enumeration task panicked")?
@@ -224,7 +253,7 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         tracing::info!("run_capture: asset URL: {}", asset_url);
 
         // Show overlay window
-        let label = format!("overlay-{}", mon.id);
+        let label = overlay_label(mon.id);
         tracing::info!("run_capture: showing overlay window: {}", label);
         if let Some(window) = app.get_webview_window(&label) {
             window.show().context("Failed to show overlay window")?;
@@ -291,14 +320,33 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
 }
 
 fn save_frame_as_png(frame: &types::FrozenFrame, path: &std::path::Path) -> Result<()> {
-    use image::{ImageBuffer, RgbaImage};
-
-    let img: RgbaImage = ImageBuffer::from_raw(frame.width, frame.height, frame.rgba.clone())
-        .context("Failed to create image buffer from RGBA data")?;
-
-    img.save(path).context("Failed to save PNG file")?;
+    let png = encode_frame_as_png(frame).context("Failed to encode PNG file")?;
+    std::fs::write(path, png).context("Failed to save PNG file")?;
 
     Ok(())
+}
+
+fn encode_frame_as_png(frame: &types::FrozenFrame) -> Result<Vec<u8>> {
+    use image::{
+        codecs::png::{CompressionType, FilterType, PngEncoder},
+        ExtendedColorType, ImageEncoder,
+    };
+
+    let mut png = Vec::new();
+    let encoder = PngEncoder::new_with_quality(
+        &mut png,
+        CompressionType::Uncompressed,
+        FilterType::NoFilter,
+    );
+    encoder
+        .write_image(
+            &frame.rgba,
+            frame.width,
+            frame.height,
+            ExtendedColorType::Rgba8,
+        )
+        .context("Failed to encode frame as PNG")?;
+    Ok(png)
 }
 
 fn rects_overlap(a: &types::Rect, b: &types::Rect) -> bool {
@@ -365,5 +413,30 @@ mod tests {
             ),
             (0, 20, 150, 120)
         );
+    }
+
+    #[test]
+    fn overlay_label_uses_stable_monitor_id() {
+        assert_eq!(overlay_label(42), "overlay-42");
+    }
+
+    #[test]
+    fn fast_png_encoder_writes_a_decodable_overlay_frame() {
+        let frame = types::FrozenFrame {
+            monitor_id: 42,
+            rgba: vec![255, 0, 0, 255, 0, 255, 0, 255],
+            width: 2,
+            height: 1,
+            scale_factor: 1.0,
+        };
+
+        let png = encode_frame_as_png(&frame).expect("png should encode");
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+
+        let decoded = image::load_from_memory(&png)
+            .expect("png should decode")
+            .to_rgba8();
+        assert_eq!(decoded.dimensions(), (2, 1));
+        assert_eq!(decoded.into_raw(), frame.rgba);
     }
 }
