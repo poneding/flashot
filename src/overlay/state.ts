@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { moveRect, rectFromDrag, resizeRect, type HandleId } from "@/lib/geometry";
+import { hitTestWindow } from "@/lib/hit-test";
 import type { CaptureStartPayload, Mode, Point, Rect, WindowRect } from "@/lib/types";
 
 type SelectionInteraction =
@@ -24,6 +25,7 @@ type Actions = {
   start: (p: CaptureStartPayload) => void;
   setCursor: (p: Point) => void;
   setHover: (r: Rect | null) => void;
+  updateHoverAt: (p: Point) => void;
   beginDrag: (p: Point) => void;
   updateDrag: (p: Point) => void;
   commitDrag: () => void;
@@ -75,6 +77,11 @@ export const useOverlay = create<State & Actions>((set, get) => ({
 
   setCursor: (p) => set({ cursor: p }),
   setHover: (r) => set({ hoverRect: r }),
+  updateHoverAt: (p) => {
+    const { mode, windows } = get();
+    const hover = mode === "hover" ? hitTestWindow(p, windows)?.rect ?? null : get().hoverRect;
+    set({ cursor: p, hoverRect: hover });
+  },
 
   beginDrag: (p) => {
     const keepHover = get().mode === "hover";

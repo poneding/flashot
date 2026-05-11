@@ -277,6 +277,9 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
             window
                 .set_ignore_cursor_events(false)
                 .context("Failed to enable cursor events")?;
+            if let Err(e) = window.set_focus() {
+                tracing::warn!("run_capture: failed to focus overlay window {label}: {e}");
+            }
             tracing::info!("run_capture: overlay window shown");
 
             // Filter windows overlapping this monitor

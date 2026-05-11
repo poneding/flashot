@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useOverlay } from "@/overlay/state";
 import { onCaptureEnd, onCaptureStart, cropAndCopy, cancelCapture } from "@/lib/ipc";
-import { hitTestWindow } from "@/lib/hit-test";
+import { currentCursorPointInWindow } from "@/lib/cursor";
 import { cursorForHandle, hitTestHandle, rectContainsPoint } from "@/lib/geometry";
 import { FrozenLayer } from "@/overlay/FrozenLayer";
 import { DimMask } from "@/overlay/DimMask";
@@ -13,8 +13,7 @@ import { Toolbar } from "@/overlay/Toolbar";
 export function OverlayRoute() {
   const start = useOverlay((s) => s.start);
   const end = useOverlay((s) => s.end);
-  const setCursor = useOverlay((s) => s.setCursor);
-  const setHover = useOverlay((s) => s.setHover);
+  const updateHoverAt = useOverlay((s) => s.updateHoverAt);
   const beginDrag = useOverlay((s) => s.beginDrag);
   const updateDrag = useOverlay((s) => s.updateDrag);
   const commitDrag = useOverlay((s) => s.commitDrag);
@@ -27,6 +26,7 @@ export function OverlayRoute() {
   const selection = useOverlay((s) => s.selection);
   const cursor = useOverlay((s) => s.cursor);
   const selectionInteraction = useOverlay((s) => s.selectionInteraction);
+  const frameUrl = useOverlay((s) => s.frameUrl);
 
   useEffect(() => {
     document.body.classList.add("overlay");
@@ -54,20 +54,35 @@ export function OverlayRoute() {
     return () => window.removeEventListener("keydown", onKey);
   }, [mode, selection, monitorId]);
 
+  useEffect(() => {
+    if (mode !== "hover" || !frameUrl) return;
+    let cancelled = false;
+
+    currentCursorPointInWindow()
+      .then((p) => {
+        if (!cancelled && p) {
+          useOverlay.getState().updateHoverAt(p);
+        }
+      })
+      .catch((error) => {
+        console.warn("Failed to read cursor position", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, frameUrl]);
+
   // Mouse handling
   const onMouseMove = (e: React.MouseEvent) => {
     const p = { x: e.clientX, y: e.clientY };
-    setCursor(p);
+    updateHoverAt(p);
     const state = useOverlay.getState();
     if (state.selectionInteraction) {
       updateSelectionInteraction(p);
       return;
     }
     if (state.mode === "dragging") { updateDrag(p); return; }
-    if (state.mode === "hover") {
-      const w = hitTestWindow(p, state.windows);
-      setHover(w?.rect ?? null);
-    }
   };
   const onMouseDown = (e: React.MouseEvent) => {
     if (e.button === 2) { cancelCapture(); return; }
@@ -117,6 +132,7 @@ export function OverlayRoute() {
   return (
     <div
       onMouseMove={onMouseMove}
+      onMouseEnter={onMouseMove}
       onMouseDown={onMouseDown}
       onMouseUp={onMouseUp}
       onContextMenu={onContextMenu}

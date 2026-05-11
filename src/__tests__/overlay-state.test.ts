@@ -64,3 +64,39 @@ describe("overlay committed selection editing", () => {
     expect(useOverlay.getState().hoverRect).toBeNull();
   });
 });
+
+describe("overlay hover detection", () => {
+  beforeEach(reset);
+
+  it("updates hover immediately from a cursor point", () => {
+    const windowRect = { x: 20, y: 30, width: 240, height: 160 };
+    useOverlay.getState().start({
+      ...capture,
+      windows: [{ rect: windowRect, title: "Editor", appName: "Code", pid: 7 }],
+    });
+
+    useOverlay.getState().updateHoverAt({ x: 80, y: 90 });
+
+    expect(useOverlay.getState().cursor).toEqual({ x: 80, y: 90 });
+    expect(useOverlay.getState().hoverRect).toEqual(windowRect);
+  });
+
+  it("clears hover when the cursor leaves detected windows", () => {
+    useOverlay.getState().start({
+      ...capture,
+      windows: [
+        {
+          rect: { x: 20, y: 30, width: 240, height: 160 },
+          title: "Editor",
+          appName: "Code",
+          pid: 7,
+        },
+      ],
+    });
+
+    useOverlay.getState().updateHoverAt({ x: 80, y: 90 });
+    useOverlay.getState().updateHoverAt({ x: 700, y: 500 });
+
+    expect(useOverlay.getState().hoverRect).toBeNull();
+  });
+});

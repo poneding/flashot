@@ -1,9 +1,51 @@
-import { useState } from "react";
-import { useOverlay } from "@/overlay/state";
 import { computeToolbarPosition } from "@/lib/geometry";
-import { cropAndCopy, cropAndSave, cancelCapture } from "@/lib/ipc";
+import { cancelCapture, cropAndCopy, cropAndSave } from "@/lib/ipc";
+import { useOverlay } from "@/overlay/state";
+import { CopyIcon, SaveIcon, XIcon, type LucideIcon } from "lucide-react";
+import { useState, type CSSProperties } from "react";
 
-const TB = { width: 200, height: 40 };
+const TB = { width: 116, height: 40 };
+
+type ToolbarButtonProps = {
+  label: string;
+  icon: LucideIcon;
+  onClick: () => void | Promise<void>;
+  disabled?: boolean;
+  variant?: "primary" | "default";
+};
+
+function ToolbarButton({
+  label,
+  icon: Icon,
+  onClick,
+  disabled,
+  variant = "default",
+}: ToolbarButtonProps) {
+  const [showTitle, setShowTitle] = useState(false);
+  const style = variant === "primary" ? primaryBtn : btn;
+
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      style={style}
+      onClick={onClick}
+      disabled={disabled}
+      onMouseEnter={() => setShowTitle(true)}
+      onMouseLeave={() => setShowTitle(false)}
+      onFocus={() => setShowTitle(true)}
+      onBlur={() => setShowTitle(false)}
+    >
+      <Icon size={16} strokeWidth={2.2} aria-hidden="true" />
+      {showTitle && (
+        <span role="tooltip" style={tooltip}>
+          {label}
+        </span>
+      )}
+    </button>
+  );
+}
 
 export function Toolbar() {
   const mode = useOverlay((s) => s.mode);
@@ -14,7 +56,12 @@ export function Toolbar() {
 
   if (mode !== "committed" || !sel || !monitor || monitorId == null) return null;
 
-  const pos = computeToolbarPosition(sel, TB, { x: 0, y: 0, width: monitor.width, height: monitor.height });
+  const pos = computeToolbarPosition(sel, TB, {
+    x: 0,
+    y: 0,
+    width: monitor.width,
+    height: monitor.height,
+  });
 
   const onCopy = async () => {
     if (busy) return;
@@ -39,7 +86,7 @@ export function Toolbar() {
   };
 
   // Glass style — kept inline to avoid SSR/Tailwind backdrop issues with transparent windows
-  const glass: React.CSSProperties = {
+  const glass: CSSProperties = {
     position: "absolute",
     left: pos.x,
     top: pos.y,
@@ -47,9 +94,10 @@ export function Toolbar() {
     height: TB.height,
     display: "flex",
     alignItems: "center",
-    gap: 5,
-    padding: "5px 7px",
-    borderRadius: 10,
+    justifyContent: "center",
+    gap: 6,
+    padding: "5px 8px",
+    borderRadius: 8,
     background: "rgba(28,28,30,0.55)",
     backdropFilter: "blur(18px) saturate(160%)",
     WebkitBackdropFilter: "blur(18px) saturate(160%)",
@@ -60,26 +108,54 @@ export function Toolbar() {
     pointerEvents: "auto",
   };
 
-  const btn: React.CSSProperties = {
-    height: 26,
-    padding: "0 10px",
-    borderRadius: 6,
-    background: "rgba(255,255,255,0.06)",
-    border: "none",
-    color: "#f0f0f5",
-    cursor: "pointer",
-  };
-  const primaryBtn: React.CSSProperties = {
-    ...btn,
-    background: "linear-gradient(180deg,#5fb1ff,#3a8de8)",
-    color: "white",
-  };
-
   return (
     <div style={glass} onMouseDown={(e) => e.stopPropagation()}>
-      <button style={primaryBtn} onClick={onCopy} disabled={busy}>Copy</button>
-      <button style={btn} onClick={onSave} disabled={busy}>Save As</button>
-      <button style={btn} onClick={onClose}>Close</button>
+      <ToolbarButton
+        label="Copy"
+        icon={CopyIcon}
+        onClick={onCopy}
+        disabled={busy}
+        variant="primary"
+      />
+      <ToolbarButton label="Save As" icon={SaveIcon} onClick={onSave} disabled={busy} />
+      <ToolbarButton label="Close" icon={XIcon} onClick={onClose} />
     </div>
   );
 }
+
+const btn: CSSProperties = {
+  position: "relative",
+  width: 28,
+  height: 28,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 0,
+  borderRadius: 6,
+  background: "rgba(255,255,255,0.06)",
+  border: "none",
+  color: "#f0f0f5",
+  cursor: "pointer",
+};
+
+const primaryBtn: CSSProperties = {
+  ...btn,
+  background: "linear-gradient(180deg,#5fb1ff,#3a8de8)",
+  color: "white",
+};
+
+const tooltip: CSSProperties = {
+  position: "absolute",
+  left: "50%",
+  bottom: "calc(100% + 8px)",
+  transform: "translateX(-50%)",
+  padding: "4px 7px",
+  borderRadius: 5,
+  background: "rgba(12,12,14,0.92)",
+  color: "#f7f7fb",
+  fontSize: 11,
+  lineHeight: 1,
+  whiteSpace: "nowrap",
+  boxShadow: "0 6px 18px rgba(0,0,0,0.32)",
+  pointerEvents: "none",
+};
