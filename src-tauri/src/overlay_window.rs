@@ -4,12 +4,10 @@ use tauri::{AppHandle, WebviewWindow};
 
 static SAVED_PRESENTATION_OPTIONS: Mutex<Option<usize>> = Mutex::new(None);
 
-pub fn configure_capture_overlay(window: &WebviewWindow) -> Result<()> {
-    run_on_window_main_thread(
-        window,
-        "configure capture overlay",
-        configure_platform_overlay,
-    )
+pub fn configure_capture_overlay(window: &WebviewWindow, monitor_id: u32) -> Result<()> {
+    run_on_window_main_thread(window, "configure capture overlay", move |window| {
+        configure_platform_overlay(window, monitor_id)
+    })
 }
 
 pub fn bring_capture_overlay_to_front(window: &WebviewWindow) -> Result<()> {
@@ -42,6 +40,12 @@ const NS_APPLICATION_PRESENTATION_HIDE_DOCK: usize = 1 << 1;
 const NS_APPLICATION_PRESENTATION_AUTO_HIDE_MENU_BAR: usize = 1 << 2;
 #[cfg(target_os = "macos")]
 const NS_APPLICATION_PRESENTATION_HIDE_MENU_BAR: usize = 1 << 3;
+#[cfg(target_os = "macos")]
+const NS_APPLICATION_PRESENTATION_DISABLE_APPLE_MENU: usize = 1 << 4;
+#[cfg(target_os = "macos")]
+const NS_APPLICATION_PRESENTATION_DISABLE_PROCESS_SWITCHING: usize = 1 << 5;
+#[cfg(target_os = "macos")]
+const NS_APPLICATION_PRESENTATION_DISABLE_HIDE_APPLICATION: usize = 1 << 8;
 
 #[cfg(target_os = "macos")]
 fn overlay_level_from_shielding_level(shielding_level: isize) -> isize {
@@ -50,12 +54,15 @@ fn overlay_level_from_shielding_level(shielding_level: isize) -> isize {
 
 #[cfg(target_os = "macos")]
 fn capture_presentation_options(current: usize) -> usize {
-    let auto_hide_mask =
-        NS_APPLICATION_PRESENTATION_AUTO_HIDE_DOCK | NS_APPLICATION_PRESENTATION_AUTO_HIDE_MENU_BAR;
-    let hide_mask =
-        NS_APPLICATION_PRESENTATION_HIDE_DOCK | NS_APPLICATION_PRESENTATION_HIDE_MENU_BAR;
+    let visibility_mask = NS_APPLICATION_PRESENTATION_AUTO_HIDE_DOCK
+        | NS_APPLICATION_PRESENTATION_HIDE_DOCK
+        | NS_APPLICATION_PRESENTATION_AUTO_HIDE_MENU_BAR
+        | NS_APPLICATION_PRESENTATION_HIDE_MENU_BAR;
 
-    (current & !auto_hide_mask) | hide_mask
+    (current & !visibility_mask)
+        | NS_APPLICATION_PRESENTATION_DISABLE_APPLE_MENU
+        | NS_APPLICATION_PRESENTATION_DISABLE_PROCESS_SWITCHING
+        | NS_APPLICATION_PRESENTATION_DISABLE_HIDE_APPLICATION
 }
 
 fn run_on_app_main_thread<F>(app: &AppHandle, task_name: &'static str, task: F) -> Result<()>
@@ -108,21 +115,18 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn capture_presentation_hides_dock_and_menu_bar_without_autohide_conflicts() {
-        let preserved_option = 1 << 8;
+    fn capture_presentation_keeps_dock_and_menu_bar_visible() {
+        let preserved_option = 1 << 12;
         let existing = super::NS_APPLICATION_PRESENTATION_AUTO_HIDE_DOCK
             | super::NS_APPLICATION_PRESENTATION_AUTO_HIDE_MENU_BAR
             | preserved_option;
 
         let options = super::capture_presentation_options(existing);
 
-        assert_eq!(
-            options & super::NS_APPLICATION_PRESENTATION_HIDE_DOCK,
-            super::NS_APPLICATION_PRESENTATION_HIDE_DOCK
-        );
+        assert_eq!(options & super::NS_APPLICATION_PRESENTATION_HIDE_DOCK, 0);
         assert_eq!(
             options & super::NS_APPLICATION_PRESENTATION_HIDE_MENU_BAR,
-            super::NS_APPLICATION_PRESENTATION_HIDE_MENU_BAR
+            0
         );
         assert_eq!(
             options & super::NS_APPLICATION_PRESENTATION_AUTO_HIDE_DOCK,
@@ -132,12 +136,24 @@ mod tests {
             options & super::NS_APPLICATION_PRESENTATION_AUTO_HIDE_MENU_BAR,
             0
         );
+        assert_eq!(
+            options & super::NS_APPLICATION_PRESENTATION_DISABLE_APPLE_MENU,
+            super::NS_APPLICATION_PRESENTATION_DISABLE_APPLE_MENU
+        );
+        assert_eq!(
+            options & super::NS_APPLICATION_PRESENTATION_DISABLE_PROCESS_SWITCHING,
+            super::NS_APPLICATION_PRESENTATION_DISABLE_PROCESS_SWITCHING
+        );
+        assert_eq!(
+            options & super::NS_APPLICATION_PRESENTATION_DISABLE_HIDE_APPLICATION,
+            super::NS_APPLICATION_PRESENTATION_DISABLE_HIDE_APPLICATION
+        );
         assert_eq!(options & preserved_option, preserved_option);
     }
 }
 
 #[cfg(target_os = "macos")]
-fn configure_platform_overlay(window: &WebviewWindow) -> Result<()> {
+fn configure_platform_overlay(window: &WebviewWindow, monitor_id: u32) -> Result<()> {
     use objc::{
         runtime::{Object, Sel, NO, YES},
         Message,
@@ -162,6 +178,9 @@ fn configure_platform_overlay(window: &WebviewWindow) -> Result<()> {
         ns_window.send_message::<_, ()>(Sel::register("setAcceptsMouseMovedEvents:"), (YES,))?;
         ns_window.send_message::<_, ()>(Sel::register("setHasShadow:"), (NO,))?;
         ns_window.send_message::<_, ()>(Sel::register("setOpaque:"), (NO,))?;
+        if let Some(frame) = screen_frame_for_monitor(monitor_id)? {
+            ns_window.send_message::<_, ()>(Sel::register("setFrame:display:"), (frame, YES))?;
+        }
     }
 
     Ok(())
@@ -190,6 +209,84 @@ fn capture_overlay_window_level() -> isize {
     }
 
     overlay_level_from_shielding_level(unsafe { CGShieldingWindowLevel() } as isize)
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct NSPoint {
+    x: f64,
+    y: f64,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct NSSize {
+    width: f64,
+    height: f64,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct NSRect {
+    origin: NSPoint,
+    size: NSSize,
+}
+
+#[cfg(target_os = "macos")]
+fn screen_frame_for_monitor(monitor_id: u32) -> Result<Option<NSRect>> {
+    use objc::{
+        runtime::{Class, Object, Sel},
+        Message,
+    };
+    use std::ffi::CString;
+
+    let screen_class = Class::get("NSScreen").ok_or_else(|| anyhow!("NSScreen class not found"))?;
+    let string_class = Class::get("NSString").ok_or_else(|| anyhow!("NSString class not found"))?;
+    let screen_number_key = CString::new("NSScreenNumber")?;
+
+    unsafe {
+        let screens: *mut Object = screen_class.send_message(Sel::register("screens"), ())?;
+        if screens.is_null() {
+            return Ok(None);
+        }
+
+        let key: *mut Object = string_class.send_message(
+            Sel::register("stringWithUTF8String:"),
+            (screen_number_key.as_ptr(),),
+        )?;
+        let count: usize = (*screens).send_message(Sel::register("count"), ())?;
+
+        for index in 0..count {
+            let screen: *mut Object =
+                (*screens).send_message(Sel::register("objectAtIndex:"), (index,))?;
+            if screen.is_null() {
+                continue;
+            }
+
+            let description: *mut Object =
+                (*screen).send_message(Sel::register("deviceDescription"), ())?;
+            if description.is_null() {
+                continue;
+            }
+
+            let number: *mut Object =
+                (*description).send_message(Sel::register("objectForKey:"), (key,))?;
+            if number.is_null() {
+                continue;
+            }
+
+            let screen_id: u32 = (*number).send_message(Sel::register("unsignedIntValue"), ())?;
+            if screen_id == monitor_id {
+                let frame: NSRect = (*screen).send_message(Sel::register("frame"), ())?;
+                return Ok(Some(frame));
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 #[cfg(target_os = "macos")]
@@ -249,7 +346,7 @@ fn restore_platform_capture_presentation() -> Result<()> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn configure_platform_overlay(_window: &WebviewWindow) -> Result<()> {
+fn configure_platform_overlay(_window: &WebviewWindow, _monitor_id: u32) -> Result<()> {
     Ok(())
 }
 

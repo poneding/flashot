@@ -156,7 +156,7 @@ fn ensure_overlays_for_monitors(app: &AppHandle, monitors: &[types::MonitorInfo]
                     mon.rect.height as f64,
                 )))
                 .context("Failed to update overlay size")?;
-            overlay_window::configure_capture_overlay(&window)
+            overlay_window::configure_capture_overlay(&window, mon.id)
                 .context("Failed to configure overlay window")?;
             continue;
         }
@@ -180,7 +180,7 @@ fn ensure_overlays_for_monitors(app: &AppHandle, monitors: &[types::MonitorInfo]
         window
             .set_ignore_cursor_events(true)
             .context("Failed to initialize overlay cursor passthrough")?;
-        overlay_window::configure_capture_overlay(&window)
+        overlay_window::configure_capture_overlay(&window, mon.id)
             .context("Failed to configure overlay window")?;
     }
 
