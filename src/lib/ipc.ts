@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { CaptureStartPayload, Rect, Settings } from "@/lib/types";
 
 export async function cropAndCopy(monitorId: number, rect: Rect): Promise<void> {
@@ -22,7 +23,10 @@ export async function openSettingsWindow(): Promise<void> {
 }
 
 export function onCaptureStart(cb: (p: CaptureStartPayload) => void): Promise<UnlistenFn> {
-  return listen<CaptureStartPayload>("capture:start", (e) => cb(e.payload));
+  return getCurrentWebviewWindow().listen<CaptureStartPayload>(
+    "capture:start",
+    (e) => cb(e.payload),
+  );
 }
 export function onCaptureEnd(cb: () => void): Promise<UnlistenFn> {
   return listen("capture:end", () => cb());

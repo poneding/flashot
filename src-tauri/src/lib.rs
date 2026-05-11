@@ -190,6 +190,23 @@ fn overlay_label(monitor_id: u32) -> String {
     format!("overlay-{monitor_id}")
 }
 
+fn capture_start_target(label: &str) -> tauri::EventTarget {
+    tauri::EventTarget::webview_window(label)
+}
+
+#[derive(serde::Serialize, Clone)]
+struct CaptureStartPayload {
+    #[serde(rename = "monitorId")]
+    monitor_id: u32,
+    #[serde(rename = "frameUrl")]
+    frame_url: String,
+    #[serde(rename = "monitorRect")]
+    monitor_rect: types::Rect,
+    #[serde(rename = "scaleFactor")]
+    scale_factor: f32,
+    windows: Vec<types::WindowRect>,
+}
+
 async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     tracing::info!("run_capture: starting");
 
@@ -279,33 +296,19 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
                 mon.id
             );
 
-            // Emit capture:start event with payload
-            #[derive(serde::Serialize, Clone)]
-            struct CaptureStartPayload {
-                #[serde(rename = "monitorId")]
-                monitor_id: u32,
-                #[serde(rename = "frameUrl")]
-                frame_url: String,
-                #[serde(rename = "monitorRect")]
-                monitor_rect: types::Rect,
-                #[serde(rename = "scaleFactor")]
-                scale_factor: f32,
-                windows: Vec<types::WindowRect>,
-            }
-
             tracing::info!("run_capture: emitting capture:start event");
-            window
-                .emit(
-                    "capture:start",
-                    CaptureStartPayload {
-                        monitor_id: mon.id,
-                        frame_url: asset_url,
-                        monitor_rect: mon.rect,
-                        scale_factor: mon.scale_factor,
-                        windows: local_windows,
-                    },
-                )
-                .context("Failed to emit capture:start event")?;
+            app.emit_to(
+                capture_start_target(&label),
+                "capture:start",
+                CaptureStartPayload {
+                    monitor_id: mon.id,
+                    frame_url: asset_url,
+                    monitor_rect: mon.rect,
+                    scale_factor: mon.scale_factor,
+                    windows: local_windows,
+                },
+            )
+            .context("Failed to emit capture:start event")?;
             tracing::info!("run_capture: capture:start event emitted");
         } else {
             tracing::warn!("run_capture: overlay window {} not found", label);
@@ -418,6 +421,14 @@ mod tests {
     #[test]
     fn overlay_label_uses_stable_monitor_id() {
         assert_eq!(overlay_label(42), "overlay-42");
+    }
+
+    #[test]
+    fn capture_start_target_addresses_overlay_webview_window() {
+        assert_eq!(
+            capture_start_target("overlay-42"),
+            tauri::EventTarget::webview_window("overlay-42")
+        );
     }
 
     #[test]
