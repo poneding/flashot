@@ -255,9 +255,6 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
 
     // Process each monitor
     tracing::info!("run_capture: processing {} monitors", monitors.len());
-    if let Err(e) = overlay_window::enter_capture_presentation(&app) {
-        tracing::warn!("run_capture: failed to enter capture presentation mode: {e}");
-    }
     for (mon, frame) in monitors.iter().zip(frames.iter()) {
         tracing::info!("run_capture: processing monitor {}", mon.id);
         tracing::info!("run_capture: storing frame for monitor {}", mon.id);
