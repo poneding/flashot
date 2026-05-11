@@ -133,7 +133,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
     if (!sel || sel.width < 4 || sel.height < 4) {
       // tiny drag → take hovered window if any, else stay in hover
       const r = get().hoverRect;
-      if (r) set({ selection: r, mode: "committed" });
+      if (r) set({ selection: r, mode: "committed", dragStart: null });
       else set({ mode: "hover", selection: null, dragStart: null });
       return;
     }

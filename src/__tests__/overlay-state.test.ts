@@ -68,6 +68,18 @@ describe("overlay committed selection editing", () => {
 describe("overlay hover detection", () => {
   beforeEach(reset);
 
+  it("commits the hovered window on a zero-size click", () => {
+    const windowRect = { x: 20, y: 30, width: 240, height: 160 };
+    useOverlay.getState().setHover(windowRect);
+
+    useOverlay.getState().beginDrag({ x: 80, y: 90 });
+    useOverlay.getState().commitDrag();
+
+    expect(useOverlay.getState().mode).toBe("committed");
+    expect(useOverlay.getState().selection).toEqual(windowRect);
+    expect(useOverlay.getState().dragStart).toBeNull();
+  });
+
   it("updates hover immediately from a cursor point", () => {
     const windowRect = { x: 20, y: 30, width: 240, height: 160 };
     useOverlay.getState().start({
