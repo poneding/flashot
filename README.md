@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/app-logo.svg" alt="Flashot logo" width="96" height="96" />
+</p>
+
 # Flashot
 
 Fast, lightweight screenshot tool built with Tauri + React.
