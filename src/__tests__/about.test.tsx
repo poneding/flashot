@@ -23,4 +23,27 @@ describe("AboutRoute", () => {
     await waitFor(() => expect(screen.getByText("Version 0.1.0")).toBeTruthy());
     expect(screen.getByRole("button", { name: "GitHub Repository" })).toBeTruthy();
   });
+
+  it("shows the app icon below the title and renders the version in mono", async () => {
+    const { container } = render(<AboutRoute />);
+
+    const heading = screen.getByRole("heading", { name: "Flashot" });
+    const icon = screen.getByRole("img", { name: "Flashot app icon" });
+    const version = await screen.findByText("Version 0.1.0");
+
+    expect(icon.getAttribute("src")).toBe("/app-logo.svg");
+    expect(heading.compareDocumentPosition(icon)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(container.querySelector(".font-mono")).toBe(version);
+  });
+
+  it("keeps the compact about window from showing a vertical scrollbar", async () => {
+    const { container } = render(<AboutRoute />);
+
+    const main = container.querySelector("main");
+
+    expect(main?.className).toContain("h-full");
+    expect(main?.className).toContain("overflow-hidden");
+    expect(main?.className).not.toContain("min-h-full");
+    await screen.findByText("Version 0.1.0");
+  });
 });

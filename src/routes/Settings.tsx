@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { HotkeyRecorder } from "@/settings/HotkeyRecorder";
 import { ThemeSelect } from "@/settings/ThemeSelect";
@@ -46,9 +46,14 @@ export function SettingsRoute() {
         <ThemeSelect value={s.theme} onChange={(theme) => setS({ ...s, theme })} />
       </div>
 
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium">Launch at login</label>
-        <Switch checked={s.launchAtLogin} onCheckedChange={(launchAtLogin) => setS({ ...s, launchAtLogin })} />
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="launch-at-login"
+          aria-label="Launch at login"
+          checked={s.launchAtLogin}
+          onCheckedChange={(launchAtLogin) => setS({ ...s, launchAtLogin })}
+        />
+        <label className="text-sm font-medium" htmlFor="launch-at-login">Launch at login</label>
       </div>
 
       <div className="flex justify-end gap-2 pt-4">

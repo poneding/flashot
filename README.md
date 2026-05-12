@@ -96,6 +96,33 @@ pnpm lint
 cd src-tauri && cargo clippy
 ```
 
+### Release
+
+Flashot is released as desktop installers through GitHub Releases. The Rust
+crate is internal to the Tauri app and is not published to crates.io.
+
+To cut a release:
+
+1. Update the version in all three files:
+   - `package.json`
+   - `src-tauri/Cargo.toml`
+   - `src-tauri/tauri.conf.json`
+2. Commit the version bump.
+3. Tag the commit with a semantic version:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Pushing a `v*.*.*` tag triggers `.github/workflows/release.yml`. The workflow
+validates that the tag matches all project versions, then builds macOS
+Apple Silicon, macOS Intel, Windows, and Linux installers. It creates the
+GitHub Release, uploads the installers, and generates release notes.
+
+Maintainers can also rerun the release flow from GitHub Actions with
+`workflow_dispatch` by entering an existing tag such as `v0.1.0`.
+
 ## Architecture
 
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS
@@ -135,6 +162,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Acknowledgments
 
 Built with:
+
 - [Tauri](https://tauri.app/) — Desktop app framework
 - [React](https://react.dev/) — UI library
 - [xcap](https://github.com/nashaofu/xcap) — Screen capture

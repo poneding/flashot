@@ -3,6 +3,10 @@ use crate::{
 };
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_autostart::ManagerExt as _;
+
+const ABOUT_WINDOW_WIDTH: f64 = 360.0;
+const ABOUT_WINDOW_HEIGHT: f64 = 300.0;
 
 #[tauri::command]
 pub async fn crop_and_copy(
@@ -43,6 +47,7 @@ pub async fn crop_and_save(
     )
     .ok_or("crop failed")?;
     let mut settings = settings_store::load().unwrap_or_default();
+    mgr.end_session(&app);
     let path = saver::save_image_dialog(cropped.rgba, cropped.width, cropped.height, &settings)
         .map_err(|e| e.to_string())?;
     if path.is_some() {
@@ -51,7 +56,6 @@ pub async fn crop_and_save(
             settings_store::save(&settings).map_err(|e| e.to_string())?;
             let _ = app.emit("settings:changed", ());
         }
-        mgr.end_session(&app);
     }
     Ok(path.map(|p| p.to_string_lossy().to_string()))
 }
@@ -63,15 +67,45 @@ pub async fn cancel_capture(app: AppHandle, mgr: State<'_, Arc<WindowMgr>>) -> R
 }
 
 #[tauri::command]
-pub fn get_settings(_app: AppHandle) -> Result<Settings, String> {
-    settings_store::load().map_err(|e| e.to_string())
+pub fn get_settings(app: AppHandle) -> Result<Settings, String> {
+    let mut settings = settings_store::load().map_err(|e| e.to_string())?;
+    settings.launch_at_login = app.autolaunch().is_enabled().map_err(|e| e.to_string())?;
+    Ok(settings)
 }
 
 #[tauri::command]
 pub fn set_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
+    let autolaunch = app.autolaunch();
+    apply_launch_at_login(&*autolaunch, settings.launch_at_login)?;
     settings_store::save(&settings).map_err(|e| e.to_string())?;
     let _ = app.emit("settings:changed", ());
     Ok(())
+}
+
+trait LaunchAtLogin {
+    fn enable(&self) -> Result<(), String>;
+    fn disable(&self) -> Result<(), String>;
+}
+
+impl LaunchAtLogin for tauri_plugin_autostart::AutoLaunchManager {
+    fn enable(&self) -> Result<(), String> {
+        tauri_plugin_autostart::AutoLaunchManager::enable(self).map_err(|e| e.to_string())
+    }
+
+    fn disable(&self) -> Result<(), String> {
+        tauri_plugin_autostart::AutoLaunchManager::disable(self).map_err(|e| e.to_string())
+    }
+}
+
+fn apply_launch_at_login(
+    manager: &impl LaunchAtLogin,
+    launch_at_login: bool,
+) -> Result<(), String> {
+    if launch_at_login {
+        manager.enable()
+    } else {
+        manager.disable()
+    }
 }
 
 #[tauri::command]
@@ -99,13 +133,18 @@ pub fn open_about_window(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let url = tauri::WebviewUrl::App("index.html#/about".into());
+    let (width, height) = about_window_size();
     tauri::WebviewWindowBuilder::new(&app, "about", url)
         .title("About Flashot")
-        .inner_size(360.0, 260.0)
+        .inner_size(width, height)
         .resizable(false)
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn about_window_size() -> (f64, f64) {
+    (ABOUT_WINDOW_WIDTH, ABOUT_WINDOW_HEIGHT)
 }
 
 #[tauri::command]
@@ -225,5 +264,88 @@ mod tests {
         );
 
         assert!(cropped.is_none());
+    }
+
+    #[test]
+    fn crop_and_save_ends_capture_before_opening_save_dialog() {
+        let source = include_str!("commands.rs");
+        let start = source.find("pub async fn crop_and_save").unwrap();
+        let end = source[start..]
+            .find("#[tauri::command]\npub async fn cancel_capture")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        let crop_idx = body.find("let cropped = crop_rgba").unwrap();
+        let end_session_idx = body.find("mgr.end_session(&app);").unwrap();
+        let save_dialog_idx = body.find("saver::save_image_dialog").unwrap();
+
+        assert!(
+            crop_idx < end_session_idx,
+            "the image must be cropped before ending capture so frames can be cleared",
+        );
+        assert!(
+            end_session_idx < save_dialog_idx,
+            "native save dialogs must open after overlay windows are hidden",
+        );
+    }
+
+    #[test]
+    fn about_window_has_vertical_room_for_content() {
+        assert_eq!(about_window_size(), (360.0, 300.0));
+    }
+
+    #[derive(Default)]
+    struct FakeLaunchAtLogin {
+        calls: std::cell::RefCell<Vec<&'static str>>,
+    }
+
+    impl LaunchAtLogin for FakeLaunchAtLogin {
+        fn enable(&self) -> Result<(), String> {
+            self.calls.borrow_mut().push("enable");
+            Ok(())
+        }
+
+        fn disable(&self) -> Result<(), String> {
+            self.calls.borrow_mut().push("disable");
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn apply_launch_at_login_enables_login_startup_when_requested() {
+        let manager = FakeLaunchAtLogin::default();
+
+        apply_launch_at_login(&manager, true).unwrap();
+
+        assert_eq!(*manager.calls.borrow(), ["enable"]);
+    }
+
+    #[test]
+    fn apply_launch_at_login_disables_login_startup_when_requested() {
+        let manager = FakeLaunchAtLogin::default();
+
+        apply_launch_at_login(&manager, false).unwrap();
+
+        assert_eq!(*manager.calls.borrow(), ["disable"]);
+    }
+
+    #[test]
+    fn set_settings_applies_launch_at_login_before_saving_settings() {
+        let source = include_str!("commands.rs");
+        let start = source.find("pub fn set_settings").unwrap();
+        let end = source[start..]
+            .find("#[tauri::command]\npub fn open_settings_window")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        let apply_idx = body.find("apply_launch_at_login").unwrap();
+        let save_idx = body.find("settings_store::save").unwrap();
+
+        assert!(
+            apply_idx < save_idx,
+            "login startup must be applied before settings are persisted",
+        );
     }
 }

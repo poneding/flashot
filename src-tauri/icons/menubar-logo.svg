@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" role="img" aria-label="Flashot menu bar logo">
+  <g id="cornerRoundCaps" fill="#000000" data-source-scan="M3 7V5a2 2 0 0 1 2-2h2 M17 3h2a2 2 0 0 1 2 2v2 M21 17v2a2 2 0 0 1-2 2h-2 M7 21H5a2 2 0 0 1-2-2v-2">
+    <rect x="2.08" y="3.24" width="2.26" height="5.18" rx="1.13"/>
+    <rect x="3.24" y="2.08" width="5.18" height="2.26" rx="1.13"/>
+    <circle cx="3.35" cy="3.35" r="1.13"/>
+
+    <rect x="15.58" y="2.08" width="5.18" height="2.26" rx="1.13"/>
+    <rect x="19.66" y="3.24" width="2.26" height="5.18" rx="1.13"/>
+    <circle cx="20.65" cy="3.35" r="1.13"/>
+
+    <rect x="19.66" y="15.58" width="2.26" height="5.18" rx="1.13"/>
+    <rect x="15.58" y="19.66" width="5.18" height="2.26" rx="1.13"/>
+    <circle cx="20.65" cy="20.65" r="1.13"/>
+
+    <rect x="2.08" y="15.58" width="2.26" height="5.18" rx="1.13"/>
+    <rect x="3.24" y="19.66" width="5.18" height="2.26" rx="1.13"/>
+    <circle cx="3.35" cy="20.65" r="1.13"/>
+  </g>
+  <path transform="translate(2.65 2.45) scale(0.79)" fill="#000000" d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>
+</svg>

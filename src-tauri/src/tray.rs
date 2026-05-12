@@ -7,19 +7,13 @@ use tauri::{
 use tauri_plugin_shell::ShellExt;
 
 const REPO_URL: &str = "https://github.com/poneding/flashot";
+const TRAY_ID: &str = "main";
 
-pub fn install(app: &AppHandle) -> Result<()> {
-    let capture = MenuItem::with_id(app, "capture", "Capture", true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
-    let updates = MenuItem::with_id(app, "updates", "Check for updates", true, None::<&str>)?;
-    let about = MenuItem::with_id(app, "about", "About", true, None::<&str>)?;
-    let sep = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Flashot", true, None::<&str>)?;
-
-    let menu = Menu::with_items(app, &[&capture, &sep, &settings, &updates, &about, &sep, &quit])?;
+pub fn install(app: &AppHandle, capture_hotkey: &str) -> Result<()> {
+    let menu = build_menu(app, capture_hotkey)?;
     let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/menubar-logo.png"))?;
 
-    TrayIconBuilder::with_id("main")
+    TrayIconBuilder::with_id(TRAY_ID)
         .icon(tray_icon)
         .icon_as_template(true)
         .menu(&menu)
@@ -49,4 +43,62 @@ pub fn install(app: &AppHandle) -> Result<()> {
         .build(app)?;
 
     Ok(())
+}
+
+pub fn update_menu(app: &AppHandle, capture_hotkey: &str) -> Result<()> {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return Ok(());
+    };
+    tray.set_menu(Some(build_menu(app, capture_hotkey)?))?;
+
+    Ok(())
+}
+
+fn build_menu(app: &AppHandle, capture_hotkey: &str) -> Result<Menu<tauri::Wry>> {
+    let capture = MenuItem::with_id(
+        app,
+        "capture",
+        "Capture",
+        true,
+        capture_menu_accelerator(capture_hotkey),
+    )?;
+    let settings = MenuItem::with_id(
+        app,
+        "settings",
+        "Settings…",
+        true,
+        Some("CommandOrControl+,"),
+    )?;
+    let updates = MenuItem::with_id(app, "updates", "Check for updates", true, None::<&str>)?;
+    let about = MenuItem::with_id(app, "about", "About", true, None::<&str>)?;
+    let sep = PredefinedMenuItem::separator(app)?;
+    let quit = MenuItem::with_id(
+        app,
+        "quit",
+        "Quit Flashot",
+        true,
+        Some("CommandOrControl+Q"),
+    )?;
+
+    let menu = Menu::with_items(
+        app,
+        &[&capture, &sep, &settings, &updates, &about, &sep, &quit],
+    )?;
+    Ok(menu)
+}
+
+fn capture_menu_accelerator(capture_hotkey: &str) -> Option<&str> {
+    Some(capture_hotkey)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn capture_menu_uses_configured_hotkey_as_accelerator() {
+        assert_eq!(super::capture_menu_accelerator("F1"), Some("F1"));
+        assert_eq!(
+            super::capture_menu_accelerator("Cmd+Shift+X"),
+            Some("Cmd+Shift+X")
+        );
+    }
 }

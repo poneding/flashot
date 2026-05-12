@@ -10,12 +10,14 @@ Manual test scenarios for Flashot V0 before release.
 ## Critical Paths
 
 ### 1. Hotkey Trigger
+
 - [ ] Press configured hotkey (default: Cmd+Shift+A on macOS, Ctrl+Shift+A on Windows)
 - [ ] Overlay appears on all monitors
 - [ ] Screen is frozen (captured frame displayed)
 - [ ] Cursor changes to crosshair
 
 ### 2. Capture & Crop
+
 - [ ] Click and drag to select region
 - [ ] Selection rectangle renders correctly
 - [ ] Handles appear on corners and edges
@@ -24,6 +26,7 @@ Manual test scenarios for Flashot V0 before release.
 - [ ] ESC cancels capture and hides overlay
 
 ### 3. Copy to Clipboard
+
 - [ ] Press Cmd/Ctrl+C or click "Copy" button after committing a selection
 - [ ] Overlay closes
 - [ ] Paste into another app (e.g., Slack, Notes)
@@ -31,6 +34,7 @@ Manual test scenarios for Flashot V0 before release.
 - [ ] Image quality is acceptable (no artifacts)
 
 ### 4. Save to File
+
 - [ ] Click "Save As" in the toolbar
 - [ ] File picker opens
 - [ ] Choose location and filename
@@ -38,6 +42,7 @@ Manual test scenarios for Flashot V0 before release.
 - [ ] Open saved file to verify content
 
 ### 5. Settings
+
 - [ ] Open settings window (tray menu → Settings)
 - [ ] Change hotkey
 - [ ] New hotkey triggers capture
@@ -45,12 +50,14 @@ Manual test scenarios for Flashot V0 before release.
 - [ ] Settings persist after app restart
 
 ### 6. Multi-Monitor
+
 - [ ] Trigger capture with multiple monitors connected
 - [ ] Overlay appears on all monitors
 - [ ] Can select region on any monitor
 - [ ] Captured region is correct (not offset)
 
 ### 7. Window Detection
+
 - [ ] Trigger capture with multiple windows open
 - [ ] Hover over windows
 - [ ] Window highlights appear
@@ -60,12 +67,14 @@ Manual test scenarios for Flashot V0 before release.
 ## Platform-Specific Behaviors
 
 ### macOS
+
 - **Permission**: Screen recording permission required (System Settings → Privacy & Security)
 - **Hotkey**: Cmd+Shift+A
 - **Tray**: Icon appears in menu bar
 - **File picker**: Native macOS file dialog
 
 ### Windows
+
 - **Permission**: No special permissions required
 - **Hotkey**: Ctrl+Shift+A
 - **Tray**: Icon appears in system tray
@@ -99,6 +108,7 @@ Manual test scenarios for Flashot V0 before release.
 ## Reporting Issues
 
 When filing bugs, include:
+
 - Platform and version
 - Steps to reproduce
 - Expected vs actual behavior

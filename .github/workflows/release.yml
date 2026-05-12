@@ -1,0 +1,146 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to publish, for example v0.1.0"
+        required: true
+        type: string
+      draft:
+        description: "Create or keep the GitHub Release as a draft"
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        description: "Mark the GitHub Release as a prerelease"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  RELEASE_DRAFT: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
+  RELEASE_PRERELEASE: ${{ contains(github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, '-') || (github.event_name == 'workflow_dispatch' && inputs.prerelease) }}
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          const tag = process.env.RELEASE_TAG;
+          if (!/^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(tag)) {
+            throw new Error(`Release tag must look like v1.2.3 or v1.2.3-beta.1, got ${tag}`);
+          }
+
+          const expected = tag.slice(1);
+          const packageVersion = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
+          const tauriVersion = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8")).version;
+          const cargoToml = fs.readFileSync("src-tauri/Cargo.toml", "utf8");
+          const cargoVersion = cargoToml.match(/^version = "([^"]+)"/m)?.[1];
+
+          const versions = {
+            "package.json": packageVersion,
+            "src-tauri/tauri.conf.json": tauriVersion,
+            "src-tauri/Cargo.toml": cargoVersion,
+          };
+
+          for (const [file, version] of Object.entries(versions)) {
+            if (version !== expected) {
+              throw new Error(`${file} version ${version} does not match ${tag}`);
+            }
+          }
+
+          console.log(`Release ${tag} matches project version ${expected}.`);
+          NODE
+
+  release:
+    name: Build release (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-aarch64
+            os: macos-latest
+            rust-target: aarch64-apple-darwin
+            tauri-args: --target aarch64-apple-darwin
+          - name: macos-x86_64
+            os: macos-15-intel
+            rust-target: x86_64-apple-darwin
+            tauri-args: --target x86_64-apple-darwin
+          - name: windows-x86_64
+            os: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            tauri-args: --target x86_64-pc-windows-msvc
+          - name: linux-x86_64
+            os: ubuntu-latest
+            rust-target: x86_64-unknown-linux-gnu
+            tauri-args: --target x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Install system dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and publish GitHub Release assets
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: "Flashot ${{ env.RELEASE_TAG }}"
+          releaseBody: "Installers are built automatically from the tagged source. Release notes are generated from merged pull requests and commits."
+          releaseDraft: ${{ env.RELEASE_DRAFT }}
+          prerelease: ${{ env.RELEASE_PRERELEASE }}
+          generateReleaseNotes: true
+          releaseAssetNamePattern: "[name]-[version]-[platform]-[arch][ext]"
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: "[name]-[version]-[platform]-[arch]-[bundle]"
+          args: ${{ matrix.tauri-args }}

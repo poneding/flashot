@@ -1,8 +1,8 @@
 [package]
 name = "flashot"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Flashot is a screenshot tool built with Rust and Tauri."
+authors = ["poneding@gmail.com"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -18,17 +18,28 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png", "macos-private-api"] }
+tauri = { version = "2", features = [
+  "protocol-asset",
+  "tray-icon",
+  "image-png",
+  "macos-private-api",
+] }
 tauri-plugin-shell = "2"
 tauri-plugin-store = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-clipboard-manager = "2"
+tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
 anyhow = "1"
 dirs = "5"
-tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time"] }
+tokio = { version = "1", features = [
+  "sync",
+  "rt-multi-thread",
+  "macros",
+  "time",
+] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-appender = "0.2"
@@ -76,4 +87,3 @@ harness = false
 [[bench]]
 name = "clipboard_bench"
 harness = false
-

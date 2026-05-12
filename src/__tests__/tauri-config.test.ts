@@ -3,6 +3,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 describe("Tauri capabilities", () => {
+  it("uses the branded app name for user-visible bundle metadata", () => {
+    const configPath = resolve(__dirname, "../../src-tauri/tauri.conf.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as { productName?: string };
+
+    expect(config.productName).toBe("Flashot");
+  });
+
   it("grants IPC permissions to overlay and settings windows", () => {
     const capabilityPath = resolve(__dirname, "../../src-tauri/capabilities/default.json");
     const capability = JSON.parse(readFileSync(capabilityPath, "utf8")) as { windows: string[] };
@@ -36,5 +43,15 @@ describe("Tauri asset protocol", () => {
     const manifest = readFileSync(manifestPath, "utf8");
 
     expect(manifest).toContain('"protocol-asset"');
+  });
+
+  it("registers the autostart plugin for real launch-at-login support", () => {
+    const manifestPath = resolve(__dirname, "../../src-tauri/Cargo.toml");
+    const manifest = readFileSync(manifestPath, "utf8");
+    const libPath = resolve(__dirname, "../../src-tauri/src/lib.rs");
+    const lib = readFileSync(libPath, "utf8");
+
+    expect(manifest).toContain("tauri-plugin-autostart");
+    expect(lib).toContain("tauri_plugin_autostart::init");
   });
 });

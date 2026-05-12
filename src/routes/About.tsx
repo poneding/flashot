@@ -13,10 +13,16 @@ export function AboutRoute() {
   }, []);
 
   return (
-    <main className="flex min-h-full flex-col items-center justify-center gap-4 p-8 text-center">
-      <div className="space-y-1">
+    <main className="flex h-full flex-col items-center justify-center gap-4 overflow-hidden p-6 text-center">
+      <div className="flex flex-col items-center gap-2">
         <h1 className="text-2xl font-semibold">Flashot</h1>
-        <p className="text-sm text-muted-foreground">
+        <img
+          src="/app-logo.svg"
+          alt="Flashot app icon"
+          className="size-16"
+          draggable={false}
+        />
+        <p className="font-mono text-sm text-muted-foreground">
           {version ? `Version ${version}` : "Version unavailable"}
         </p>
       </div>

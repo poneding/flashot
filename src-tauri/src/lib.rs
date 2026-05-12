@@ -12,10 +12,14 @@ pub mod window_mgr;
 pub mod window_probe;
 
 use anyhow::{Context, Result};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use window_mgr::WindowMgr;
+
+static FRAME_REVISION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -26,16 +30,24 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {
             // Single instance enforced; no-op on duplicate launch
         }))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
+            configure_capture_app_shell(app.handle())?;
+
             // Create shared WindowMgr state
             let mgr = WindowMgr::new();
             app.manage(mgr.clone());
 
+            let settings = settings_store::load().unwrap_or_default();
+
             // Install tray icon
-            tray::install(app.handle())?;
+            tray::install(app.handle(), &settings.hotkey)?;
 
             if !permission::probe_screen_recording() {
                 tracing::warn!("screen recording permission not granted");
@@ -49,20 +61,28 @@ pub fn run() {
             let hotkey_svc =
                 Arc::new(hotkey::HotkeyService::new().context("Failed to create hotkey service")?);
 
-            // Load settings and register hotkey
-            let settings = settings_store::load().unwrap_or_default();
-            hotkey_svc
-                .set(&settings.hotkey)
-                .context("Failed to register hotkey")?;
+            // Register configured hotkey
+            register_startup_hotkey(&settings.hotkey, |hotkey| hotkey_svc.set(hotkey));
 
             let receiver = hotkey_svc.receiver();
             let app_handle = app.handle().clone();
+            let mgr_for_hotkey = mgr.clone();
 
             // Spawn hotkey event loop
             std::thread::spawn(move || loop {
                 if let Ok(event) = receiver.recv() {
-                    if event.id == hotkey::current_id() {
-                        let _ = app_handle.emit("capture:trigger", ());
+                    match hotkey::action_for_event(
+                        event.id,
+                        hotkey::current_id(),
+                        mgr_for_hotkey.in_session(),
+                    ) {
+                        Some(hotkey::HotkeyAction::TriggerCapture) => {
+                            let _ = app_handle.emit("capture:trigger", ());
+                        }
+                        Some(hotkey::HotkeyAction::CancelCapture) => {
+                            mgr_for_hotkey.end_session(&app_handle);
+                        }
+                        None => {}
                     }
                 }
             });
@@ -82,6 +102,14 @@ pub fn run() {
                 if let Err(e) = svc.set(&s.hotkey) {
                     tracing::warn!("hotkey re-register failed: {e}");
                 }
+                if let Err(e) = tray::update_menu(&app, &s.hotkey) {
+                    tracing::warn!("tray menu update failed: {e}");
+                }
+            });
+
+            let app_for_capture_end = app.handle().clone();
+            app.listen("capture:end", move |_| {
+                set_capture_cancel_hotkey(&app_for_capture_end, false);
             });
 
             // Register capture trigger handler
@@ -192,8 +220,48 @@ fn overlay_label(monitor_id: u32) -> String {
     format!("overlay-{monitor_id}")
 }
 
+#[cfg(target_os = "macos")]
+fn capture_app_activation_policy() -> tauri::ActivationPolicy {
+    tauri::ActivationPolicy::Accessory
+}
+
+#[cfg(target_os = "macos")]
+fn configure_capture_app_shell(app: &AppHandle) -> Result<()> {
+    app.set_activation_policy(capture_app_activation_policy())
+        .context("Failed to set macOS activation policy for capture app")
+}
+
+#[cfg(not(target_os = "macos"))]
+fn configure_capture_app_shell(_app: &AppHandle) -> Result<()> {
+    Ok(())
+}
+
 fn capture_start_target(label: &str) -> tauri::EventTarget {
     tauri::EventTarget::webview_window(label)
+}
+
+fn set_capture_cancel_hotkey(app: &AppHandle, enabled: bool) {
+    let Some(hk_state) = app.try_state::<std::sync::Mutex<Arc<hotkey::HotkeyService>>>() else {
+        tracing::warn!("capture cancel hotkey state is not available");
+        return;
+    };
+    let svc = hk_state.lock().unwrap().clone();
+    if let Err(e) = svc.set_capture_cancel_enabled(enabled) {
+        tracing::warn!("capture cancel hotkey update failed: {e}");
+    }
+}
+
+fn register_startup_hotkey<F>(accelerator: &str, register: F) -> bool
+where
+    F: FnOnce(&str) -> Result<u32>,
+{
+    match register(accelerator) {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::warn!("failed to register startup hotkey '{accelerator}': {e}");
+            false
+        }
+    }
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -221,6 +289,7 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     // Begin session
     tracing::info!("run_capture: beginning session");
     let guard = mgr.begin(app.clone());
+    set_capture_cancel_hotkey(&app, true);
 
     let current_monitors =
         capture::enumerate_monitors().context("Failed to enumerate monitors before capture")?;
@@ -252,7 +321,12 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         .app_cache_dir()
         .context("Failed to get cache directory")?;
     std::fs::create_dir_all(&cache_dir).context("Failed to create cache directory")?;
+    if let Err(e) = remove_stale_frame_files(&cache_dir) {
+        tracing::warn!("run_capture: failed to clean stale frame files: {e}");
+    }
     tracing::info!("run_capture: cache dir: {:?}", cache_dir);
+
+    let frame_revision = next_frame_revision();
 
     // Process each monitor
     tracing::info!("run_capture: processing {} monitors", monitors.len());
@@ -262,13 +336,13 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         mgr.store_frame(frame.clone());
 
         // Save frame as PNG
-        let frame_path = cache_dir.join(format!("frame_{}.png", mon.id));
+        let frame_path = frame_asset_path(&cache_dir, mon.id, frame_revision);
         tracing::info!("run_capture: saving frame to {:?}", frame_path);
         save_frame_as_png(frame, &frame_path).context("Failed to save frame as PNG")?;
         tracing::info!("run_capture: frame saved successfully");
 
         // Convert to asset:// URL
-        let asset_url = format!("asset://localhost/{}", frame_path.to_string_lossy());
+        let asset_url = frame_asset_url(&cache_dir, mon.id, frame_revision);
         tracing::info!("run_capture: asset URL: {}", asset_url);
 
         // Show overlay window
@@ -327,6 +401,43 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     // Leak the guard - it will be cleaned up when commands complete
     tracing::info!("run_capture: leaking guard, capture setup complete");
     std::mem::forget(guard);
+
+    Ok(())
+}
+
+fn next_frame_revision() -> u128 {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let counter = FRAME_REVISION_COUNTER.fetch_add(1, Ordering::Relaxed) as u128;
+
+    now.saturating_add(counter)
+}
+
+fn frame_asset_path(
+    cache_dir: &std::path::Path,
+    monitor_id: u32,
+    revision: u128,
+) -> std::path::PathBuf {
+    cache_dir.join(format!("frame_{monitor_id}_{revision}.png"))
+}
+
+fn frame_asset_url(cache_dir: &std::path::Path, monitor_id: u32, revision: u128) -> String {
+    let path = frame_asset_path(cache_dir, monitor_id, revision);
+
+    format!("asset://localhost/{}", path.to_string_lossy())
+}
+
+fn remove_stale_frame_files(cache_dir: &std::path::Path) -> Result<()> {
+    for entry in std::fs::read_dir(cache_dir).context("Failed to read cache directory")? {
+        let entry = entry.context("Failed to read cache directory entry")?;
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if file_name.starts_with("frame_") && file_name.ends_with(".png") {
+            std::fs::remove_file(entry.path()).context("Failed to remove stale frame file")?;
+        }
+    }
 
     Ok(())
 }
@@ -438,6 +549,37 @@ mod tests {
             capture_start_target("overlay-42"),
             tauri::EventTarget::webview_window("overlay-42")
         );
+    }
+
+    #[test]
+    fn startup_hotkey_registration_failure_is_nonfatal() {
+        let registered = register_startup_hotkey("F1", |accelerator| {
+            assert_eq!(accelerator, "F1");
+            Err(anyhow::anyhow!("reserved by system"))
+        });
+
+        assert!(!registered);
+    }
+
+    #[test]
+    fn frame_asset_urls_change_between_capture_sessions() {
+        let cache_dir = std::path::Path::new("/tmp/flashot-cache");
+
+        let first = frame_asset_url(cache_dir, 42, 1);
+        let second = frame_asset_url(cache_dir, 42, 2);
+
+        assert_ne!(first, second);
+        assert!(first.contains("frame_42_1.png"));
+        assert!(second.contains("frame_42_2.png"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_capture_uses_accessory_activation_policy() {
+        assert!(matches!(
+            capture_app_activation_policy(),
+            tauri::ActivationPolicy::Accessory
+        ));
     }
 
     #[test]

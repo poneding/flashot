@@ -105,22 +105,22 @@ fn read_cf_value(dict: &CFDictionary, key: &str) -> Option<CFType> {
 mod tests {
     use super::*;
 
-    fn window_dict(
-        title: Option<&str>,
-        app_name: &str,
+    struct WindowDictInput<'a> {
+        title: Option<&'a str>,
+        app_name: &'a str,
         pid: i32,
         layer: i32,
-        x: f64,
-        y: f64,
-        width: f64,
-        height: f64,
-    ) -> CFDictionary {
+        bounds: (f64, f64, f64, f64),
+    }
+
+    fn window_dict(input: WindowDictInput<'_>) -> CFDictionary {
         let owner_key = CFString::new("kCGWindowOwnerName");
-        let owner = CFString::new(app_name);
+        let owner = CFString::new(input.app_name);
         let pid_key = CFString::new("kCGWindowOwnerPID");
-        let pid = CFNumber::from(pid);
+        let pid = CFNumber::from(input.pid);
         let layer_key = CFString::new("kCGWindowLayer");
-        let layer = CFNumber::from(layer);
+        let layer = CFNumber::from(input.layer);
+        let (x, y, width, height) = input.bounds;
 
         let x_key = CFString::new("X");
         let x = CFNumber::from(x);
@@ -147,7 +147,7 @@ mod tests {
 
         let title_key;
         let title_value;
-        if let Some(title) = title {
+        if let Some(title) = input.title {
             title_key = CFString::new("kCGWindowName");
             title_value = CFString::new(title);
             pairs.push((title_key.as_CFType(), title_value.as_CFType()));
@@ -158,7 +158,13 @@ mod tests {
 
     #[test]
     fn reads_untyped_core_graphics_dictionary_values() {
-        let dict = window_dict(None, "Finder", 1234, 0, 10.0, 20.0, 300.0, 200.0);
+        let dict = window_dict(WindowDictInput {
+            title: None,
+            app_name: "Finder",
+            pid: 1234,
+            layer: 0,
+            bounds: (10.0, 20.0, 300.0, 200.0),
+        });
 
         assert_eq!(
             read_string(&dict, "kCGWindowOwnerName").as_deref(),
@@ -176,7 +182,13 @@ mod tests {
 
     #[test]
     fn parses_normal_windows_even_when_title_is_missing() {
-        let dict = window_dict(None, "Code", 4321, 0, -100.0, 40.0, 900.0, 700.0);
+        let dict = window_dict(WindowDictInput {
+            title: None,
+            app_name: "Code",
+            pid: 4321,
+            layer: 0,
+            bounds: (-100.0, 40.0, 900.0, 700.0),
+        });
 
         let window = window_rect_from_dict(&dict).expect("untitled app window should be detected");
 
@@ -196,7 +208,13 @@ mod tests {
 
     #[test]
     fn rejects_non_normal_layers() {
-        let dict = window_dict(Some("Dock"), "Dock", 99, 20, 0.0, 0.0, 800.0, 40.0);
+        let dict = window_dict(WindowDictInput {
+            title: Some("Dock"),
+            app_name: "Dock",
+            pid: 99,
+            layer: 20,
+            bounds: (0.0, 0.0, 800.0, 40.0),
+        });
 
         assert!(window_rect_from_dict(&dict).is_none());
     }
