@@ -281,8 +281,10 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
                 .context("Failed to enable cursor events")?;
             overlay_window::bring_capture_overlay_to_front(&window)
                 .context("Failed to bring overlay window to front")?;
-            if let Err(e) = window.set_focus() {
-                tracing::warn!("run_capture: failed to focus overlay window {label}: {e}");
+            if overlay_window::capture_overlay_should_take_focus() {
+                if let Err(e) = window.set_focus() {
+                    tracing::warn!("run_capture: failed to focus overlay window {label}: {e}");
+                }
             }
             tracing::info!("run_capture: overlay window shown");
 

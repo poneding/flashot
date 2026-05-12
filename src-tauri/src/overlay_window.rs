@@ -18,6 +18,10 @@ pub fn capture_overlay_accepts_first_mouse() -> bool {
     true
 }
 
+pub fn capture_overlay_should_take_focus() -> bool {
+    !cfg!(target_os = "macos")
+}
+
 #[cfg(all(target_os = "macos", test))]
 const NS_APPLICATION_PRESENTATION_AUTO_HIDE_DOCK: usize = 1 << 0;
 #[cfg(all(target_os = "macos", test))]
@@ -62,6 +66,18 @@ mod tests {
     #[test]
     fn capture_overlay_accepts_first_mouse_clicks() {
         assert!(super::capture_overlay_accepts_first_mouse());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_capture_overlay_does_not_take_focus() {
+        assert!(!super::capture_overlay_should_take_focus());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn non_macos_capture_overlay_can_take_focus() {
+        assert!(super::capture_overlay_should_take_focus());
     }
 
     #[cfg(target_os = "macos")]
