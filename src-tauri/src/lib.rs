@@ -106,6 +106,7 @@ pub fn run() {
             commands::get_settings,
             commands::set_settings,
             commands::open_settings_window,
+            commands::open_about_window,
             commands::quit_app,
         ])
         .run(tauri::generate_context!())

@@ -17,9 +17,11 @@ pub fn install(app: &AppHandle) -> Result<()> {
     let quit = MenuItem::with_id(app, "quit", "Quit Flashot", true, None::<&str>)?;
 
     let menu = Menu::with_items(app, &[&capture, &sep, &settings, &updates, &about, &sep, &quit])?;
+    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/menubar-logo.png"))?;
 
     TrayIconBuilder::with_id("main")
-        .icon(app.default_window_icon().unwrap().clone())
+        .icon(tray_icon)
+        .icon_as_template(true)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -34,8 +36,7 @@ pub fn install(app: &AppHandle) -> Result<()> {
                 let _ = app.shell().open(format!("{REPO_URL}/releases"), None);
             }
             "about" => {
-                #[allow(deprecated)]
-                let _ = app.shell().open(REPO_URL, None);
+                let _ = crate::commands::open_about_window(app.clone());
             }
             "quit" => app.exit(0),
             _ => {}

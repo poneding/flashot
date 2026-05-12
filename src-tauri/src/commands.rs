@@ -42,9 +42,15 @@ pub async fn crop_and_save(
         frame.scale_factor,
     )
     .ok_or("crop failed")?;
-    let path = saver::save_image_dialog(cropped.rgba, cropped.width, cropped.height)
+    let mut settings = settings_store::load().unwrap_or_default();
+    let path = saver::save_image_dialog(cropped.rgba, cropped.width, cropped.height, &settings)
         .map_err(|e| e.to_string())?;
     if path.is_some() {
+        if let Some(saved_path) = path.as_deref() {
+            saver::remember_last_save_dir(&mut settings, saved_path);
+            settings_store::save(&settings).map_err(|e| e.to_string())?;
+            let _ = app.emit("settings:changed", ());
+        }
         mgr.end_session(&app);
     }
     Ok(path.map(|p| p.to_string_lossy().to_string()))
@@ -79,6 +85,23 @@ pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
     tauri::WebviewWindowBuilder::new(&app, "settings", url)
         .title("Flashot Settings")
         .inner_size(560.0, 420.0)
+        .resizable(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_about_window(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("about") {
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let url = tauri::WebviewUrl::App("index.html#/about".into());
+    tauri::WebviewWindowBuilder::new(&app, "about", url)
+        .title("About Flashot")
+        .inner_size(360.0, 260.0)
         .resizable(false)
         .build()
         .map_err(|e| e.to_string())?;

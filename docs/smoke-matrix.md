@@ -6,12 +6,11 @@ Manual test scenarios for Flashot V0 before release.
 
 - **macOS** (primary target)
 - **Windows** (secondary)
-- **Linux** (secondary)
 
 ## Critical Paths
 
 ### 1. Hotkey Trigger
-- [ ] Press configured hotkey (default: Cmd+Shift+5 on macOS)
+- [ ] Press configured hotkey (default: Cmd+Shift+A on macOS, Ctrl+Shift+A on Windows)
 - [ ] Overlay appears on all monitors
 - [ ] Screen is frozen (captured frame displayed)
 - [ ] Cursor changes to crosshair
@@ -25,14 +24,14 @@ Manual test scenarios for Flashot V0 before release.
 - [ ] ESC cancels capture and hides overlay
 
 ### 3. Copy to Clipboard
-- [ ] Press Enter or click "Copy" button
+- [ ] Press Cmd/Ctrl+C or click "Copy" button after committing a selection
 - [ ] Overlay closes
 - [ ] Paste into another app (e.g., Slack, Notes)
 - [ ] Image matches selected region
 - [ ] Image quality is acceptable (no artifacts)
 
 ### 4. Save to File
-- [ ] Press Cmd+S or click "Save" button
+- [ ] Click "Save As" in the toolbar
 - [ ] File picker opens
 - [ ] Choose location and filename
 - [ ] File saves as PNG
@@ -62,33 +61,25 @@ Manual test scenarios for Flashot V0 before release.
 
 ### macOS
 - **Permission**: Screen recording permission required (System Settings → Privacy & Security)
-- **Hotkey**: Cmd+Shift+5 conflicts with native screenshot tool (user must choose)
+- **Hotkey**: Cmd+Shift+A
 - **Tray**: Icon appears in menu bar
 - **File picker**: Native macOS file dialog
 
 ### Windows
 - **Permission**: No special permissions required
-- **Hotkey**: Win+Shift+S conflicts with Snipping Tool (user must choose)
+- **Hotkey**: Ctrl+Shift+A
 - **Tray**: Icon appears in system tray
 - **File picker**: Native Windows file dialog
-
-### Linux
-- **Permission**: Varies by compositor (Wayland may require portal)
-- **Hotkey**: Varies by desktop environment
-- **Tray**: May not work on all DEs (fallback to window)
-- **File picker**: Native GTK file dialog
 
 ## Known Issues
 
 - **macOS**: First launch requires screen recording permission grant and app restart
 - **Windows**: Overlay may flicker on some systems with multiple GPUs
-- **Linux**: Wayland support is experimental (X11 recommended)
 
 ## Pre-Release Checklist
 
 - [ ] All critical paths pass on macOS
 - [ ] All critical paths pass on Windows
-- [ ] All critical paths pass on Linux (X11)
 - [ ] No crashes or panics during normal use
 - [ ] No memory leaks (run for 30+ captures)
 - [ ] Hotkey can be changed and persists
@@ -104,7 +95,6 @@ Manual test scenarios for Flashot V0 before release.
 
 - **macOS**: 13.0+ (Ventura or later)
 - **Windows**: 10/11
-- **Linux**: Ubuntu 22.04 LTS (X11)
 
 ## Reporting Issues
 

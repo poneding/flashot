@@ -4,11 +4,11 @@ Fast, lightweight screenshot tool built with Tauri + React.
 
 ## Features
 
-- **Global hotkey** — Trigger capture from anywhere (default: Cmd+Shift+5 on macOS)
+- **Global hotkey** — Trigger capture from anywhere (default: Cmd+Shift+A on macOS, Ctrl+Shift+A on Windows)
 - **Multi-monitor support** — Capture from any connected display
 - **Smart window detection** — Click to auto-select window bounds
 - **Flexible selection** — Click-drag to select region, resize with handles
-- **Copy or save** — Send to clipboard (Enter) or save as PNG (Cmd+S)
+- **Copy or save** — Send to clipboard with Cmd/Ctrl+C or the toolbar, or save as PNG with Save As
 - **Customizable hotkey** — Change trigger key in settings
 - **Native performance** — Rust backend for speed, React frontend for polish
 
@@ -16,7 +16,7 @@ Fast, lightweight screenshot tool built with Tauri + React.
 
 ### macOS
 
-1. Download the latest `.dmg` from [Releases](https://github.com/yourusername/flashot/releases)
+1. Download the latest `.dmg` from [Releases](https://github.com/poneding/flashot/releases)
 2. Open the `.dmg` and drag Flashot to Applications
 3. Launch Flashot
 4. Grant screen recording permission when prompted (System Settings → Privacy & Security → Screen Recording)
@@ -24,42 +24,33 @@ Fast, lightweight screenshot tool built with Tauri + React.
 
 ### Windows
 
-1. Download the latest `.msi` installer from [Releases](https://github.com/yourusername/flashot/releases)
+1. Download the latest `.msi` installer from [Releases](https://github.com/poneding/flashot/releases)
 2. Run the installer
 3. Launch Flashot from Start Menu
 
-### Linux
-
-1. Download the latest `.AppImage` or `.deb` from [Releases](https://github.com/yourusername/flashot/releases)
-2. Make executable: `chmod +x Flashot.AppImage`
-3. Run: `./Flashot.AppImage`
-
-**Note**: X11 is recommended. Wayland support is experimental.
-
 ## Usage
 
-1. Press the hotkey (default: Cmd+Shift+5 on macOS)
+1. Press the hotkey (default: Cmd+Shift+A on macOS, Ctrl+Shift+A on Windows)
 2. Screen freezes and overlay appears
 3. Click and drag to select region, or click a window to auto-select
-4. Press **Enter** to copy to clipboard, or **Cmd+S** to save as PNG
+4. Use the toolbar to copy or Save As, or press **Cmd/Ctrl+C** after committing a selection
 5. Press **ESC** to cancel
 
 ## Development
 
 ### Prerequisites
 
-- **Node.js** 18+ and pnpm
-- **Rust** 1.70+
+- **Node.js** 20 LTS and pnpm
+- **Rust** 1.83+
 - **Platform-specific dependencies**:
   - macOS: Xcode Command Line Tools
   - Windows: Visual Studio Build Tools
-  - Linux: `libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev`
 
 ### Setup
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/flashot.git
+git clone https://github.com/poneding/flashot.git
 cd flashot
 
 # Install dependencies
@@ -108,7 +99,7 @@ cd src-tauri && cargo clippy
 - **Screen capture**: `xcap` (cross-platform)
 - **Hotkey**: `global-hotkey`
 - **Clipboard**: `arboard`
-- **Window detection**: Platform-specific APIs (Core Graphics on macOS, Win32 on Windows, X11 on Linux)
+- **Window detection**: Platform-specific APIs (Core Graphics on macOS, Win32 on Windows)
 
 ## Platform Notes
 
@@ -116,17 +107,12 @@ cd src-tauri && cargo clippy
 
 - Requires screen recording permission (granted on first launch)
 - Uses private APIs for overlay rendering (`macOSPrivateApi: true`)
-- Default hotkey conflicts with native screenshot tool (user must choose)
+- Default hotkey: Cmd+Shift+A
 
 ### Windows
 
 - No special permissions required
-- Default hotkey conflicts with Snipping Tool (user must choose)
-
-### Linux
-
-- X11 recommended (Wayland support experimental)
-- Tray icon may not work on all desktop environments
+- Default hotkey: Ctrl+Shift+A
 
 ## Contributing
 

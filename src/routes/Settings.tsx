@@ -7,7 +7,7 @@ import { getSettings, setSettings } from "@/lib/ipc";
 import type { Settings } from "@/lib/types";
 
 const DEFAULTS: Settings = {
-  hotkey: navigator.platform.includes("Mac") ? "Cmd+Shift+X" : "Ctrl+Shift+X",
+  hotkey: navigator.platform.includes("Mac") ? "Cmd+Shift+A" : "Ctrl+Shift+A",
   theme: "system",
   launchAtLogin: false,
   lastSaveDir: null,

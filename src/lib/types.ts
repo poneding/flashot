@@ -38,7 +38,7 @@ export type ToolbarPosition =
   | { kind: "right"; x: number; y: number };
 
 export type Settings = {
-  hotkey: string;             // e.g. "CommandOrControl+Shift+X"
+  hotkey: string;             // e.g. "CommandOrControl+Shift+A"
   theme: "system" | "light" | "dark";
   launchAtLogin: boolean;
   lastSaveDir: string | null;

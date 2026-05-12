@@ -106,7 +106,7 @@ Invariants:
 ## 5. Data flow — a single capture session
 
 ```
-T₀  hotkey pressed (Cmd+Shift+X / Ctrl+Shift+X)
+T₀  hotkey pressed (Cmd+Shift+A / Ctrl+Shift+A)
     │
     ▼
 T₀+0 HotkeyService.on_pressed → window_mgr.begin_capture()
@@ -266,7 +266,7 @@ Criterion benches run in CI on every PR — regressions block.
 
 ### 8.1 Must-have features
 
-- Global hotkey trigger (macOS `Cmd+Shift+X` / Windows `Ctrl+Shift+X`, configurable in settings)
+- Global hotkey trigger (macOS `Cmd+Shift+A` / Windows `Ctrl+Shift+A`, configurable in settings)
 - Tray menu: `Capture` `Settings…` `Check for updates` `About` `Quit`
 - On trigger: freeze full screen, 55% dim, cyan crosshair + W×H readout
 - Hover auto-detection at the **window level** with cyan highlight
@@ -300,8 +300,8 @@ Criterion benches run in CI on every PR — regressions block.
 
 | Item | Default |
 |---|---|
-| macOS hotkey | `Cmd+Shift+X` |
-| Windows hotkey | `Ctrl+Shift+X` |
+| macOS hotkey | `Cmd+Shift+A` |
+| Windows hotkey | `Ctrl+Shift+A` |
 | Theme | follow system |
 | Dim opacity | 55% (not user-configurable) |
 | Selection / detection color | `#4ED1FF` |

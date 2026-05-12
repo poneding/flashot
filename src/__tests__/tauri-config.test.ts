@@ -9,6 +9,7 @@ describe("Tauri capabilities", () => {
 
     expect(capability.windows).toContain("overlay-*");
     expect(capability.windows).toContain("settings");
+    expect(capability.windows).toContain("about");
   });
 });
 
