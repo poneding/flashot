@@ -27,6 +27,7 @@ export function FrozenLayer() {
     <img
       src={frameSourceFromUrl(url)}
       alt=""
+      data-frozen-layer
       draggable={false}
       style={{
         position: "absolute",
