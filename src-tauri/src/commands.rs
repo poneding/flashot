@@ -12,6 +12,7 @@ const ABOUT_WINDOW_HEIGHT: f64 = 300.0;
 pub async fn crop_and_copy(
     monitor_id: u32,
     rect: Rect,
+    annotation_png: Option<Vec<u8>>,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
@@ -24,7 +25,11 @@ pub async fn crop_and_copy(
         frame.scale_factor,
     )
     .ok_or("crop failed")?;
-    clipboard::copy_image(cropped.rgba, cropped.width, cropped.height)
+    let final_image = match annotation_png {
+        Some(png_data) if !png_data.is_empty() => composite_annotation(&cropped, &png_data)?,
+        _ => cropped,
+    };
+    clipboard::copy_image(final_image.rgba, final_image.width, final_image.height)
         .map_err(|e| e.to_string())?;
     mgr.end_session(&app);
     Ok(())
@@ -34,6 +39,7 @@ pub async fn crop_and_copy(
 pub async fn crop_and_save(
     monitor_id: u32,
     rect: Rect,
+    annotation_png: Option<Vec<u8>>,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
@@ -46,9 +52,13 @@ pub async fn crop_and_save(
         frame.scale_factor,
     )
     .ok_or("crop failed")?;
+    let final_image = match annotation_png {
+        Some(png_data) if !png_data.is_empty() => composite_annotation(&cropped, &png_data)?,
+        _ => cropped,
+    };
     let mut settings = settings_store::load().unwrap_or_default();
     mgr.end_session(&app);
-    let path = saver::save_image_dialog(cropped.rgba, cropped.width, cropped.height, &settings)
+    let path = saver::save_image_dialog(final_image.rgba, final_image.width, final_image.height, &settings)
         .map_err(|e| e.to_string())?;
     if path.is_some() {
         if let Some(saved_path) = path.as_deref() {
@@ -186,6 +196,38 @@ fn crop_rgba(
         rgba: out,
         width: pw,
         height: ph,
+    })
+}
+
+fn composite_annotation(base: &CroppedImage, annotation_png: &[u8]) -> Result<CroppedImage, String> {
+    use image::{imageops, ImageBuffer, RgbaImage};
+
+    let mut base_img: RgbaImage = ImageBuffer::from_raw(base.width, base.height, base.rgba.clone())
+        .ok_or("Failed to create base image buffer")?;
+
+    let annotation_img = image::load_from_memory_with_format(annotation_png, image::ImageFormat::Png)
+        .map_err(|e| format!("Failed to decode annotation PNG: {}", e))?
+        .to_rgba8();
+
+    // Resize annotation to match base if dimensions differ
+    let annotation_resized =
+        if annotation_img.width() != base.width || annotation_img.height() != base.height {
+            imageops::resize(
+                &annotation_img,
+                base.width,
+                base.height,
+                imageops::FilterType::Lanczos3,
+            )
+        } else {
+            annotation_img
+        };
+
+    imageops::overlay(&mut base_img, &annotation_resized, 0, 0);
+
+    Ok(CroppedImage {
+        rgba: base_img.into_raw(),
+        width: base.width,
+        height: base.height,
     })
 }
 
