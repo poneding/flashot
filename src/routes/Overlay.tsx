@@ -21,6 +21,7 @@ import { SelectionBox } from "@/overlay/SelectionBox";
 import { AnnotationStage } from "@/annotation/Stage";
 import { Toolbar as AnnotationToolbar } from "@/annotation/Toolbar";
 import { useAnnotation } from "@/annotation/store";
+import { exportAnnotationLayer } from "@/annotation/export";
 
 export function OverlayRoute() {
   const start = useOverlay((s) => s.start);
@@ -146,12 +147,14 @@ export function OverlayRoute() {
 
   const handleCopy = async () => {
     if (monitorId == null || !selection) return;
-    await cropAndCopy(monitorId, selection);
+    const annotationPng = await exportAnnotationLayer(scaleFactor);
+    await cropAndCopy(monitorId, selection, annotationPng ?? undefined);
   };
 
   const handleSave = async () => {
     if (monitorId == null || !selection) return;
-    await cropAndSave(monitorId, selection);
+    const annotationPng = await exportAnnotationLayer(scaleFactor);
+    await cropAndSave(monitorId, selection, annotationPng ?? undefined);
   };
 
   const handleClose = () => {

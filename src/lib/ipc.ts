@@ -7,11 +7,19 @@ export type SelectionClaimPayload = {
   monitorId: number;
 };
 
-export async function cropAndCopy(monitorId: number, rect: Rect): Promise<void> {
-  await invoke("crop_and_copy", { monitorId, rect });
+export async function cropAndCopy(monitorId: number, rect: Rect, annotationPng?: ArrayBuffer): Promise<void> {
+  await invoke("crop_and_copy", {
+    monitorId,
+    rect,
+    annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
+  });
 }
-export async function cropAndSave(monitorId: number, rect: Rect): Promise<string | null> {
-  return await invoke<string | null>("crop_and_save", { monitorId, rect });
+export async function cropAndSave(monitorId: number, rect: Rect, annotationPng?: ArrayBuffer): Promise<string | null> {
+  return await invoke<string | null>("crop_and_save", {
+    monitorId,
+    rect,
+    annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
+  });
 }
 export async function cancelCapture(): Promise<void> {
   await invoke("cancel_capture");
