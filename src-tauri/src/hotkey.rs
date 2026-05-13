@@ -4,10 +4,14 @@ use global_hotkey::{
     GlobalHotKeyEvent, GlobalHotKeyManager,
 };
 use parking_lot::Mutex;
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
 
 static CURRENT_ID: AtomicU32 = AtomicU32::new(0);
+
+thread_local! {
+    static HOTKEY_SERVICE: RefCell<Option<HotkeyService>> = const { RefCell::new(None) };
+}
 
 pub struct HotkeyService {
     mgr: GlobalHotKeyManager,
@@ -16,12 +20,12 @@ pub struct HotkeyService {
 }
 
 impl HotkeyService {
-    pub fn new() -> Result<Arc<Self>> {
-        Ok(Arc::new(Self {
+    fn new() -> Result<Self> {
+        Ok(Self {
             mgr: GlobalHotKeyManager::new()?,
             current: Mutex::new(None),
             capture_cancel: Mutex::new(None),
-        }))
+        })
     }
 
     pub fn set(&self, accelerator: &str) -> Result<u32> {
@@ -61,6 +65,40 @@ impl HotkeyService {
     pub fn receiver(&self) -> &'static crossbeam_channel::Receiver<GlobalHotKeyEvent> {
         GlobalHotKeyEvent::receiver()
     }
+}
+
+pub fn initialize() -> Result<()> {
+    HOTKEY_SERVICE.with(|slot| {
+        let mut service = slot.borrow_mut();
+        if service.is_none() {
+            *service = Some(HotkeyService::new()?);
+        }
+        Ok(())
+    })
+}
+
+pub fn set(accelerator: &str) -> Result<u32> {
+    HOTKEY_SERVICE.with(|slot| {
+        let service = slot.borrow();
+        let service = service
+            .as_ref()
+            .ok_or_else(|| anyhow!("hotkey service has not been initialized"))?;
+        service.set(accelerator)
+    })
+}
+
+pub fn set_capture_cancel_enabled(enabled: bool) -> Result<()> {
+    HOTKEY_SERVICE.with(|slot| {
+        let service = slot.borrow();
+        let service = service
+            .as_ref()
+            .ok_or_else(|| anyhow!("hotkey service has not been initialized"))?;
+        service.set_capture_cancel_enabled(enabled)
+    })
+}
+
+pub fn receiver() -> &'static crossbeam_channel::Receiver<GlobalHotKeyEvent> {
+    GlobalHotKeyEvent::receiver()
 }
 
 pub fn current_id() -> u32 {

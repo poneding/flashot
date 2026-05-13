@@ -268,7 +268,7 @@ mod tests {
 
     #[test]
     fn crop_and_save_ends_capture_before_opening_save_dialog() {
-        let source = include_str!("commands.rs");
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
         let start = source.find("pub async fn crop_and_save").unwrap();
         let end = source[start..]
             .find("#[tauri::command]\npub async fn cancel_capture")
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn set_settings_applies_launch_at_login_before_saving_settings() {
-        let source = include_str!("commands.rs");
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
         let start = source.find("pub fn set_settings").unwrap();
         let end = source[start..]
             .find("#[tauri::command]\npub fn open_settings_window")
