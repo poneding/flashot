@@ -4,6 +4,7 @@ import {
   cancelCapture,
   claimSelection,
   cropAndCopy,
+  cropAndSave,
   onCaptureEnd,
   onCaptureStart,
   onSelectionClaimed,
@@ -17,7 +18,9 @@ import { DimMask } from "@/overlay/DimMask";
 import { Crosshair } from "@/overlay/Crosshair";
 import { DetectHighlight } from "@/overlay/DetectHighlight";
 import { SelectionBox } from "@/overlay/SelectionBox";
-import { Toolbar } from "@/overlay/Toolbar";
+import { AnnotationStage } from "@/annotation/Stage";
+import { Toolbar as AnnotationToolbar } from "@/annotation/Toolbar";
+import { useAnnotation } from "@/annotation/store";
 
 export function OverlayRoute() {
   const start = useOverlay((s) => s.start);
@@ -36,13 +39,18 @@ export function OverlayRoute() {
   const cursor = useOverlay((s) => s.cursor);
   const selectionInteraction = useOverlay((s) => s.selectionInteraction);
   const frameUrl = useOverlay((s) => s.frameUrl);
+  const scaleFactor = useOverlay((s) => s.scaleFactor);
+  const monitorRect = useOverlay((s) => s.monitorRect);
 
   useEffect(() => {
     document.body.classList.add("overlay");
     let unsubStart: undefined | (() => void);
     let unsubEnd: undefined | (() => void);
     onCaptureStart(start).then((u) => (unsubStart = u));
-    onCaptureEnd(end).then((u) => (unsubEnd = u));
+    onCaptureEnd(() => {
+      useAnnotation.getState().reset();
+      end();
+    }).then((u) => (unsubEnd = u));
     return () => {
       document.body.classList.remove("overlay");
       unsubStart?.();
@@ -70,9 +78,35 @@ export function OverlayRoute() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); cancelCapture(); return; }
-      if (mode === "committed" && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
-        e.preventDefault();
-        if (selection && monitorId != null) cropAndCopy(monitorId, selection);
+
+      if (mode === "committed") {
+        const { undo, redo, deleteObject, selectedObjectId } = useAnnotation.getState();
+
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+          e.preventDefault();
+          undo();
+          return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && e.shiftKey) {
+          e.preventDefault();
+          redo();
+          return;
+        }
+        if ((e.key === "Delete" || e.key === "Backspace") && selectedObjectId) {
+          e.preventDefault();
+          deleteObject(selectedObjectId);
+          return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
+          e.preventDefault();
+          handleCopy();
+          return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+          e.preventDefault();
+          handleSave();
+          return;
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -109,6 +143,20 @@ export function OverlayRoute() {
       window.clearInterval(interval);
     };
   }, [mode, frameUrl]);
+
+  const handleCopy = async () => {
+    if (monitorId == null || !selection) return;
+    await cropAndCopy(monitorId, selection);
+  };
+
+  const handleSave = async () => {
+    if (monitorId == null || !selection) return;
+    await cropAndSave(monitorId, selection);
+  };
+
+  const handleClose = () => {
+    cancelCapture();
+  };
 
   const claimCurrentOverlay = (claimedMonitorId: number | null) => {
     if (claimedMonitorId == null) return;
@@ -214,7 +262,18 @@ export function OverlayRoute() {
       <DetectHighlight />
       <SelectionBox />
       <Crosshair />
-      <Toolbar />
+      {mode === "committed" && selection && monitorRect && monitorId != null && (
+        <>
+          <AnnotationStage selection={selection} scaleFactor={scaleFactor} />
+          <AnnotationToolbar
+            selection={selection}
+            monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
+            onCopy={handleCopy}
+            onSave={handleSave}
+            onClose={handleClose}
+          />
+        </>
+      )}
     </div>
   );
 }
