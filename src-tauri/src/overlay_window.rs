@@ -61,48 +61,6 @@ where
         .map_err(|_| anyhow!("{task_name} did not return from the main thread"))?
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn capture_overlay_accepts_first_mouse_clicks() {
-        assert!(super::capture_overlay_accepts_first_mouse());
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_capture_overlay_does_not_take_focus() {
-        assert!(!super::capture_overlay_should_take_focus());
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    #[test]
-    fn non_macos_capture_overlay_can_take_focus() {
-        assert!(super::capture_overlay_should_take_focus());
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_overlay_uses_maximum_window_level() {
-        assert_eq!(super::overlay_level_from_window_levels(2000, 3000), 3000);
-        assert_eq!(super::overlay_level_from_window_levels(2000, 1999), 2001);
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn capture_presentation_does_not_mutate_system_chrome_options() {
-        let preserved_option = 1 << 12;
-        let existing = super::NS_APPLICATION_PRESENTATION_AUTO_HIDE_DOCK
-            | super::NS_APPLICATION_PRESENTATION_HIDE_DOCK
-            | super::NS_APPLICATION_PRESENTATION_AUTO_HIDE_MENU_BAR
-            | super::NS_APPLICATION_PRESENTATION_HIDE_MENU_BAR
-            | preserved_option;
-
-        let options = super::capture_presentation_options(existing);
-
-        assert_eq!(options, existing);
-    }
-}
-
 #[cfg(target_os = "macos")]
 fn configure_platform_overlay(window: &WebviewWindow, monitor_id: u32) -> Result<()> {
     use objc::{
@@ -256,4 +214,46 @@ fn configure_platform_overlay(_window: &WebviewWindow, _monitor_id: u32) -> Resu
 #[cfg(not(target_os = "macos"))]
 fn bring_platform_overlay_to_front(_window: &WebviewWindow) -> Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn capture_overlay_accepts_first_mouse_clicks() {
+        assert!(super::capture_overlay_accepts_first_mouse());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_capture_overlay_does_not_take_focus() {
+        assert!(!super::capture_overlay_should_take_focus());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn non_macos_capture_overlay_can_take_focus() {
+        assert!(super::capture_overlay_should_take_focus());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_overlay_uses_maximum_window_level() {
+        assert_eq!(super::overlay_level_from_window_levels(2000, 3000), 3000);
+        assert_eq!(super::overlay_level_from_window_levels(2000, 1999), 2001);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn capture_presentation_does_not_mutate_system_chrome_options() {
+        let preserved_option = 1 << 12;
+        let existing = super::NS_APPLICATION_PRESENTATION_AUTO_HIDE_DOCK
+            | super::NS_APPLICATION_PRESENTATION_HIDE_DOCK
+            | super::NS_APPLICATION_PRESENTATION_AUTO_HIDE_MENU_BAR
+            | super::NS_APPLICATION_PRESENTATION_HIDE_MENU_BAR
+            | preserved_option;
+
+        let options = super::capture_presentation_options(existing);
+
+        assert_eq!(options, existing);
+    }
 }
