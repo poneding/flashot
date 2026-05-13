@@ -58,13 +58,12 @@ pub fn run() {
             spawn_overlays(app.handle())?;
 
             // Set up hotkey service
-            let hotkey_svc =
-                Arc::new(hotkey::HotkeyService::new().context("Failed to create hotkey service")?);
+            hotkey::initialize().context("Failed to create hotkey service")?;
 
             // Register configured hotkey
-            register_startup_hotkey(&settings.hotkey, |hotkey| hotkey_svc.set(hotkey));
+            register_startup_hotkey(&settings.hotkey, hotkey::set);
 
-            let receiver = hotkey_svc.receiver();
+            let receiver = hotkey::receiver();
             let app_handle = app.handle().clone();
             let mgr_for_hotkey = mgr.clone();
 
@@ -87,20 +86,17 @@ pub fn run() {
                 }
             });
 
-            // Re-register hotkey when settings change. We push the HotkeyService
-            // into a Mutex-wrapped state slot for live updates.
-            use std::sync::Mutex as StdMutex;
-            let hk_arc = StdMutex::new(hotkey_svc.clone());
-            app.manage(hk_arc);
-
             let app_for_settings = app.handle().clone();
             app.listen("settings:changed", move |_| {
                 let app = app_for_settings.clone();
                 let s = settings_store::load().unwrap_or_default();
-                let hk_state = app.state::<StdMutex<Arc<hotkey::HotkeyService>>>();
-                let svc = hk_state.lock().unwrap().clone();
-                if let Err(e) = svc.set(&s.hotkey) {
-                    tracing::warn!("hotkey re-register failed: {e}");
+                let next_hotkey = s.hotkey.clone();
+                if let Err(e) = app.run_on_main_thread(move || {
+                    if let Err(e) = hotkey::set(&next_hotkey) {
+                        tracing::warn!("hotkey re-register failed: {e}");
+                    }
+                }) {
+                    tracing::warn!("hotkey re-register dispatch failed: {e}");
                 }
                 if let Err(e) = tray::update_menu(&app, &s.hotkey) {
                     tracing::warn!("tray menu update failed: {e}");
@@ -241,13 +237,12 @@ fn capture_start_target(label: &str) -> tauri::EventTarget {
 }
 
 fn set_capture_cancel_hotkey(app: &AppHandle, enabled: bool) {
-    let Some(hk_state) = app.try_state::<std::sync::Mutex<Arc<hotkey::HotkeyService>>>() else {
-        tracing::warn!("capture cancel hotkey state is not available");
-        return;
-    };
-    let svc = hk_state.lock().unwrap().clone();
-    if let Err(e) = svc.set_capture_cancel_enabled(enabled) {
-        tracing::warn!("capture cancel hotkey update failed: {e}");
+    if let Err(e) = app.run_on_main_thread(move || {
+        if let Err(e) = hotkey::set_capture_cancel_enabled(enabled) {
+            tracing::warn!("capture cancel hotkey update failed: {e}");
+        }
+    }) {
+        tracing::warn!("capture cancel hotkey dispatch failed: {e}");
     }
 }
 
