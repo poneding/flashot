@@ -7,3 +7,8 @@ pub use macos::{capture_all_monitors, enumerate_monitors};
 mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::{capture_all_monitors, enumerate_monitors};
+
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::{capture_all_monitors, enumerate_monitors};
