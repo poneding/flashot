@@ -179,9 +179,9 @@ export function OverlayRoute() {
   const onContextMenu = (e: React.MouseEvent) => { e.preventDefault(); cancelCapture(); };
 
   const overlayCursor = (() => {
+    if (mode === "hover" || mode === "dragging") return "none";
     if (selectionInteraction?.kind === "resize") return cursorForHandle(selectionInteraction.handle);
     if (selectionInteraction?.kind === "move") return "move";
-    if (mode === "hover" || mode === "dragging") return "crosshair";
     if (mode === "committed" && selection && cursor) {
       const handle = hitTestHandle(cursor, selection, 10);
       if (handle) return cursorForHandle(handle);

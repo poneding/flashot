@@ -49,6 +49,8 @@ pnpm tauri build      # Build production bundle (.dmg, .msi, .AppImage)
 2. **Overlay interaction** (`src/routes/Overlay.tsx` + `src/overlay/state.ts`)
    - Zustand store manages state machine: `idle → hover → dragging → committed`
    - Mouse events drive state transitions
+   - Custom crosshair cursor (`src/overlay/Crosshair.tsx`) uses CSS transforms for hardware-accelerated rendering
+   - Native cursor is hidden in `hover` and `dragging` modes to prevent double cursor display
    - Window detection uses z-order hit-testing (`src/lib/hit-test.ts`)
    - Selection handles use geometry utilities (`src/lib/geometry.ts`)
 
@@ -68,6 +70,7 @@ pnpm tauri build      # Build production bundle (.dmg, .msi, .AppImage)
 ### Key Frontend Modules
 
 - **`src/overlay/state.ts`**: Zustand store for overlay state machine. All overlay components read from this store.
+- **`src/overlay/Crosshair.tsx`**: Custom crosshair cursor component. Uses CSS `transform` with `willChange: "transform"` for GPU-accelerated rendering. Displays a 20px crosshair (10px per side) with a centered circle. Designed for future color picker integration.
 - **`src/lib/geometry.ts`**: Pure functions for rect operations (clamp, resize, translate). Used by selection handles.
 - **`src/lib/hit-test.ts`**: Z-order window hit-testing. Returns topmost window at cursor position.
 - **`src/lib/ipc.ts`**: Typed wrappers around Tauri IPC (commands + events). Use these instead of raw `invoke()`.
@@ -137,6 +140,7 @@ This allows live hotkey updates without app restart.
 2. Read state from `useOverlay` hook (from `src/overlay/state.ts`)
 3. Add to `src/routes/Overlay.tsx` render tree
 4. Component should be absolutely positioned and pointer-events-aware
+5. For cursor-following elements, use CSS `transform` instead of `left/top` for better performance
 
 ### Modifying capture flow
 - **Never** manually hide overlays or clear frames — always use `SessionGuard`
@@ -154,4 +158,5 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push/PR:
 
 - Crop operation: < 8ms (measured by `crop_bench`, currently ~748µs)
 - Capture latency: < 200ms (subjective, not benchmarked)
-- Overlay render: 60fps (React + CSS transforms)
+- Overlay render: 60fps (React + CSS transforms with GPU acceleration)
+- Crosshair cursor: Real-time tracking via `onMouseMove` events, hardware-accelerated via CSS `transform`
