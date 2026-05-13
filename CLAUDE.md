@@ -154,6 +154,47 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push/PR:
 - `cargo bench --bench crop_bench` (only bench that works without display)
 - Runs on macOS, Windows, Linux (Ubuntu)
 
+## Git Commit Convention
+
+Follow [Conventional Commits](https://www.conventionalcommits.org/) specification for all commit messages:
+
+### Format
+```
+<type>: <description>
+
+[optional body]
+
+[optional footer]
+```
+
+### Types
+- **feat**: New feature for the user
+- **fix**: Bug fix for the user
+- **docs**: Documentation changes
+- **style**: Code style changes (formatting, missing semicolons, etc.)
+- **refactor**: Code refactoring without changing functionality
+- **perf**: Performance improvements
+- **test**: Adding or updating tests
+- **chore**: Maintenance tasks (dependencies, build config, CI, etc.)
+- **ci**: CI/CD configuration changes
+
+### Examples
+```bash
+feat: add color picker to crosshair cursor
+fix: resolve memory leak in session cleanup
+refactor: extract window detection logic to separate module
+chore: update dependencies to latest versions
+ci: add libpipewire-0.3-dev to Ubuntu build
+docs: update CLAUDE.md with commit conventions
+```
+
+### Guidelines
+- Use lowercase for type and description
+- Keep the first line under 72 characters
+- Use imperative mood ("add" not "added" or "adds")
+- Reference issues/PRs in the footer when applicable
+- Use the body to explain *what* and *why*, not *how*
+
 ## Performance Targets
 
 - Crop operation: < 8ms (measured by `crop_bench`, currently ~748µs)
