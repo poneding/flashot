@@ -10,6 +10,8 @@ import { onHighlightStart, onHighlightMove, onHighlightEnd } from "@/annotation/
 import { onBlurStart, onBlurMove, onBlurEnd } from "@/annotation/tools/blur";
 import { onEraserStart, onEraserMove, onEraserEnd } from "@/annotation/tools/eraser";
 import type { AnnotationObject, ToolType } from "@/annotation/types";
+import { TextOverlay } from "@/annotation/TextOverlay";
+import { addTextToLayer } from "@/annotation/tools/text";
 
 type Props = {
   selection: Rect;
@@ -51,6 +53,7 @@ export function AnnotationStage({ selection, scaleFactor: _scaleFactor }: Props)
   const containerRef = useRef<HTMLDivElement>(null);
   const activeTool = useAnnotation((s) => s.activeTool);
   const [, forceRender] = useState(0);
+  const [textEditing, setTextEditing] = useState<{ position: { x: number; y: number }; editingObject: AnnotationObject | null } | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -125,6 +128,20 @@ export function AnnotationStage({ selection, scaleFactor: _scaleFactor }: Props)
 
     // Text tool handled separately (no drag)
     if (tool === "text") {
+      // Check if clicking existing text object for editing
+      const stageInst = getStage();
+      const shape = stageInst?.getIntersection({ x, y });
+      if (shape && shape.id()) {
+        const obj = objects.find((o) => o.id === shape.id() && o.type === "text");
+        if (obj) {
+          shape.destroy();
+          getLayer()?.batchDraw();
+          useAnnotation.getState().deleteObject(obj.id);
+          setTextEditing({ position: { x: e.clientX, y: e.clientY }, editingObject: obj });
+          return;
+        }
+      }
+      setTextEditing({ position: { x: e.clientX, y: e.clientY }, editingObject: null });
       return;
     }
 
@@ -190,20 +207,35 @@ export function AnnotationStage({ selection, scaleFactor: _scaleFactor }: Props)
         : "crosshair";
 
   return (
-    <div
-      ref={containerRef}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      style={{
-        position: "absolute",
-        left: selection.x,
-        top: selection.y,
-        width: selection.width,
-        height: selection.height,
-        cursor,
-        pointerEvents: "auto",
-      }}
-    />
+    <>
+      <div
+        ref={containerRef}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        style={{
+          position: "absolute",
+          left: selection.x,
+          top: selection.y,
+          width: selection.width,
+          height: selection.height,
+          cursor,
+          pointerEvents: "auto",
+        }}
+      />
+      {textEditing && (
+        <TextOverlay
+          position={textEditing.position}
+          selection={selection}
+          editingObject={textEditing.editingObject}
+          onConfirm={(obj) => {
+            addTextToLayer(obj);
+            useAnnotation.getState().addObject(obj);
+            setTextEditing(null);
+          }}
+          onCancel={() => setTextEditing(null)}
+        />
+      )}
+    </>
   );
 }
