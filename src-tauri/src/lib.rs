@@ -46,7 +46,8 @@ pub fn run() {
 
             let settings = settings_store::load().unwrap_or_default();
 
-            // Install tray icon
+            // Install tray icon (disabled on Linux due to tao/appindicator panic in event loop)
+            #[cfg(not(target_os = "linux"))]
             tray::install(app.handle(), &settings.hotkey)?;
 
             if !permission::probe_screen_recording() {
@@ -98,6 +99,7 @@ pub fn run() {
                 }) {
                     tracing::warn!("hotkey re-register dispatch failed: {e}");
                 }
+                #[cfg(not(target_os = "linux"))]
                 if let Err(e) = tray::update_menu(&app, &s.hotkey) {
                     tracing::warn!("tray menu update failed: {e}");
                 }
