@@ -49,7 +49,7 @@ crossbeam-channel = "0.5"
 chrono = { version = "0.4", features = ["clock"] }
 xcap = "0.9"
 global-hotkey = "0.6"
-arboard = "3"
+arboard = { version = "3", features = ["wayland-data-control"] }
 rfd = "0.14"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
