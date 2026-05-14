@@ -304,10 +304,20 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     tracing::info!("run_capture: captured {} monitors", monitors.len());
     ensure_overlays_for_monitors(&app, &monitors)?;
 
-    let windows = windows_result
-        .context("Window enumeration task panicked")?
-        .context("Failed to enumerate windows")?;
-    tracing::info!("run_capture: enumerated {} windows", windows.len());
+    let windows = match windows_result {
+        Ok(Ok(ws)) => {
+            tracing::info!("run_capture: enumerated {} windows", ws.len());
+            ws
+        }
+        Ok(Err(e)) => {
+            tracing::warn!("Window enumeration failed, proceeding without window detection: {e}");
+            Vec::new()
+        }
+        Err(e) => {
+            tracing::warn!("Window enumeration task panicked: {e}");
+            Vec::new()
+        }
+    };
 
     // Get app cache directory for storing frames
     tracing::info!("run_capture: getting cache directory");
