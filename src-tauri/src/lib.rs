@@ -204,6 +204,7 @@ fn ensure_overlays_for_monitors(app: &AppHandle, monitors: &[types::MonitorInfo]
             .accept_first_mouse(overlay_window::capture_overlay_accepts_first_mouse())
             .build()
             .context("Failed to create overlay window")?;
+        #[cfg(not(target_os = "linux"))]
         window
             .set_ignore_cursor_events(true)
             .context("Failed to initialize overlay cursor passthrough")?;

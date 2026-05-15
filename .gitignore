@@ -8,6 +8,7 @@
 target/
 src-tauri/target/
 src-tauri/gen/
+src-tauri/.cargo/
 **/*.rs.bk
 Cargo.lock.bak
 

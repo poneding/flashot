@@ -72,8 +72,9 @@ impl WindowMgr {
     fn hide_overlays(&self, app: &AppHandle) {
         for (_label, w) in app.webview_windows() {
             if w.label().starts_with("overlay-") {
-                let _ = w.hide();
+                #[cfg(not(target_os = "linux"))]
                 let _ = w.set_ignore_cursor_events(true);
+                let _ = w.hide();
             }
         }
     }

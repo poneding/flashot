@@ -30,6 +30,20 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "category": "Productivity"
+    "category": "Productivity",
+    "linux": {
+      "deb": {
+        "depends": [
+          "libgtk-3-0",
+          "libwebkit2gtk-4.1-0",
+          "libayatana-appindicator3-1",
+          "libpipewire-0.3-0",
+          "libgbm1"
+        ]
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
   }
 }
