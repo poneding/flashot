@@ -2,7 +2,7 @@ use crate::types::{Rect, WindowRect};
 use anyhow::{Context, Result};
 use xcap::Window;
 use xcb::{
-    Connection,
+    Connection, XidNew,
     x::{ATOM_CARDINAL, ATOM_NONE, Atom, GetProperty, Window as XcbWindow},
 };
 
