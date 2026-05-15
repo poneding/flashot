@@ -53,6 +53,9 @@ arboard = { version = "3", features = ["wayland-data-control"] }
 rfd = "0.14"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+xcb = "1.5"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.23"
 core-foundation = "0.9"
