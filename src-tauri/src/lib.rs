@@ -46,9 +46,7 @@ pub fn run() {
 
             let settings = settings_store::load().unwrap_or_default();
 
-            // Install tray icon (disabled on Linux due to tao/appindicator panic in event loop)
-            #[cfg(not(target_os = "linux"))]
-            tray::install(app.handle(), &settings.hotkey)?;
+            install_tray(app.handle(), &settings.hotkey);
 
             if !permission::probe_screen_recording() {
                 tracing::warn!("screen recording permission not granted");
@@ -99,7 +97,6 @@ pub fn run() {
                 }) {
                     tracing::warn!("hotkey re-register dispatch failed: {e}");
                 }
-                #[cfg(not(target_os = "linux"))]
                 if let Err(e) = tray::update_menu(&app, &s.hotkey) {
                     tracing::warn!("tray menu update failed: {e}");
                 }
@@ -258,6 +255,28 @@ where
         Err(e) => {
             tracing::warn!("failed to register startup hotkey '{accelerator}': {e}");
             false
+        }
+    }
+}
+
+fn install_tray(app: &AppHandle, hotkey: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        let app = app.clone();
+        let hotkey = hotkey.to_string();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            tray::install(&app, &hotkey)
+        }));
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::warn!("tray icon not available: {e}"),
+            Err(_) => tracing::warn!("tray icon not supported on this desktop environment"),
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        if let Err(e) = tray::install(app, hotkey) {
+            tracing::warn!("tray icon install failed: {e}");
         }
     }
 }

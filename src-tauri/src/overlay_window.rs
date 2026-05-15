@@ -206,12 +206,24 @@ fn screen_frame_for_monitor(monitor_id: u32) -> Result<Option<NSRect>> {
     Ok(None)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn configure_platform_overlay(_window: &WebviewWindow, _monitor_id: u32) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+fn bring_platform_overlay_to_front(window: &WebviewWindow) -> Result<()> {
+    window
+        .set_fullscreen(true)
+        .map_err(|e| anyhow!("failed to set fullscreen: {e}"))
+}
+
+#[cfg(target_os = "windows")]
+fn configure_platform_overlay(_window: &WebviewWindow, _monitor_id: u32) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
 fn bring_platform_overlay_to_front(_window: &WebviewWindow) -> Result<()> {
     Ok(())
 }
