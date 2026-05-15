@@ -11,6 +11,7 @@ export function renderTextObject(obj: AnnotationObject): Konva.Text {
     fontSize: obj.style.fontSize ?? 24,
     fontFamily: obj.style.fontFamily ?? "Excalifont",
     fill: obj.style.color,
+    draggable: true,
     scaleX: obj.transform.scaleX,
     scaleY: obj.transform.scaleY,
     rotation: obj.transform.rotation,

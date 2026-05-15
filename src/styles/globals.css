@@ -60,6 +60,7 @@
   }
   /* Overlay window: must be transparent + click-pass-when-needed */
   body.overlay { background: transparent !important; overflow: hidden; }
+  body.overlay .overlay-crosshair, body.overlay .overlay-crosshair img { cursor: crosshair !important; }
   * {
     @apply border-border;
   }

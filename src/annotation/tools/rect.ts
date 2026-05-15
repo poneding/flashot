@@ -75,6 +75,7 @@ export function onRectEnd(x: number, y: number): AnnotationObject | null {
 
   currentRect.id(id);
   currentRect.listening(true);
+  currentRect.draggable(true);
   currentRect = null;
 
   return obj;
@@ -93,6 +94,7 @@ export function renderRectObject(obj: AnnotationObject): Konva.Rect {
 
   return new Konva.Rect({
     id: obj.id,
+    draggable: true,
     ...obj.transform,
     x,
     y,

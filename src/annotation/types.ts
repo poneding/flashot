@@ -6,6 +6,7 @@ export type ToolType =
   | "select"
   | "draw"
   | "line"
+  | "arrow"
   | "rect"
   | "ellipse"
   | "text"
@@ -16,7 +17,7 @@ export type ToolType =
 export type LineShape = "straight" | "wavy";
 export type LineStyle = "solid" | "dotted" | "dashed";
 export type ArrowDirection = "none" | "start" | "end" | "both";
-export type ArrowStyle = "v-shape" | "filled-triangle";
+export type ArrowStyle = "v-shape" | "filled-triangle" | "pointed";
 export type FillMode = "hollow" | "solid";
 export type BlurMode = "mosaic" | "gaussian";
 export type BlurMethod = "rect" | "freehand";
@@ -42,7 +43,7 @@ export type AnnotationStyle = {
 
 export type AnnotationObject = {
   id: AnnotationId;
-  type: "draw" | "line" | "rect" | "ellipse" | "text" | "blur" | "highlight";
+  type: "draw" | "line" | "arrow" | "rect" | "ellipse" | "text" | "blur" | "highlight";
   points?: number[];
   start?: Point;
   end?: Point;

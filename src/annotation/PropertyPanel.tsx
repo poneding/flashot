@@ -1,12 +1,10 @@
-import type { CSSProperties } from "react";
 import { useAnnotation } from "@/annotation/store";
 import {
   PRESET_COLORS,
-  STROKE_WIDTHS,
-  FONT_SIZES,
-  type ToolType,
   type AnnotationStyle,
+  type ToolType,
 } from "@/annotation/types";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
@@ -114,58 +112,142 @@ function ColorPicker({
   );
 }
 
-// ─── StrokeWidthPicker ────────────────────────────────────────────────────────
+// ─── NumberStepper ────────────────────────────────────────────────────────────
 
-function StrokeWidthPicker({
+function NumberStepper({
   value,
   onChange,
+  min,
+  max,
+  step = 1,
+  suffix = "px",
 }: {
   value: number;
-  onChange: (w: number) => void;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  step?: number;
+  suffix?: string;
 }) {
+  const stepperBtn: CSSProperties = {
+    ...btnBase,
+    width: 20,
+    height: 20,
+    fontSize: 14,
+    fontWeight: "bold",
+    padding: 0,
+  };
+
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-      {STROKE_WIDTHS.map((w) => (
-        <button
-          key={w}
-          title={`${w}px`}
-          onClick={() => onChange(w)}
-          style={value === w ? btnActive : btnBase}
-        >
-          <div
-            style={{
-              width: 16,
-              height: w,
-              borderRadius: w / 2,
-              background: value === w ? "#fff" : "rgba(255,255,255,0.6)",
-            }}
-          />
-        </button>
-      ))}
+    <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+      <button
+        style={stepperBtn}
+        onClick={() => onChange(Math.max(min, value - step))}
+        disabled={value <= min}
+      >
+        −
+      </button>
+      <span style={{ minWidth: 32, textAlign: "center", fontSize: 11, color: "#fff" }}>
+        {value}{suffix}
+      </span>
+      <button
+        style={stepperBtn}
+        onClick={() => onChange(Math.min(max, value + step))}
+        disabled={value >= max}
+      >
+        +
+      </button>
     </div>
   );
 }
 
-// ─── FontSizePicker ───────────────────────────────────────────────────────────
+// ─── DropdownSelect ──────────────────────────────────────────────────────────
 
-function FontSizePicker({
+type DropdownOption<T extends string> = { value: T; label: string; icon?: string };
+
+function DropdownSelect<T extends string>({
+  options,
   value,
   onChange,
 }: {
-  value: number;
-  onChange: (s: number) => void;
+  options: DropdownOption<T>[];
+  value: T;
+  onChange: (v: T) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  const handleOpen = () => {
+    if (!open && ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      const dropdownHeight = options.length * 28 + 8;
+      setFlipUp(rect.bottom + dropdownHeight + 8 > window.innerHeight);
+    }
+    setOpen(!open);
+  };
+
+  const selected = options.find((o) => o.value === value);
+
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-      {FONT_SIZES.map((s) => (
-        <button
-          key={s}
-          onClick={() => onChange(s)}
-          style={value === s ? btnActive : btnBase}
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        style={{ ...btnBase, gap: 4 }}
+        onClick={handleOpen}
+      >
+        <span style={{ color: "#fff" }}>{selected?.icon ?? selected?.label ?? value}</span>
+        <span style={{ fontSize: 8, opacity: 0.6 }}>▼</span>
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            ...(flipUp
+              ? { bottom: "calc(100% + 4px)" }
+              : { top: "calc(100% + 4px)" }),
+            left: 0,
+            minWidth: 80,
+            background: "rgba(30, 30, 30, 0.95)",
+            border: "1px solid rgba(255,255,255,0.15)",
+            borderRadius: 6,
+            padding: "4px 0",
+            zIndex: 10010,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+          }}
         >
-          {s}
-        </button>
-      ))}
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                width: "100%",
+                padding: "5px 10px",
+                border: "none",
+                background: opt.value === value ? "rgba(255,255,255,0.1)" : "transparent",
+                color: "#fff",
+                fontSize: 12,
+                textAlign: "left",
+                cursor: "pointer",
+              }}
+            >
+              {opt.icon && <span>{opt.icon}</span>}
+              <span>{opt.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -212,7 +294,7 @@ function PenSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <StrokeWidthPicker value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
+      <NumberStepper value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
     </>
   );
 }
@@ -228,39 +310,56 @@ function LineSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <StrokeWidthPicker value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
+      <NumberStepper value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
       <Separator />
-      <ToggleGroup
+      <DropdownSelect
         options={[
-          { value: "straight", label: "—", title: "Straight" },
-          { value: "wavy", label: "∿", title: "Wavy" },
+          { value: "solid", label: "Solid", icon: "━" },
+          { value: "wavy", label: "Wavy", icon: "∿" },
+          { value: "dotted", label: "Dotted", icon: "┈" },
+          { value: "dashed", label: "Dashed", icon: "╌" },
         ]}
-        value={style.lineShape ?? "straight"}
-        onChange={(lineShape) => set({ lineShape })}
+        value={(() => {
+          if (style.lineShape === "wavy") return "wavy";
+          return style.lineStyle ?? "solid";
+        })()}
+        onChange={(v) => {
+          if (v === "wavy") set({ lineShape: "wavy", lineStyle: "solid" });
+          else set({ lineShape: "straight", lineStyle: v as "solid" | "dotted" | "dashed" });
+        }}
       />
-      <ToggleGroup
+    </>
+  );
+}
+
+function ArrowSection({
+  style,
+  set,
+}: {
+  style: AnnotationStyle;
+  set: (p: Partial<AnnotationStyle>) => void;
+}) {
+  return (
+    <>
+      <ColorPicker value={style.color} onChange={(color) => set({ color })} />
+      <Separator />
+      <NumberStepper value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
+      <Separator />
+      <DropdownSelect
         options={[
-          { value: "solid", label: "━", title: "Solid" },
-          { value: "dotted", label: "┈", title: "Dotted" },
-          { value: "dashed", label: "╌", title: "Dashed" },
+          { value: "solid", label: "Solid", icon: "━" },
+          { value: "dotted", label: "Dotted", icon: "┈" },
+          { value: "dashed", label: "Dashed", icon: "╌" },
         ]}
         value={style.lineStyle ?? "solid"}
         onChange={(lineStyle) => set({ lineStyle })}
       />
-      <ToggleGroup
+      <Separator />
+      <DropdownSelect
         options={[
-          { value: "none", label: "○", title: "No arrow" },
-          { value: "start", label: "←", title: "Arrow at start" },
-          { value: "end", label: "→", title: "Arrow at end" },
-          { value: "both", label: "↔", title: "Both ends" },
-        ]}
-        value={style.arrow ?? "none"}
-        onChange={(arrow) => set({ arrow })}
-      />
-      <ToggleGroup
-        options={[
-          { value: "v-shape", label: ">", title: "V-shape arrow" },
-          { value: "filled-triangle", label: "▶", title: "Filled triangle" },
+          { value: "v-shape", label: "Open", icon: ">" },
+          { value: "filled-triangle", label: "Filled", icon: "▶" },
+          { value: "pointed", label: "Pointed", icon: "▷" },
         ]}
         value={style.arrowStyle ?? "v-shape"}
         onChange={(arrowStyle) => set({ arrowStyle })}
@@ -280,7 +379,7 @@ function RectSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <StrokeWidthPicker value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
+      <NumberStepper value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
       <Separator />
       <ToggleGroup
         options={[
@@ -292,9 +391,9 @@ function RectSection({
       />
       <ToggleGroup
         options={[
-          { value: 0, label: "┐", title: "Sharp corners" },
-          { value: 8, label: "╮", title: "Rounded corners" },
-        ] as unknown as ToggleOption<string>[]}
+          { value: "0", label: "┐", title: "Sharp corners" },
+          { value: "8", label: "╮", title: "Rounded corners" },
+        ]}
         value={String(style.cornerRadius ?? 0)}
         onChange={(v) => set({ cornerRadius: Number(v) })}
       />
@@ -313,7 +412,7 @@ function EllipseSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <StrokeWidthPicker value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
+      <NumberStepper value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
       <Separator />
       <ToggleGroup
         options={[
@@ -338,18 +437,18 @@ function TextSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <ToggleGroup
+      <DropdownSelect
         options={[
-          { value: "Excalifont", label: "Ex", title: "Excalifont" },
-          { value: "sans-serif", label: "Aa", title: "Sans-serif" },
-          { value: "serif", label: "Sf", title: "Serif" },
-          { value: "monospace", label: "Mo", title: "Monospace" },
+          { value: "Excalifont", label: "Handwriting", icon: "✎" },
+          { value: "sans-serif", label: "Sans-serif", icon: "A" },
+          { value: "serif", label: "Serif", icon: "T" },
+          { value: "monospace", label: "Monospace", icon: "<>" },
         ]}
         value={style.fontFamily ?? "Excalifont"}
         onChange={(fontFamily) => set({ fontFamily })}
       />
       <Separator />
-      <FontSizePicker value={style.fontSize ?? 24} onChange={(fontSize) => set({ fontSize })} />
+      <NumberStepper value={style.fontSize ?? 24} onChange={(fontSize) => set({ fontSize })} min={10} max={72} step={2} />
     </>
   );
 }
@@ -363,10 +462,10 @@ function BlurSection({
 }) {
   return (
     <>
-      <ToggleGroup
+      <DropdownSelect
         options={[
-          { value: "mosaic", label: "▦", title: "Mosaic blur" },
-          { value: "gaussian", label: "◌", title: "Gaussian blur" },
+          { value: "mosaic", label: "Mosaic", icon: "▦" },
+          { value: "gaussian", label: "Gaussian", icon: "◌" },
         ]}
         value={style.blurMode ?? "mosaic"}
         onChange={(blurMode) => set({ blurMode })}
@@ -381,15 +480,7 @@ function BlurSection({
         onChange={(blurMethod) => set({ blurMethod })}
       />
       <Separator />
-      <ToggleGroup
-        options={[
-          { value: "5", label: "S", title: "Small" },
-          { value: "10", label: "M", title: "Medium" },
-          { value: "20", label: "L", title: "Large" },
-        ]}
-        value={String(style.blurIntensity ?? 10)}
-        onChange={(v) => set({ blurIntensity: Number(v) })}
-      />
+      <NumberStepper value={style.blurIntensity ?? 10} onChange={(blurIntensity) => set({ blurIntensity })} min={3} max={30} step={1} suffix="" />
     </>
   );
 }
@@ -405,7 +496,7 @@ function HighlightSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <StrokeWidthPicker value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
+      <NumberStepper value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
       <Separator />
       <ToggleGroup
         options={[
@@ -419,18 +510,6 @@ function HighlightSection({
   );
 }
 
-function EraserSection({
-  style,
-  set,
-}: {
-  style: AnnotationStyle;
-  set: (p: Partial<AnnotationStyle>) => void;
-}) {
-  return (
-    <StrokeWidthPicker value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
-  );
-}
-
 // ─── PropertyPanel ────────────────────────────────────────────────────────────
 
 type Props = {
@@ -438,39 +517,22 @@ type Props = {
   style?: CSSProperties;
 };
 
-export function PropertyPanel({ tool, style }: Props) {
+export function PropertyPanel({ tool, style: containerStyle }: Props) {
   const activeStyle = useAnnotation((s) => s.activeStyle);
   const setActiveStyle = useAnnotation((s) => s.setActiveStyle);
 
-  // Tools with no options
   if (tool === "select") return null;
 
   return (
-    <div style={{ ...panelStyle, ...style }}>
-      {tool === "draw" && (
-        <PenSection style={activeStyle} set={setActiveStyle} />
-      )}
-      {tool === "line" && (
-        <LineSection style={activeStyle} set={setActiveStyle} />
-      )}
-      {tool === "rect" && (
-        <RectSection style={activeStyle} set={setActiveStyle} />
-      )}
-      {tool === "ellipse" && (
-        <EllipseSection style={activeStyle} set={setActiveStyle} />
-      )}
-      {tool === "text" && (
-        <TextSection style={activeStyle} set={setActiveStyle} />
-      )}
-      {tool === "blur" && (
-        <BlurSection style={activeStyle} set={setActiveStyle} />
-      )}
-      {tool === "highlight" && (
-        <HighlightSection style={activeStyle} set={setActiveStyle} />
-      )}
-      {tool === "eraser" && (
-        <EraserSection style={activeStyle} set={setActiveStyle} />
-      )}
+    <div style={{ ...panelStyle, ...containerStyle }} onMouseDown={(e) => e.stopPropagation()}>
+      {tool === "draw" && <PenSection style={activeStyle} set={setActiveStyle} />}
+      {tool === "line" && <LineSection style={activeStyle} set={setActiveStyle} />}
+      {tool === "arrow" && <ArrowSection style={activeStyle} set={setActiveStyle} />}
+      {tool === "rect" && <RectSection style={activeStyle} set={setActiveStyle} />}
+      {tool === "ellipse" && <EllipseSection style={activeStyle} set={setActiveStyle} />}
+      {tool === "text" && <TextSection style={activeStyle} set={setActiveStyle} />}
+      {tool === "blur" && <BlurSection style={activeStyle} set={setActiveStyle} />}
+      {tool === "highlight" && <HighlightSection style={activeStyle} set={setActiveStyle} />}
     </div>
   );
 }

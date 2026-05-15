@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useRef, type CSSProperties, type MutableRefObject } from "react";
 import { useAnnotation } from "@/annotation/store";
 import type { AnnotationObject } from "@/annotation/types";
 import type { Rect } from "@/lib/types";
@@ -9,36 +9,54 @@ type Props = {
   onConfirm: (obj: AnnotationObject) => void;
   onCancel: () => void;
   editingObject?: AnnotationObject | null;
+  flushRef?: MutableRefObject<(() => void) | null>;
 };
 
-export function TextOverlay({ position, selection, onConfirm, onCancel, editingObject }: Props) {
+export function TextOverlay({ position, selection, onConfirm, onCancel, editingObject, flushRef }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { activeStyle } = useAnnotation.getState();
   const style = editingObject?.style ?? activeStyle;
   const initialText = editingObject?.text ?? "";
+  const confirmedRef = useRef(false);
 
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.focus();
-    el.value = initialText;
-    el.style.height = "auto";
-    el.style.height = el.scrollHeight + "px";
+    // Delay focus to next frame to avoid being stolen by mousedown
+    requestAnimationFrame(() => {
+      el.focus();
+      el.value = initialText;
+      el.style.height = "auto";
+      el.style.height = el.scrollHeight + "px";
+    });
   }, []);
 
+  // Register flush callback so Stage can confirm text before opening a new one
+  useEffect(() => {
+    if (flushRef) {
+      flushRef.current = () => confirm();
+    }
+    return () => {
+      if (flushRef) flushRef.current = null;
+    };
+  });
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       confirm();
     }
     if (e.key === "Escape") {
       e.stopPropagation();
+      onCancel();
     }
   };
 
   const handleBlur = () => { confirm(); };
 
   const confirm = () => {
+    if (confirmedRef.current) return;
+    confirmedRef.current = true;
     const text = textareaRef.current?.value?.trim();
     if (!text) { onCancel(); return; }
     const obj: AnnotationObject = {
@@ -53,10 +71,10 @@ export function TextOverlay({ position, selection, onConfirm, onCancel, editingO
   };
 
   const containerStyle: CSSProperties = {
-    position: "absolute",
+    position: "fixed",
     left: position.x,
     top: position.y,
-    zIndex: 10000,
+    zIndex: 10002,
     pointerEvents: "auto",
   };
 

@@ -65,6 +65,7 @@ export function onHighlightEnd(x: number, y: number): AnnotationObject | null {
 
   currentLine.id(id);
   currentLine.listening(true);
+  currentLine.draggable(true);
 
   const obj: AnnotationObject = {
     id,
@@ -91,6 +92,7 @@ export function renderHighlightObject(obj: AnnotationObject): Konva.Line {
     lineCap: "round",
     lineJoin: "round",
     globalCompositeOperation: "multiply",
+    draggable: true,
     ...obj.transform,
   });
 }

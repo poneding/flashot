@@ -15,7 +15,6 @@ import { currentCursorPointInWindow } from "@/lib/cursor";
 import { cursorForHandle, hitTestHandle, rectContainsPoint } from "@/lib/geometry";
 import { FrozenLayer } from "@/overlay/FrozenLayer";
 import { DimMask } from "@/overlay/DimMask";
-import { Crosshair } from "@/overlay/Crosshair";
 import { DetectHighlight } from "@/overlay/DetectHighlight";
 import { SelectionBox } from "@/overlay/SelectionBox";
 import { AnnotationStage } from "@/annotation/Stage";
@@ -78,6 +77,10 @@ export function OverlayRoute() {
   // Keyboard: Esc cancels; Cmd/Ctrl+C copies when committed
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Don't intercept keys when editing text annotations
+      const active = document.activeElement;
+      if (active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")) return;
+
       if (e.key === "Escape") { e.preventDefault(); cancelCapture(); return; }
 
       if (mode === "committed") {
@@ -202,8 +205,7 @@ export function OverlayRoute() {
         beginMove(p);
         return;
       }
-      claimCurrentOverlay(state.monitorId);
-      beginDrag(p);
+      // Selection is locked once committed — no re-selection
       return;
     }
 
@@ -230,13 +232,12 @@ export function OverlayRoute() {
   const onContextMenu = (e: React.MouseEvent) => { e.preventDefault(); cancelCapture(); };
 
   const overlayCursor = (() => {
-    if (mode === "hover" || mode === "dragging") return "none";
+    if (mode === "hover" || mode === "dragging") return "crosshair";
     if (selectionInteraction?.kind === "resize") return cursorForHandle(selectionInteraction.handle);
     if (selectionInteraction?.kind === "move") return "move";
     if (mode === "committed" && selection && cursor) {
       const handle = hitTestHandle(cursor, selection, 10);
       if (handle) return cursorForHandle(handle);
-      if (rectContainsPoint(selection, cursor)) return "move";
     }
     return "default";
   })();
@@ -245,6 +246,7 @@ export function OverlayRoute() {
 
   return (
     <div
+      className={mode === "hover" || mode === "dragging" ? "overlay-crosshair" : undefined}
       onMouseMove={onMouseMove}
       onMouseEnter={onMouseMove}
       onMouseDown={onMouseDown}
@@ -264,10 +266,9 @@ export function OverlayRoute() {
       <DimMask />
       <DetectHighlight />
       <SelectionBox />
-      <Crosshair />
       {mode === "committed" && selection && monitorRect && monitorId != null && (
         <>
-          <AnnotationStage selection={selection} scaleFactor={scaleFactor} />
+          <AnnotationStage selection={selection} scaleFactor={scaleFactor} interacting={!!selectionInteraction} />
           <AnnotationToolbar
             selection={selection}
             monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}

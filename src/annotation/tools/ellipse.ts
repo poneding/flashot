@@ -74,6 +74,7 @@ export function onEllipseEnd(x: number, y: number): AnnotationObject | null {
 
   currentEllipse.id(id);
   currentEllipse.listening(true);
+  currentEllipse.draggable(true);
   currentEllipse = null;
 
   return obj;
@@ -92,6 +93,7 @@ export function renderEllipseObject(obj: AnnotationObject): Konva.Ellipse {
 
   return new Konva.Ellipse({
     id: obj.id,
+    draggable: true,
     ...obj.transform,
     x: cx,
     y: cy,

@@ -11,8 +11,9 @@ function generateWavyPoints(x1: number, y1: number, x2: number, y2: number): num
   const dx = x2 - x1;
   const dy = y2 - y1;
   const length = Math.sqrt(dx * dx + dy * dy);
-  const segments = Math.max(Math.round(length / 12), 4);
-  const amplitude = 6;
+  const wavelength = 28;
+  const segments = Math.max(Math.round(length / 3), 10);
+  const amplitude = 2;
   const angle = Math.atan2(dy, dx);
   const points: number[] = [];
 
@@ -20,7 +21,8 @@ function generateWavyPoints(x1: number, y1: number, x2: number, y2: number): num
     const t = i / segments;
     const baseX = x1 + dx * t;
     const baseY = y1 + dy * t;
-    const offset = Math.sin(t * Math.PI * 2 * (segments / 4)) * amplitude;
+    const dist = t * length;
+    const offset = Math.sin((dist / wavelength) * Math.PI * 2) * amplitude;
     points.push(baseX + Math.cos(angle + Math.PI / 2) * offset);
     points.push(baseY + Math.sin(angle + Math.PI / 2) * offset);
   }
@@ -41,6 +43,24 @@ function createArrowHead(x: number, y: number, angle: number, style: AnnotationS
     });
   }
 
+  if (style.arrowStyle === "pointed") {
+    const narrowAngle = Math.PI / 8;
+    const p1x = x - size * 1.2 * Math.cos(angle - narrowAngle);
+    const p1y = y - size * 1.2 * Math.sin(angle - narrowAngle);
+    const p2x = x - size * 1.2 * Math.cos(angle + narrowAngle);
+    const p2y = y - size * 1.2 * Math.sin(angle + narrowAngle);
+    return new Konva.Line({
+      points: [p1x, p1y, x, y, p2x, p2y],
+      stroke: style.color,
+      strokeWidth: style.strokeWidth * 0.8,
+      lineCap: "round",
+      lineJoin: "miter",
+      closed: true,
+      fill: style.color,
+    });
+  }
+
+  // v-shape (default)
   const p1x = x - size * Math.cos(angle - Math.PI / 6);
   const p1y = y - size * Math.sin(angle - Math.PI / 6);
   const p2x = x - size * Math.cos(angle + Math.PI / 6);
@@ -85,17 +105,38 @@ export function onLineStart(x: number, y: number) {
 
 export function onLineMove(x: number, y: number) {
   if (!currentGroup) return;
-  const { activeStyle } = useAnnotation.getState();
+  const { activeStyle, activeTool } = useAnnotation.getState();
   const mainLine = currentGroup.findOne(".main-line") as Konva.Line;
   if (!mainLine) return;
 
   if (activeStyle.lineShape === "wavy") {
     const wavyPoints = generateWavyPoints(startX, startY, x, y);
     mainLine.points(wavyPoints);
+    mainLine.tension(0);
   } else {
     mainLine.points([startX, startY, x, y]);
+    mainLine.tension(0);
   }
   mainLine.dash(getDashPattern(activeStyle) ?? []);
+
+  // Show arrowhead preview during drawing
+  currentGroup.find(".temp-arrow").forEach((n) => n.destroy());
+  const showArrow = activeTool === "arrow" || activeStyle.arrow === "end" || activeStyle.arrow === "both";
+  const showStart = activeStyle.arrow === "start" || activeStyle.arrow === "both";
+  if (showArrow || showStart) {
+    const angle = Math.atan2(y - startY, x - startX);
+    if (showArrow) {
+      const head = createArrowHead(x, y, angle, activeStyle);
+      head.name("temp-arrow");
+      currentGroup.add(head);
+    }
+    if (showStart) {
+      const tail = createArrowHead(startX, startY, angle + Math.PI, activeStyle);
+      tail.name("temp-arrow");
+      currentGroup.add(tail);
+    }
+  }
+
   getLayer()?.batchDraw();
 }
 
@@ -109,6 +150,9 @@ export function onLineEnd(x: number, y: number): AnnotationObject | null {
   const { activeStyle } = useAnnotation.getState();
   const id = crypto.randomUUID();
 
+  // Remove preview arrowheads
+  currentGroup.find(".temp-arrow").forEach((n) => n.destroy());
+
   const angle = Math.atan2(y - startY, x - startX);
   if (activeStyle.arrow === "end" || activeStyle.arrow === "both") {
     currentGroup.add(createArrowHead(x, y, angle, activeStyle));
@@ -119,6 +163,7 @@ export function onLineEnd(x: number, y: number): AnnotationObject | null {
 
   currentGroup.id(id);
   currentGroup.listening(true);
+  currentGroup.draggable(true);
 
   const obj: AnnotationObject = {
     id,
@@ -134,7 +179,7 @@ export function onLineEnd(x: number, y: number): AnnotationObject | null {
 }
 
 export function renderLineObject(obj: AnnotationObject): Konva.Group {
-  const group = new Konva.Group({ id: obj.id, ...obj.transform });
+  const group = new Konva.Group({ id: obj.id, draggable: true, ...obj.transform });
   const { start, end, style } = obj;
   const x1 = start!.x, y1 = start!.y, x2 = end!.x, y2 = end!.y;
 

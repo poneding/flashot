@@ -9,6 +9,22 @@ import {
   type ToolType,
 } from "@/annotation/types";
 
+const STYLE_STORAGE_KEY = "flashot:annotation-style";
+
+function loadPersistedStyle(): AnnotationStyle {
+  try {
+    const raw = localStorage.getItem(STYLE_STORAGE_KEY);
+    if (raw) return { ...DEFAULT_STYLE, ...JSON.parse(raw) };
+  } catch { /* ignore */ }
+  return { ...DEFAULT_STYLE };
+}
+
+function persistStyle(style: AnnotationStyle) {
+  try {
+    localStorage.setItem(STYLE_STORAGE_KEY, JSON.stringify(style));
+  } catch { /* ignore */ }
+}
+
 type DrawingState = "idle" | "active";
 
 type AnnotationState = {
@@ -41,7 +57,7 @@ let commandStack: CommandStack = createCommandStack();
 const initialState: AnnotationState = {
   objects: [],
   activeTool: "select",
-  activeStyle: { ...DEFAULT_STYLE },
+  activeStyle: loadPersistedStyle(),
   selectedObjectId: null,
   drawingState: "idle",
   canUndo: false,
@@ -56,7 +72,9 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
   },
 
   setActiveStyle(partial) {
-    set({ activeStyle: { ...get().activeStyle, ...partial } });
+    const activeStyle = { ...get().activeStyle, ...partial };
+    persistStyle(activeStyle);
+    set({ activeStyle });
   },
 
   setDrawingState(drawingState) {
@@ -138,6 +156,13 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
 
   reset() {
     commandStack = createCommandStack();
-    set({ ...initialState });
+    set({
+      objects: [],
+      activeTool: "select",
+      selectedObjectId: null,
+      drawingState: "idle",
+      canUndo: false,
+      canRedo: false,
+    });
   },
 }));

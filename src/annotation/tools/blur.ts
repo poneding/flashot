@@ -37,13 +37,36 @@ function pixelate(imageData: ImageData, blockSize: number): ImageData {
 
 function getBackgroundImageData(x: number, y: number, w: number, h: number): ImageData | null {
   const bgImg = document.querySelector("[data-frozen-layer]") as HTMLImageElement | null;
-  if (!bgImg) return null;
+  if (!bgImg || !bgImg.naturalWidth) return null;
+
   const canvas = document.createElement("canvas");
-  canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext("2d");
+  canvas.width = Math.round(w);
+  canvas.height = Math.round(h);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return null;
-  ctx.drawImage(bgImg, x, y, w, h, 0, 0, w, h);
-  return ctx.getImageData(0, 0, w, h);
+
+  // The frozen layer image covers the full monitor. The annotation stage
+  // coordinates are relative to the selection rect. We need to map stage-local
+  // coords to the image's natural pixel coords.
+  const scaleX = bgImg.naturalWidth / bgImg.clientWidth;
+  const scaleY = bgImg.naturalHeight / bgImg.clientHeight;
+
+  // Get selection offset — the annotation stage is positioned at selection.x/y
+  const stageEl = document.querySelector("[data-annotation-stage]") as HTMLElement | null;
+  const offsetX = stageEl ? parseFloat(stageEl.style.left || "0") : 0;
+  const offsetY = stageEl ? parseFloat(stageEl.style.top || "0") : 0;
+
+  const sx = (x + offsetX) * scaleX;
+  const sy = (y + offsetY) * scaleY;
+  const sw = w * scaleX;
+  const sh = h * scaleY;
+
+  try {
+    ctx.drawImage(bgImg, sx, sy, sw, sh, 0, 0, Math.round(w), Math.round(h));
+    return ctx.getImageData(0, 0, Math.round(w), Math.round(h));
+  } catch {
+    return null;
+  }
 }
 
 function applyBlur(x: number, y: number, w: number, h: number, mode: "mosaic" | "gaussian", intensity: number): Konva.Image | null {
@@ -153,7 +176,7 @@ export function onBlurEnd(x: number, y: number): AnnotationObject | null {
     const blurImage = applyBlur(minX, minY, maxX - minX, maxY - minY, activeStyle.blurMode ?? "mosaic", intensity);
     if (!blurImage || !layer) { currentPoints = []; return null; }
     const id = crypto.randomUUID();
-    blurImage.id(id); blurImage.listening(true);
+    blurImage.id(id); blurImage.listening(true); blurImage.draggable(true);
     layer.add(blurImage); layer.batchDraw();
     const obj: AnnotationObject = {
       id, type: "blur", points: [...currentPoints],
@@ -172,7 +195,7 @@ export function onBlurEnd(x: number, y: number): AnnotationObject | null {
     const blurImage = applyBlur(rx, ry, w, h, activeStyle.blurMode ?? "mosaic", intensity);
     if (!blurImage || !layer) return null;
     const id = crypto.randomUUID();
-    blurImage.id(id); blurImage.listening(true);
+    blurImage.id(id); blurImage.listening(true); blurImage.draggable(true);
     layer.add(blurImage); layer.batchDraw();
     const obj: AnnotationObject = {
       id, type: "blur", start: { x: rx, y: ry }, end: { x: rx + w, y: ry + h },
@@ -181,4 +204,20 @@ export function onBlurEnd(x: number, y: number): AnnotationObject | null {
     return obj;
   }
   return null;
+}
+
+export function renderBlurObject(obj: AnnotationObject): Konva.Image | null {
+  const start = obj.start ?? { x: 0, y: 0 };
+  const end = obj.end ?? { x: 0, y: 0 };
+  const w = end.x - start.x;
+  const h = end.y - start.y;
+  if (w < 1 || h < 1) return null;
+  const mode = obj.style.blurMode ?? "mosaic";
+  const intensity = obj.style.blurIntensity ?? 10;
+  const img = applyBlur(start.x, start.y, w, h, mode, intensity);
+  if (!img) return null;
+  img.id(obj.id);
+  img.listening(true);
+  img.draggable(true);
+  return img;
 }

@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useRef, useState, useLayoutEffect } from "react";
 import {
   MousePointer2,
   Pencil,
   Minus,
+  MoveRight,
   Square,
   Circle,
   Type,
@@ -21,7 +22,7 @@ import { PropertyPanel } from "@/annotation/PropertyPanel";
 import type { ToolType } from "@/annotation/types";
 import type { Rect } from "@/lib/types";
 
-const TOOLBAR_SIZE = { width: 460, height: 40 };
+const TOOLBAR_SIZE = { width: 0, height: 40 };
 
 type ToolDef = {
   id: ToolType;
@@ -33,6 +34,7 @@ const TOOLS: ToolDef[] = [
   { id: "select", icon: <MousePointer2 size={18} />, label: "Select" },
   { id: "draw", icon: <Pencil size={18} />, label: "Pen" },
   { id: "line", icon: <Minus size={18} />, label: "Line" },
+  { id: "arrow", icon: <MoveRight size={18} />, label: "Arrow" },
   { id: "rect", icon: <Square size={18} />, label: "Rectangle" },
   { id: "ellipse", icon: <Circle size={18} />, label: "Ellipse" },
   { id: "text", icon: <Type size={18} />, label: "Text" },
@@ -52,8 +54,19 @@ type Props = {
 export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Props) {
   const { activeTool, setActiveTool, canUndo, canRedo, undo, redo } = useAnnotation();
   const [showPanel, setShowPanel] = useState(false);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [measuredWidth, setMeasuredWidth] = useState(TOOLBAR_SIZE.width);
+  const [customPos, setCustomPos] = useState<{ x: number; y: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
-  const pos = computeToolbarPosition(selection, TOOLBAR_SIZE, monitorRect);
+  useLayoutEffect(() => {
+    if (toolbarRef.current) {
+      setMeasuredWidth(toolbarRef.current.offsetWidth);
+    }
+  });
+
+  const computedPos = computeToolbarPosition(selection, { width: measuredWidth, height: TOOLBAR_SIZE.height }, monitorRect);
+  const pos = customPos ?? computedPos;
 
   function handleToolClick(tool: ToolType) {
     if (tool === "select" || tool === "eraser") {
@@ -69,7 +82,36 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Pro
     }
   }
 
+  const handleToolbarMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    // Only start drag if clicking on the toolbar background, not on buttons
+    if ((e.target as HTMLElement).closest("button")) return;
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y };
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      setCustomPos({ x: dragRef.current.origX + dx, y: dragRef.current.origY + dy });
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
   const panelOffset = TOOLBAR_SIZE.height + 6;
+  const panelHeight = 40;
+  const panelTop = (() => {
+    const belowY = pos.y + panelOffset;
+    if (belowY + panelHeight > window.innerHeight) {
+      return pos.y - panelOffset;
+    }
+    return belowY;
+  })();
 
   return (
     <>
@@ -80,7 +122,7 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Pro
           style={{
             position: "fixed",
             left: pos.x,
-            top: pos.kind === "above" ? pos.y - panelOffset : pos.y + panelOffset,
+            top: panelTop,
             zIndex: 10001,
           }}
         />
@@ -88,12 +130,12 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Pro
 
       {/* Toolbar */}
       <div
-        onMouseDown={(e) => e.stopPropagation()}
+        ref={toolbarRef}
+        onMouseDown={handleToolbarMouseDown}
         style={{
           position: "fixed",
           left: pos.x,
           top: pos.y,
-          width: TOOLBAR_SIZE.width,
           height: TOOLBAR_SIZE.height,
           display: "flex",
           alignItems: "center",
@@ -106,6 +148,7 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Pro
           border: "1px solid rgba(255,255,255,0.1)",
           zIndex: 10000,
           userSelect: "none",
+          cursor: "move",
         }}
       >
         {/* Group 1: Tool buttons */}

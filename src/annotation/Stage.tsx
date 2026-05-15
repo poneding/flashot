@@ -4,6 +4,7 @@ import type { Rect } from "@/lib/types";
 import { useAnnotation } from "@/annotation/store";
 import { onDrawStart, onDrawMove, onDrawEnd } from "@/annotation/tools/draw";
 import { onLineStart, onLineMove, onLineEnd } from "@/annotation/tools/line";
+import { onArrowStart, onArrowMove, onArrowEnd } from "@/annotation/tools/arrow";
 import { onRectStart, onRectMove, onRectEnd } from "@/annotation/tools/rect";
 import { onEllipseStart, onEllipseMove, onEllipseEnd } from "@/annotation/tools/ellipse";
 import { onHighlightStart, onHighlightMove, onHighlightEnd } from "@/annotation/tools/highlight";
@@ -12,10 +13,13 @@ import { onEraserStart, onEraserMove, onEraserEnd } from "@/annotation/tools/era
 import type { AnnotationObject, ToolType } from "@/annotation/types";
 import { TextOverlay } from "@/annotation/TextOverlay";
 import { addTextToLayer } from "@/annotation/tools/text";
+import { hitTestHandle } from "@/lib/geometry";
+import { renderObject } from "@/annotation/render";
 
 type Props = {
   selection: Rect;
   scaleFactor: number;
+  interacting?: boolean;
 };
 
 let stage: Konva.Stage | null = null;
@@ -43,17 +47,20 @@ type ToolHandlers = {
 const TOOL_HANDLERS: Partial<Record<ToolType, ToolHandlers>> = {
   draw: { start: onDrawStart, move: onDrawMove, end: (_x, _y) => onDrawEnd() },
   line: { start: onLineStart, move: onLineMove, end: onLineEnd },
+  arrow: { start: onArrowStart, move: onArrowMove, end: onArrowEnd },
   rect: { start: onRectStart, move: onRectMove, end: onRectEnd },
   ellipse: { start: onEllipseStart, move: onEllipseMove, end: onEllipseEnd },
   highlight: { start: onHighlightStart, move: onHighlightMove, end: onHighlightEnd },
   blur: { start: onBlurStart, move: onBlurMove, end: onBlurEnd },
 };
 
-export function AnnotationStage({ selection, scaleFactor: _scaleFactor }: Props) {
+export function AnnotationStage({ selection, scaleFactor: _scaleFactor, interacting }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeTool = useAnnotation((s) => s.activeTool);
   const [, forceRender] = useState(0);
-  const [textEditing, setTextEditing] = useState<{ position: { x: number; y: number }; editingObject: AnnotationObject | null } | null>(null);
+  const [textEditing, setTextEditing] = useState<{ position: { x: number; y: number }; editingObject: AnnotationObject | null; key: number } | null>(null);
+  const textFlushRef = useRef<(() => void) | null>(null);
+  const textKeyRef = useRef(0);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -76,6 +83,29 @@ export function AnnotationStage({ selection, scaleFactor: _scaleFactor }: Props)
     });
     layer.add(transformer);
 
+    // Handle drag end to persist position changes
+    stage.on("dragend", (e) => {
+      const node = e.target;
+      const id = node.id();
+      if (!id) return;
+      const { moveObject } = useAnnotation.getState();
+      moveObject(id, {
+        x: node.x(),
+        y: node.y(),
+        scaleX: node.scaleX(),
+        scaleY: node.scaleY(),
+        rotation: node.rotation(),
+      });
+    });
+
+    // Only allow dragging when select tool is active
+    stage.on("dragstart", (e) => {
+      const { activeTool } = useAnnotation.getState();
+      if (activeTool !== "select") {
+        e.target.stopDrag();
+      }
+    });
+
     forceRender((n) => n + 1);
 
     return () => {
@@ -87,13 +117,56 @@ export function AnnotationStage({ selection, scaleFactor: _scaleFactor }: Props)
   }, []);
 
   useEffect(() => {
-    if (!stage) return;
+    if (!stage || interacting) return;
     stage.width(selection.width);
     stage.height(selection.height);
     stage.batchDraw();
-  }, [selection.width, selection.height]);
+  }, [selection.width, selection.height, interacting]);
+
+  // Sync Konva layer with store objects (handles undo/redo/delete)
+  useEffect(() => {
+    return useAnnotation.subscribe((state, prev) => {
+      if (state.objects === prev.objects) return;
+      if (!layer || !transformer) return;
+
+      // Get IDs of objects that should exist
+      const objectIds = new Set(state.objects.map((o) => o.id));
+
+      // Remove nodes that no longer exist in state
+      let removed = false;
+      const children = layer.getChildren((node) => node !== transformer);
+      for (const child of children) {
+        if (child.id() && !objectIds.has(child.id())) {
+          child.destroy();
+          removed = true;
+        }
+      }
+
+      // Add nodes that exist in state but not on layer
+      const existingIds = new Set(
+        layer.getChildren((node) => node !== transformer)
+          .map((n) => n.id())
+          .filter(Boolean)
+      );
+      for (const obj of state.objects) {
+        if (!existingIds.has(obj.id)) {
+          const node = renderObject(obj);
+          if (node) layer.add(node);
+        }
+      }
+
+      if (removed) transformer.nodes([]);
+      layer.batchDraw();
+    });
+  }, []);
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    // Let resize handle clicks pass through to overlay
+    if (hitTestHandle({ x: e.clientX, y: e.clientY }, selection, 10)) return;
+
+    // Prevent overlay from interpreting annotation clicks as move/drag
+    e.stopPropagation();
+
     const { activeTool: tool, objects, setSelectedObject, setDrawingState } = useAnnotation.getState();
     const rect = containerRef.current!.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -128,6 +201,11 @@ export function AnnotationStage({ selection, scaleFactor: _scaleFactor }: Props)
 
     // Text tool handled separately (no drag)
     if (tool === "text") {
+      // If already editing text, confirm it at its original position first
+      if (textEditing && textFlushRef.current) {
+        textFlushRef.current();
+      }
+
       // Check if clicking existing text object for editing
       const stageInst = getStage();
       const shape = stageInst?.getIntersection({ x, y });
@@ -137,11 +215,13 @@ export function AnnotationStage({ selection, scaleFactor: _scaleFactor }: Props)
           shape.destroy();
           getLayer()?.batchDraw();
           useAnnotation.getState().deleteObject(obj.id);
-          setTextEditing({ position: { x: e.clientX, y: e.clientY }, editingObject: obj });
+          textKeyRef.current++;
+          setTextEditing({ position: { x: e.clientX, y: e.clientY }, editingObject: obj, key: textKeyRef.current });
           return;
         }
       }
-      setTextEditing({ position: { x: e.clientX, y: e.clientY }, editingObject: null });
+      textKeyRef.current++;
+      setTextEditing({ position: { x: e.clientX, y: e.clientY }, editingObject: null, key: textKeyRef.current });
       return;
     }
 
@@ -164,6 +244,7 @@ export function AnnotationStage({ selection, scaleFactor: _scaleFactor }: Props)
     const { activeTool: tool, drawingState } = useAnnotation.getState();
     if (drawingState !== "active") return;
 
+    e.stopPropagation();
     const rect = containerRef.current!.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -181,6 +262,7 @@ export function AnnotationStage({ selection, scaleFactor: _scaleFactor }: Props)
     const { activeTool: tool, drawingState, setDrawingState, addObject } = useAnnotation.getState();
     if (drawingState !== "active") return;
 
+    e.stopPropagation();
     const rect = containerRef.current!.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -199,17 +281,20 @@ export function AnnotationStage({ selection, scaleFactor: _scaleFactor }: Props)
     setDrawingState("idle");
   };
 
-  const cursor =
-    activeTool === "select"
-      ? "default"
-      : activeTool === "text"
-        ? "text"
-        : "crosshair";
+  const cursor = (() => {
+    switch (activeTool) {
+      case "select": return "default";
+      case "text": return "text";
+      case "eraser": return "grab";
+      default: return "crosshair";
+    }
+  })();
 
   return (
     <>
       <div
         ref={containerRef}
+        data-annotation-stage
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -220,14 +305,17 @@ export function AnnotationStage({ selection, scaleFactor: _scaleFactor }: Props)
           width: selection.width,
           height: selection.height,
           cursor,
-          pointerEvents: "auto",
+          pointerEvents: interacting ? "none" : "auto",
+          visibility: interacting ? "hidden" : "visible",
         }}
       />
       {textEditing && (
         <TextOverlay
+          key={textEditing.key}
           position={textEditing.position}
           selection={selection}
           editingObject={textEditing.editingObject}
+          flushRef={textFlushRef}
           onConfirm={(obj) => {
             addTextToLayer(obj);
             useAnnotation.getState().addObject(obj);
