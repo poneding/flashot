@@ -54,7 +54,7 @@ fn frame_extents(conn: &Connection, window_id: u32) -> Option<[u32; 4]> {
     let atom = intern_atom(conn, "_NET_FRAME_EXTENTS")?;
     let cookie = conn.send_request(&GetProperty {
         delete: false,
-        window: XcbWindow::from(window_id),
+        window: XcbWindow::new(window_id),
         property: atom,
         r#type: ATOM_CARDINAL,
         long_offset: 0,
