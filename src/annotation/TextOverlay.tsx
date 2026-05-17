@@ -1,7 +1,8 @@
-import { useEffect, useRef, type CSSProperties, type MutableRefObject } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
 import { useAnnotation } from "@/annotation/store";
 import type { AnnotationObject } from "@/annotation/types";
 import type { Rect } from "@/lib/types";
+import { beginTextInputSession, endTextInputSession } from "@/lib/ipc";
 
 type Props = {
   position: { x: number; y: number };
@@ -12,26 +13,51 @@ type Props = {
   flushRef?: MutableRefObject<(() => void) | null>;
 };
 
+function textHotspotOffset(fontSize: number): number {
+  return Math.round(fontSize * 0.5);
+}
+
 export function TextOverlay({ position, selection, onConfirm, onCancel, editingObject, flushRef }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { activeStyle } = useAnnotation.getState();
   const style = editingObject?.style ?? activeStyle;
   const initialText = editingObject?.text ?? "";
   const confirmedRef = useRef(false);
+  const composingRef = useRef(false);
+  const pendingBlurRef = useRef(false);
+  const fontSize = style.fontSize ?? 24;
+  const editorPosition = editingObject?.start
+    ? {
+        x: selection.x + editingObject.start.x + editingObject.transform.x,
+        y: selection.y + editingObject.start.y + editingObject.transform.y,
+      }
+    : {
+        x: position.x,
+        y: position.y - textHotspotOffset(fontSize),
+      };
+
+  useEffect(() => {
+    beginTextInputSession().catch((error) => {
+      console.warn("Failed to prepare text input session", error);
+    });
+    return () => {
+      endTextInputSession().catch((error) => {
+        console.warn("Failed to restore text input session", error);
+      });
+    };
+  }, []);
 
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    // Delay focus to next frame to avoid being stolen by mousedown
-    requestAnimationFrame(() => {
-      el.focus();
-      el.value = initialText;
+    if (initialText) {
       el.style.height = "auto";
       el.style.height = el.scrollHeight + "px";
-    });
+      el.setSelectionRange(initialText.length, initialText.length);
+    }
+    setTimeout(() => el.focus(), 0);
   }, []);
 
-  // Register flush callback so Stage can confirm text before opening a new one
   useEffect(() => {
     if (flushRef) {
       flushRef.current = () => confirm();
@@ -42,6 +68,9 @@ export function TextOverlay({ position, selection, onConfirm, onCancel, editingO
   });
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (composingRef.current || e.nativeEvent.isComposing) {
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       confirm();
@@ -52,17 +81,29 @@ export function TextOverlay({ position, selection, onConfirm, onCancel, editingO
     }
   };
 
-  const handleBlur = () => { confirm(); };
+  const handleBlur = () => {
+    if (composingRef.current) {
+      pendingBlurRef.current = true;
+      return;
+    }
+    confirm();
+  };
+
+  const resizeToContent = (el: HTMLTextAreaElement) => {
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  };
 
   const confirm = () => {
     if (confirmedRef.current) return;
     confirmedRef.current = true;
-    const text = textareaRef.current?.value?.trim();
+    const raw = textareaRef.current?.value ?? "";
+    const text = raw.trim();
     if (!text) { onCancel(); return; }
     const obj: AnnotationObject = {
       id: editingObject?.id ?? crypto.randomUUID(),
       type: "text",
-      start: { x: position.x - selection.x, y: position.y - selection.y },
+      start: editingObject?.start ?? { x: editorPosition.x - selection.x, y: editorPosition.y - selection.y },
       text,
       style: { ...style },
       transform: editingObject?.transform ?? { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
@@ -70,43 +111,53 @@ export function TextOverlay({ position, selection, onConfirm, onCancel, editingO
     onConfirm(obj);
   };
 
-  const containerStyle: CSSProperties = {
-    position: "fixed",
-    left: position.x,
-    top: position.y,
-    zIndex: 10002,
-    pointerEvents: "auto",
-  };
-
-  const textareaStyle: CSSProperties = {
-    minWidth: 100,
-    minHeight: style.fontSize ?? 24,
-    padding: 4,
-    border: "2px solid #0099ff",
-    borderRadius: 4,
-    background: "transparent",
-    color: style.color,
-    fontSize: style.fontSize ?? 24,
-    fontFamily: style.fontFamily ?? "Excalifont",
-    lineHeight: 1.4,
-    outline: "none",
-    resize: "none",
-    overflow: "hidden",
-  };
-
   return (
-    <div style={containerStyle} onMouseDown={(e) => e.stopPropagation()}>
-      <textarea
-        ref={textareaRef}
-        style={textareaStyle}
-        onKeyDown={handleKeyDown}
-        onBlur={handleBlur}
-        onInput={(e) => {
-          const el = e.currentTarget;
-          el.style.height = "auto";
-          el.style.height = el.scrollHeight + "px";
-        }}
-      />
-    </div>
+    <textarea
+      ref={textareaRef}
+      rows={1}
+      defaultValue={initialText}
+      spellCheck={false}
+      onMouseDown={(e) => e.stopPropagation()}
+      style={{
+        position: "fixed",
+        left: editorPosition.x,
+        top: editorPosition.y,
+        zIndex: 10002,
+        pointerEvents: "auto",
+        display: "block",
+        boxSizing: "border-box",
+        width: 400,
+        height: fontSize,
+        padding: 0,
+        margin: 0,
+        border: "none",
+        background: "transparent",
+        appearance: "none",
+        color: style.color,
+        fontSize,
+        fontFamily: style.fontFamily ?? "Excalifont",
+        lineHeight: 1,
+        outline: "none",
+        overflow: "hidden",
+        resize: "none",
+        caretColor: style.color,
+      }}
+      onKeyDown={handleKeyDown}
+      onBlur={handleBlur}
+      onCompositionStart={() => {
+        composingRef.current = true;
+      }}
+      onCompositionEnd={(e) => {
+        composingRef.current = false;
+        resizeToContent(e.currentTarget);
+        if (pendingBlurRef.current) {
+          pendingBlurRef.current = false;
+          setTimeout(() => confirm(), 0);
+        }
+      }}
+      onInput={(e) => {
+        resizeToContent(e.currentTarget);
+      }}
+    />
   );
 }

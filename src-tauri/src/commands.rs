@@ -1,8 +1,9 @@
 use crate::{
-    clipboard, saver, settings_store, settings_store::Settings, types::Rect, window_mgr::WindowMgr,
+    clipboard, overlay_window, saver, settings_store, settings_store::Settings, types::Rect,
+    window_mgr::WindowMgr,
 };
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tauri_plugin_autostart::ManagerExt as _;
 
 const ABOUT_WINDOW_WIDTH: f64 = 360.0;
@@ -133,6 +134,16 @@ pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn begin_text_input_session(window: WebviewWindow) -> Result<(), String> {
+    overlay_window::prepare_overlay_text_input(&window).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn end_text_input_session(window: WebviewWindow) -> Result<(), String> {
+    overlay_window::restore_overlay_after_text_input(&window).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

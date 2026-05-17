@@ -129,6 +129,8 @@ pub fn run() {
             commands::get_settings,
             commands::set_settings,
             commands::open_settings_window,
+            commands::begin_text_input_session,
+            commands::end_text_input_session,
             commands::open_about_window,
             commands::quit_app,
         ])

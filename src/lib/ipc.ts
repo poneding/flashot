@@ -33,6 +33,12 @@ export async function setSettings(s: Settings): Promise<void> {
 export async function openSettingsWindow(): Promise<void> {
   await invoke("open_settings_window");
 }
+export async function beginTextInputSession(): Promise<void> {
+  await invoke("begin_text_input_session");
+}
+export async function endTextInputSession(): Promise<void> {
+  await invoke("end_text_input_session");
+}
 
 export function onCaptureStart(cb: (p: CaptureStartPayload) => void): Promise<UnlistenFn> {
   return getCurrentWebviewWindow().listen<CaptureStartPayload>(

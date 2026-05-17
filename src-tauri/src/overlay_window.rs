@@ -14,6 +14,18 @@ pub fn bring_capture_overlay_to_front(window: &WebviewWindow) -> Result<()> {
     })
 }
 
+pub fn prepare_overlay_text_input(window: &WebviewWindow) -> Result<()> {
+    run_on_window_main_thread(window, "prepare overlay text input", |window| {
+        prepare_platform_text_input(window)
+    })
+}
+
+pub fn restore_overlay_after_text_input(window: &WebviewWindow) -> Result<()> {
+    run_on_window_main_thread(window, "restore overlay after text input", |window| {
+        restore_platform_after_text_input(window)
+    })
+}
+
 pub fn capture_overlay_accepts_first_mouse() -> bool {
     true
 }
@@ -34,6 +46,10 @@ const NS_APPLICATION_PRESENTATION_HIDE_MENU_BAR: usize = 1 << 3;
 #[cfg(target_os = "macos")]
 fn overlay_level_from_window_levels(shielding_level: isize, maximum_level: isize) -> isize {
     maximum_level.max(shielding_level + 1)
+}
+
+fn text_input_overlay_level_from_popup_level(popup_level: isize) -> isize {
+    popup_level - 1
 }
 
 #[cfg(all(target_os = "macos", test))]
@@ -112,6 +128,59 @@ fn bring_platform_overlay_to_front(window: &WebviewWindow) -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
+fn prepare_platform_text_input(window: &WebviewWindow) -> Result<()> {
+    use objc::{
+        runtime::{Class, Object, Sel, YES},
+        Message,
+    };
+
+    let ns_window = window.ns_window()? as *mut Object;
+    unsafe {
+        let ns_window = &*ns_window;
+        ns_window.send_message::<_, ()>(
+            Sel::register("setLevel:"),
+            (text_input_overlay_window_level(),),
+        )?;
+
+        if let Some(app_class) = Class::get("NSApplication") {
+            let app: *mut Object = app_class.send_message(Sel::register("sharedApplication"), ())?;
+            if !app.is_null() {
+                (*app).send_message::<_, ()>(
+                    Sel::register("activateIgnoringOtherApps:"),
+                    (YES,),
+                )?;
+            }
+        }
+
+        ns_window.send_message::<_, ()>(
+            Sel::register("makeKeyAndOrderFront:"),
+            (std::ptr::null_mut::<Object>(),),
+        )?;
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn restore_platform_after_text_input(window: &WebviewWindow) -> Result<()> {
+    use objc::{
+        runtime::{Object, Sel},
+        Message,
+    };
+
+    let ns_window = window.ns_window()? as *mut Object;
+    unsafe {
+        let ns_window = &*ns_window;
+        ns_window.send_message::<_, ()>(
+            Sel::register("setLevel:"),
+            (capture_overlay_window_level(),),
+        )?;
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 fn capture_overlay_window_level() -> isize {
     extern "C" {
         fn CGShieldingWindowLevel() -> i32;
@@ -124,6 +193,21 @@ fn capture_overlay_window_level() -> isize {
         overlay_level_from_window_levels(
             CGShieldingWindowLevel() as isize,
             CGWindowLevelForKey(K_CG_MAXIMUM_WINDOW_LEVEL_KEY) as isize,
+        )
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn text_input_overlay_window_level() -> isize {
+    extern "C" {
+        fn CGWindowLevelForKey(key: i32) -> i32;
+    }
+
+    const K_CG_POP_UP_MENU_WINDOW_LEVEL_KEY: i32 = 11;
+
+    unsafe {
+        text_input_overlay_level_from_popup_level(
+            CGWindowLevelForKey(K_CG_POP_UP_MENU_WINDOW_LEVEL_KEY) as isize,
         )
     }
 }
@@ -218,6 +302,18 @@ fn bring_platform_overlay_to_front(window: &WebviewWindow) -> Result<()> {
         .map_err(|e| anyhow!("failed to set fullscreen: {e}"))
 }
 
+#[cfg(target_os = "linux")]
+fn prepare_platform_text_input(window: &WebviewWindow) -> Result<()> {
+    window
+        .set_focus()
+        .map_err(|e| anyhow!("failed to focus overlay for text input: {e}"))
+}
+
+#[cfg(target_os = "linux")]
+fn restore_platform_after_text_input(_window: &WebviewWindow) -> Result<()> {
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 fn configure_platform_overlay(_window: &WebviewWindow, _monitor_id: u32) -> Result<()> {
     Ok(())
@@ -228,11 +324,28 @@ fn bring_platform_overlay_to_front(_window: &WebviewWindow) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+fn prepare_platform_text_input(window: &WebviewWindow) -> Result<()> {
+    window
+        .set_focus()
+        .map_err(|e| anyhow!("failed to focus overlay for text input: {e}"))
+}
+
+#[cfg(target_os = "windows")]
+fn restore_platform_after_text_input(_window: &WebviewWindow) -> Result<()> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
     fn capture_overlay_accepts_first_mouse_clicks() {
         assert!(super::capture_overlay_accepts_first_mouse());
+    }
+
+    #[test]
+    fn text_input_overlay_level_sits_below_ime_popup_windows() {
+        assert_eq!(super::text_input_overlay_level_from_popup_level(101), 100);
     }
 
     #[cfg(target_os = "macos")]
