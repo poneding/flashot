@@ -1,10 +1,26 @@
 import { useAnnotation } from "@/annotation/store";
+import { TooltipBubble } from "@/annotation/Tooltip";
+import { HANDWRITING_FONT_VALUE, normalizeTextFontFamilyValue } from "@/annotation/fonts";
 import {
   PRESET_COLORS,
+  type AnnotationObject,
   type AnnotationStyle,
   type ToolType,
 } from "@/annotation/types";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  ChevronDown,
+  Circle,
+  CircleDashed,
+  Code2,
+  Grid3X3,
+  Minus,
+  PencilLine,
+  Pilcrow,
+  Square,
+  Type,
+  type LucideIcon,
+} from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
@@ -100,14 +116,21 @@ function hsvToHex(h: number, s: number, v: number): string {
 
 // ─── GradientPicker ──────────────────────────────────────────────────────────
 
+const GRADIENT_PICKER_GAP = 6;
+const GRADIENT_PICKER_HEIGHT = 196;
+const HUE_TRACK_WIDTH = 160;
+const HUE_THUMB_SIZE = 10;
+
 function GradientPicker({
   value,
   onChange,
   onClose,
+  flipUp,
 }: {
   value: string;
   onChange: (color: string) => void;
   onClose: () => void;
+  flipUp: boolean;
 }) {
   const [hsv, setHsv] = useState<[number, number, number]>(() => hexToHsv(value));
   const squareRef = useRef<HTMLDivElement>(null);
@@ -151,6 +174,7 @@ function GradientPicker({
   };
 
   const hueColor = hsvToHex(hsv[0], 100, 100);
+  const hueThumbLeft = HUE_THUMB_SIZE / 2 + (hsv[0] / 360) * (HUE_TRACK_WIDTH - HUE_THUMB_SIZE);
 
   return (
     <div
@@ -158,7 +182,9 @@ function GradientPicker({
       onMouseDown={(e) => e.stopPropagation()}
       style={{
         position: "absolute",
-        top: "calc(100% + 6px)",
+        ...(flipUp
+          ? { bottom: `calc(100% + ${GRADIENT_PICKER_GAP}px)` }
+          : { top: `calc(100% + ${GRADIENT_PICKER_GAP}px)` }),
         left: 0,
         padding: 8,
         borderRadius: 8,
@@ -189,6 +215,7 @@ function GradientPicker({
           height: 10,
           borderRadius: "50%",
           border: "2px solid #fff",
+          boxSizing: "border-box",
           boxShadow: "0 0 2px rgba(0,0,0,0.6)",
           transform: "translate(-50%, -50%)",
           pointerEvents: "none",
@@ -199,7 +226,7 @@ function GradientPicker({
         ref={hueRef}
         onMouseDown={startDrag(pickFromHue)}
         style={{
-          width: 160,
+          width: HUE_TRACK_WIDTH,
           height: 12,
           marginTop: 8,
           borderRadius: 6,
@@ -210,12 +237,13 @@ function GradientPicker({
       >
         <div style={{
           position: "absolute",
-          left: `${(hsv[0] / 360) * 100}%`,
+          left: `${hueThumbLeft}px`,
           top: "50%",
-          width: 10,
-          height: 10,
+          width: HUE_THUMB_SIZE,
+          height: HUE_THUMB_SIZE,
           borderRadius: "50%",
           border: "2px solid #fff",
+          boxSizing: "border-box",
           boxShadow: "0 0 2px rgba(0,0,0,0.6)",
           transform: "translate(-50%, -50%)",
           pointerEvents: "none",
@@ -235,7 +263,25 @@ function ColorPicker({
   onChange: (color: string) => void;
 }) {
   const [showGradient, setShowGradient] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
+  const customColorRef = useRef<HTMLDivElement>(null);
   const isPreset = PRESET_COLORS.some((c) => c.toLowerCase() === value.toLowerCase());
+  const updatePickerPlacement = () => {
+    const rect = customColorRef.current?.getBoundingClientRect();
+    if (!rect) {
+      setFlipUp(false);
+      return;
+    }
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    const spaceBelow = viewportHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    setFlipUp(spaceBelow < GRADIENT_PICKER_HEIGHT + GRADIENT_PICKER_GAP && spaceAbove > spaceBelow);
+  };
+
+  const toggleGradient = () => {
+    if (!showGradient) updatePickerPlacement();
+    setShowGradient((v) => !v);
+  };
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -260,10 +306,10 @@ function ColorPicker({
           }}
         />
       ))}
-      <div style={{ position: "relative" }}>
+      <div ref={customColorRef} style={{ position: "relative" }}>
         <button
           title="Custom color"
-          onClick={() => setShowGradient((v) => !v)}
+          onClick={toggleGradient}
           style={{
             width: 18,
             height: 18,
@@ -285,6 +331,7 @@ function ColorPicker({
             value={value}
             onChange={onChange}
             onClose={() => setShowGradient(false)}
+            flipUp={flipUp}
           />
         )}
       </div>
@@ -301,6 +348,8 @@ function NumberStepper({
   max,
   step = 1,
   suffix = "px",
+  title,
+  label,
 }: {
   value: number;
   onChange: (v: number) => void;
@@ -308,7 +357,12 @@ function NumberStepper({
   max: number;
   step?: number;
   suffix?: string;
+  title?: string;
+  label?: string;
 }) {
+  const tooltip = title ?? label;
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+  const stepperRef = useRef<HTMLDivElement>(null);
   const stepperBtn: CSSProperties = {
     ...btnBase,
     width: 20,
@@ -319,44 +373,217 @@ function NumberStepper({
   };
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-      <button
-        style={stepperBtn}
-        onClick={() => onChange(Math.max(min, value - step))}
-        disabled={value <= min}
-      >
-        −
-      </button>
-      <span style={{ minWidth: 32, textAlign: "center", fontSize: 11, color: "#fff" }}>
-        {value}{suffix}
-      </span>
-      <button
-        style={stepperBtn}
-        onClick={() => onChange(Math.min(max, value + step))}
-        disabled={value >= max}
-      >
-        +
-      </button>
+    <div
+      ref={stepperRef}
+      title={tooltip}
+      onMouseEnter={() => setTooltipVisible(true)}
+      onMouseLeave={() => setTooltipVisible(false)}
+      style={{ position: "relative", display: "flex", alignItems: "center", gap: 2 }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+        <button
+          title={tooltip ? `Decrease ${tooltip}` : "Decrease"}
+          style={stepperBtn}
+          onClick={() => onChange(Math.max(min, value - step))}
+          disabled={value <= min}
+        >
+          −
+        </button>
+        <span style={{ minWidth: 32, textAlign: "center", fontSize: 11, color: "#fff" }}>
+          {value}{suffix}
+        </span>
+        <button
+          title={tooltip ? `Increase ${tooltip}` : "Increase"}
+          style={stepperBtn}
+          onClick={() => onChange(Math.min(max, value + step))}
+          disabled={value >= max}
+        >
+          +
+        </button>
+      </div>
+      {tooltipVisible && tooltip && <TooltipBubble label={tooltip} anchorRef={stepperRef} />}
     </div>
+  );
+}
+
+// ─── Icons ───────────────────────────────────────────────────────────────────
+
+function PanelIcon(Icon: LucideIcon): ReactNode {
+  return <Icon size={16} strokeWidth={2} />;
+}
+
+function CustomIcon({
+  children,
+  lineStyleIcon,
+}: {
+  children: ReactNode;
+  lineStyleIcon?: string;
+}) {
+  return (
+    <svg
+      data-line-style-icon={lineStyleIcon}
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+const lineStylePaths = {
+  solid: ["M3 12h18"],
+  dotted: ["M3 12h2", "M8.33 12h2", "M13.67 12h2", "M19 12h2"],
+  dashed: ["M3 12h4", "M10 12h4", "M17 12h4"],
+  wavy: ["M3 12c2.25-4 4.25-4 6.5 0s4.25 4 6.5 0 4.25-4 6.5 0"],
+} as const;
+
+type LineStyleIconVariant = keyof typeof lineStylePaths;
+
+function LineStyleIcon({ variant }: { variant: LineStyleIconVariant }) {
+  return (
+    <CustomIcon lineStyleIcon={variant}>
+      {lineStylePaths[variant].map((d) => (
+        <path key={d} d={d} />
+      ))}
+    </CustomIcon>
+  );
+}
+
+function OpenArrowIcon() {
+  return (
+    <CustomIcon>
+      <path d="M4 12h14" />
+      <path d="m14 7 5 5-5 5" />
+    </CustomIcon>
+  );
+}
+
+function FilledArrowIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="miter"
+      aria-hidden="true"
+    >
+      <path d="M4 12h9" />
+      <path d="M12 9 20 12l-8 3Z" fill="currentColor" stroke="currentColor" />
+    </svg>
+  );
+}
+
+function FilledSquareIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function FilledCircleIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" fill="currentColor" />
+    </svg>
   );
 }
 
 // ─── DropdownSelect ──────────────────────────────────────────────────────────
 
-type DropdownOption<T extends string> = { value: T; label: string; icon?: string };
+type DropdownOption<T extends string> = { value: T; label: string; icon: ReactNode };
+
+function DropdownOptionButton<T extends string>({
+  option,
+  selected,
+  onSelect,
+}: {
+  option: DropdownOption<T>;
+  selected: boolean;
+  onSelect: (value: T) => void;
+}) {
+  const optionRef = useRef<HTMLButtonElement>(null);
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+
+  return (
+    <>
+      <button
+        ref={optionRef}
+        type="button"
+        aria-label={option.label}
+        onMouseEnter={() => setTooltipVisible(true)}
+        onMouseLeave={() => setTooltipVisible(false)}
+        onClick={() => onSelect(option.value)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 28,
+          height: 28,
+          padding: 0,
+          border: "none",
+          borderRadius: 5,
+          background: selected ? "rgba(255,255,255,0.1)" : "transparent",
+          color: "#fff",
+          cursor: "pointer",
+        }}
+      >
+        <span aria-hidden="true" style={{ width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {option.icon}
+        </span>
+      </button>
+      {tooltipVisible && <TooltipBubble label={option.label} anchorRef={optionRef} placement="right" />}
+    </>
+  );
+}
 
 function DropdownSelect<T extends string>({
   options,
   value,
   onChange,
+  title,
 }: {
   options: DropdownOption<T>[];
   value: T;
   onChange: (v: T) => void;
+  title?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
+  const [tooltipVisible, setTooltipVisible] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -370,23 +597,33 @@ function DropdownSelect<T extends string>({
   const handleOpen = () => {
     if (!open && ref.current) {
       const rect = ref.current.getBoundingClientRect();
-      const dropdownHeight = options.length * 28 + 8;
+      const dropdownHeight = options.length * 30 + 8;
       setFlipUp(rect.bottom + dropdownHeight + 8 > window.innerHeight);
     }
     setOpen(!open);
   };
 
   const selected = options.find((o) => o.value === value);
+  const selectedLabel = selected?.label ?? value;
+  const selectedTitle = title ? `${title}: ${selectedLabel}` : selectedLabel;
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <button
+        ref={triggerRef}
+        type="button"
+        aria-label={selectedTitle}
+        onMouseEnter={() => setTooltipVisible(true)}
+        onMouseLeave={() => setTooltipVisible(false)}
         style={{ ...btnBase, gap: 4 }}
         onClick={handleOpen}
       >
-        <span style={{ color: "#fff" }}>{selected?.icon ?? selected?.label ?? value}</span>
-        <span style={{ fontSize: 8, opacity: 0.6 }}>▼</span>
+        <span style={{ color: "#fff", display: "flex", alignItems: "center" }}>
+          {selected?.icon ?? selected?.label ?? value}
+        </span>
+        <ChevronDown size={12} style={{ opacity: 0.6 }} />
       </button>
+      {tooltipVisible && <TooltipBubble label={selectedTitle} anchorRef={triggerRef} />}
       {open && (
         <div
           style={{
@@ -395,36 +632,28 @@ function DropdownSelect<T extends string>({
               ? { bottom: "calc(100% + 4px)" }
               : { top: "calc(100% + 4px)" }),
             left: 0,
-            minWidth: 80,
+            minWidth: 36,
             background: "rgba(30, 30, 30, 0.95)",
             border: "1px solid rgba(255,255,255,0.15)",
             borderRadius: 6,
-            padding: "4px 0",
+            padding: 4,
+            display: "grid",
+            gap: 2,
+            justifyItems: "center",
             zIndex: 10010,
             boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
           }}
         >
           {options.map((opt) => (
-            <button
+            <DropdownOptionButton
               key={opt.value}
-              onClick={() => { onChange(opt.value); setOpen(false); }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                width: "100%",
-                padding: "5px 10px",
-                border: "none",
-                background: opt.value === value ? "rgba(255,255,255,0.1)" : "transparent",
-                color: "#fff",
-                fontSize: 12,
-                textAlign: "left",
-                cursor: "pointer",
+              option={opt}
+              selected={opt.value === value}
+              onSelect={(nextValue) => {
+                onChange(nextValue);
+                setOpen(false);
               }}
-            >
-              {opt.icon && <span>{opt.icon}</span>}
-              <span>{opt.label}</span>
-            </button>
+            />
           ))}
         </div>
       )}
@@ -434,7 +663,7 @@ function DropdownSelect<T extends string>({
 
 // ─── ToggleGroup ──────────────────────────────────────────────────────────────
 
-type ToggleOption<T extends string> = { value: T; label: string; title?: string };
+type ToggleOption<T extends string> = { value: T; label: ReactNode; title: string };
 
 function ToggleGroup<T extends string>({
   options,
@@ -450,7 +679,7 @@ function ToggleGroup<T extends string>({
       {options.map((opt) => (
         <button
           key={opt.value}
-          title={opt.title ?? opt.label}
+          title={opt.title}
           onClick={() => onChange(opt.value)}
           style={value === opt.value ? btnActive : btnBase}
         >
@@ -474,7 +703,7 @@ function PenSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <NumberStepper value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
+      <NumberStepper label="Stroke" title="Stroke width" value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
     </>
   );
 }
@@ -490,14 +719,15 @@ function LineSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <NumberStepper value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
+      <NumberStepper label="Stroke" title="Stroke width" value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
       <Separator />
       <DropdownSelect
+        title="Line style"
         options={[
-          { value: "solid", label: "Solid", icon: "━" },
-          { value: "wavy", label: "Wavy", icon: "∿" },
-          { value: "dotted", label: "Dotted", icon: "┈" },
-          { value: "dashed", label: "Dashed", icon: "╌" },
+          { value: "solid", label: "Solid", icon: <LineStyleIcon variant="solid" /> },
+          { value: "wavy", label: "Wavy", icon: <LineStyleIcon variant="wavy" /> },
+          { value: "dotted", label: "Dotted", icon: <LineStyleIcon variant="dotted" /> },
+          { value: "dashed", label: "Dashed", icon: <LineStyleIcon variant="dashed" /> },
         ]}
         value={(() => {
           if (style.lineShape === "wavy") return "wavy";
@@ -523,25 +753,26 @@ function ArrowSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <NumberStepper value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
+      <NumberStepper label="Stroke" title="Stroke width" value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
       <Separator />
       <DropdownSelect
+        title="Line style"
         options={[
-          { value: "solid", label: "Solid", icon: "━" },
-          { value: "dotted", label: "Dotted", icon: "┈" },
-          { value: "dashed", label: "Dashed", icon: "╌" },
+          { value: "solid", label: "Solid", icon: <LineStyleIcon variant="solid" /> },
+          { value: "dotted", label: "Dotted", icon: <LineStyleIcon variant="dotted" /> },
+          { value: "dashed", label: "Dashed", icon: <LineStyleIcon variant="dashed" /> },
         ]}
         value={style.lineStyle ?? "solid"}
         onChange={(lineStyle) => set({ lineStyle })}
       />
       <Separator />
       <DropdownSelect
+        title="Arrowhead"
         options={[
-          { value: "v-shape", label: "Open", icon: ">" },
-          { value: "filled-triangle", label: "Filled", icon: "▶" },
-          { value: "pointed", label: "Pointed", icon: "▷" },
+          { value: "v-shape", label: "Open", icon: <OpenArrowIcon /> },
+          { value: "filled-triangle", label: "Filled", icon: <FilledArrowIcon /> },
         ]}
-        value={style.arrowStyle ?? "v-shape"}
+        value={style.arrowStyle === "filled-triangle" ? "filled-triangle" : "v-shape"}
         onChange={(arrowStyle) => set({ arrowStyle })}
       />
     </>
@@ -559,23 +790,24 @@ function RectSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <NumberStepper value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
+      <NumberStepper label="Stroke" title="Stroke width" value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
       <Separator />
       <ToggleGroup
         options={[
-          { value: "hollow", label: "□", title: "Hollow" },
-          { value: "solid", label: "■", title: "Filled" },
+          { value: "hollow", label: PanelIcon(Square), title: "Hollow" },
+          { value: "solid", label: <FilledSquareIcon />, title: "Filled" },
         ]}
         value={style.fill ?? "hollow"}
         onChange={(fill) => set({ fill })}
       />
-      <ToggleGroup
-        options={[
-          { value: "0", label: "┐", title: "Sharp corners" },
-          { value: "8", label: "╮", title: "Rounded corners" },
-        ]}
-        value={String(style.cornerRadius ?? 0)}
-        onChange={(v) => set({ cornerRadius: Number(v) })}
+      <Separator />
+      <NumberStepper
+        label="Radius"
+        title="Corner radius"
+        value={style.cornerRadius ?? 0}
+        onChange={(cornerRadius) => set({ cornerRadius })}
+        min={0}
+        max={48}
       />
     </>
   );
@@ -592,12 +824,12 @@ function EllipseSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <NumberStepper value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
+      <NumberStepper label="Stroke" title="Stroke width" value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
       <Separator />
       <ToggleGroup
         options={[
-          { value: "hollow", label: "□", title: "Hollow" },
-          { value: "solid", label: "■", title: "Filled" },
+          { value: "hollow", label: PanelIcon(Circle), title: "Hollow" },
+          { value: "solid", label: <FilledCircleIcon />, title: "Filled" },
         ]}
         value={style.fill ?? "hollow"}
         onChange={(fill) => set({ fill })}
@@ -618,17 +850,18 @@ function TextSection({
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
       <DropdownSelect
+        title="Font family"
         options={[
-          { value: "Excalifont", label: "Handwriting", icon: "✎" },
-          { value: "sans-serif", label: "Sans-serif", icon: "A" },
-          { value: "serif", label: "Serif", icon: "T" },
-          { value: "monospace", label: "Monospace", icon: "<>" },
+          { value: HANDWRITING_FONT_VALUE, label: "Handwriting", icon: PanelIcon(PencilLine) },
+          { value: "sans-serif", label: "Sans-serif", icon: PanelIcon(Type) },
+          { value: "serif", label: "Serif", icon: PanelIcon(Pilcrow) },
+          { value: "monospace", label: "Monospace", icon: PanelIcon(Code2) },
         ]}
-        value={style.fontFamily ?? "Excalifont"}
+        value={normalizeTextFontFamilyValue(style.fontFamily)}
         onChange={(fontFamily) => set({ fontFamily })}
       />
       <Separator />
-      <NumberStepper value={style.fontSize ?? 24} onChange={(fontSize) => set({ fontSize })} min={10} max={72} step={2} />
+      <NumberStepper label="Size" title="Font size" value={style.fontSize ?? 24} onChange={(fontSize) => set({ fontSize })} min={10} max={72} step={2} />
     </>
   );
 }
@@ -643,9 +876,10 @@ function BlurSection({
   return (
     <>
       <DropdownSelect
+        title="Blur mode"
         options={[
-          { value: "mosaic", label: "Mosaic", icon: "▦" },
-          { value: "gaussian", label: "Gaussian", icon: "◌" },
+          { value: "mosaic", label: "Mosaic", icon: PanelIcon(Grid3X3) },
+          { value: "gaussian", label: "Gaussian", icon: PanelIcon(CircleDashed) },
         ]}
         value={style.blurMode ?? "mosaic"}
         onChange={(blurMode) => set({ blurMode })}
@@ -653,14 +887,14 @@ function BlurSection({
       <Separator />
       <ToggleGroup
         options={[
-          { value: "rect", label: "□", title: "Rectangle" },
-          { value: "freehand", label: "✎", title: "Freehand" },
+          { value: "rect", label: PanelIcon(Square), title: "Rectangle" },
+          { value: "freehand", label: PanelIcon(PencilLine), title: "Freehand" },
         ]}
         value={style.blurMethod ?? "rect"}
         onChange={(blurMethod) => set({ blurMethod })}
       />
       <Separator />
-      <NumberStepper value={style.blurIntensity ?? 10} onChange={(blurIntensity) => set({ blurIntensity })} min={3} max={30} step={1} suffix="" />
+      <NumberStepper label="Strength" title="Blur intensity" value={style.blurIntensity ?? 10} onChange={(blurIntensity) => set({ blurIntensity })} min={3} max={30} step={1} suffix="" />
     </>
   );
 }
@@ -676,12 +910,12 @@ function HighlightSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <NumberStepper value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
+      <NumberStepper label="Stroke" title="Stroke width" value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
       <Separator />
       <ToggleGroup
         options={[
-          { value: "freehand", label: "✎", title: "Freehand highlight" },
-          { value: "straight", label: "—", title: "Straight highlight" },
+          { value: "freehand", label: PanelIcon(PencilLine), title: "Freehand highlight" },
+          { value: "straight", label: PanelIcon(Minus), title: "Straight highlight" },
         ]}
         value={style.highlightMode ?? "freehand"}
         onChange={(highlightMode) => set({ highlightMode })}
@@ -695,24 +929,40 @@ function HighlightSection({
 type Props = {
   tool: ToolType;
   style?: CSSProperties;
+  object?: AnnotationObject;
+  panelRef?: Ref<HTMLDivElement>;
 };
 
-export function PropertyPanel({ tool, style: containerStyle }: Props) {
+export function PropertyPanel({ tool, style: containerStyle, object, panelRef }: Props) {
   const activeStyle = useAnnotation((s) => s.activeStyle);
   const setActiveStyle = useAnnotation((s) => s.setActiveStyle);
+  const modifyStyle = useAnnotation((s) => s.modifyStyle);
+  const style = object?.style ?? activeStyle;
+  const set = (partial: Partial<AnnotationStyle>) => {
+    if (object) {
+      modifyStyle(object.id, partial);
+      return;
+    }
+    setActiveStyle(partial);
+  };
 
   if (tool === "select") return null;
 
   return (
-    <div style={{ ...panelStyle, ...containerStyle }} onMouseDown={(e) => e.stopPropagation()}>
-      {tool === "draw" && <PenSection style={activeStyle} set={setActiveStyle} />}
-      {tool === "line" && <LineSection style={activeStyle} set={setActiveStyle} />}
-      {tool === "arrow" && <ArrowSection style={activeStyle} set={setActiveStyle} />}
-      {tool === "rect" && <RectSection style={activeStyle} set={setActiveStyle} />}
-      {tool === "ellipse" && <EllipseSection style={activeStyle} set={setActiveStyle} />}
-      {tool === "text" && <TextSection style={activeStyle} set={setActiveStyle} />}
-      {tool === "blur" && <BlurSection style={activeStyle} set={setActiveStyle} />}
-      {tool === "highlight" && <HighlightSection style={activeStyle} set={setActiveStyle} />}
+    <div
+      ref={panelRef}
+      data-annotation-property-panel
+      style={{ ...panelStyle, ...containerStyle }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {tool === "draw" && <PenSection style={style} set={set} />}
+      {tool === "line" && <LineSection style={style} set={set} />}
+      {tool === "arrow" && <ArrowSection style={style} set={set} />}
+      {tool === "rect" && <RectSection style={style} set={set} />}
+      {tool === "ellipse" && <EllipseSection style={style} set={set} />}
+      {tool === "text" && <TextSection style={style} set={set} />}
+      {tool === "blur" && <BlurSection style={style} set={set} />}
+      {tool === "highlight" && <HighlightSection style={style} set={set} />}
     </div>
   );
 }

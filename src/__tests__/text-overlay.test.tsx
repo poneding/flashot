@@ -1,6 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TextOverlay } from "@/annotation/TextOverlay";
+import {
+  HANDWRITING_FONT_FAMILY,
+  TEXT_LINE_HEIGHT,
+} from "@/annotation/fonts";
 import { useAnnotation } from "@/annotation/store";
 import type { Rect } from "@/lib/types";
 
@@ -85,6 +89,41 @@ describe("TextOverlay", () => {
 
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(onConfirm.mock.calls[0][0].text).toBe("你");
+  });
+
+  it("uses the handwriting font stack and extra line height while editing text", () => {
+    render(
+      <TextOverlay
+        position={{ x: 120, y: 90 }}
+        selection={selection}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+    const editor = screen.getByRole<HTMLTextAreaElement>("textbox");
+
+    expect(editor.style.fontFamily).toBe(HANDWRITING_FONT_FAMILY);
+    expect(editor.style.lineHeight).toBe(String(TEXT_LINE_HEIGHT));
+    expect(parseFloat(editor.style.height)).toBeGreaterThan(24);
+  });
+
+  it("normalizes legacy Excalifont text styles when committing", () => {
+    useAnnotation.getState().setActiveStyle({ fontFamily: "Excalifont" });
+    const onConfirm = vi.fn();
+    render(
+      <TextOverlay
+        position={{ x: 120, y: 90 }}
+        selection={selection}
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+      />
+    );
+    const editor = screen.getByRole<HTMLTextAreaElement>("textbox");
+
+    fireEvent.change(editor, { target: { value: "你好" } });
+    fireEvent.keyDown(editor, { key: "Enter" });
+
+    expect(onConfirm.mock.calls[0][0].style.fontFamily).toBe("handwriting");
   });
 
   it("commits new text at the visual editor position instead of the click hotspot", () => {

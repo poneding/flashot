@@ -1,0 +1,234 @@
+/** @vitest-environment jsdom */
+import { Toolbar } from "@/annotation/Toolbar";
+import { useAnnotation } from "@/annotation/store";
+import type { AnnotationObject } from "@/annotation/types";
+import type { Rect } from "@/lib/types";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const selection: Rect = { x: 100, y: 120, width: 300, height: 180 };
+const monitorRect: Rect = { x: 0, y: 0, width: 900, height: 700 };
+
+const selectedRect: AnnotationObject = {
+  id: "rect-1",
+  type: "rect",
+  start: { x: 10, y: 20 },
+  end: { x: 120, y: 90 },
+  style: { color: "#0099ff", strokeWidth: 4, fill: "hollow" },
+  transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+};
+
+function renderToolbar() {
+  return render(
+    <Toolbar
+      selection={selection}
+      monitorRect={monitorRect}
+      onCopy={vi.fn()}
+      onSave={vi.fn()}
+      onClose={vi.fn()}
+    />
+  );
+}
+
+function propertyPanelElement(container: HTMLElement): HTMLElement {
+  const panel = Array.from(container.querySelectorAll("div")).find(
+    (el) => (el as HTMLElement).style.zIndex === "10001",
+  ) as HTMLElement | undefined;
+  expect(panel).toBeTruthy();
+  return panel!;
+}
+
+function setNavigatorPlatform(platform: string) {
+  Object.defineProperty(window.navigator, "platform", {
+    configurable: true,
+    value: platform,
+  });
+}
+
+const defaultInnerHeight = window.innerHeight;
+
+describe("Annotation toolbar", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: defaultInnerHeight });
+    setNavigatorPlatform("MacIntel");
+    useAnnotation.getState().reset();
+    useAnnotation.getState().setActiveStyle({ color: "#ff0000", strokeWidth: 4 });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("automatically shows the selected object's property panel and edits that object", () => {
+    useAnnotation.getState().addObject(selectedRect);
+    useAnnotation.getState().setSelectedObject(selectedRect.id);
+
+    renderToolbar();
+
+    fireEvent.click(screen.getByTitle("#33cc33"));
+
+    const object = useAnnotation.getState().objects.find((o) => o.id === selectedRect.id);
+    expect(object?.style.color).toBe("#33cc33");
+    expect(useAnnotation.getState().activeStyle.color).not.toBe("#33cc33");
+  });
+
+  it("removes the visible select tool and uses a dedicated drag handle", () => {
+    const { container } = renderToolbar();
+
+    expect(screen.queryByRole("button", { name: "Select" })).toBeNull();
+    const toolbar = container.querySelector("[data-annotation-toolbar]");
+    expect(toolbar).not.toBeNull();
+
+    const handle = container.querySelector("[data-annotation-toolbar-drag-handle]") as HTMLElement | null;
+    expect(handle).not.toBeNull();
+    expect(toolbar?.firstElementChild).toBe(handle);
+    expect(handle!.getAttribute("style")).toContain("cursor: move");
+    expect(screen.queryByTitle("Move toolbar")).toBeNull();
+    expect(toolbar?.getAttribute("style")).not.toContain("cursor: move");
+  });
+
+  it("keeps the toolbar inside monitor bounds while dragging", () => {
+    const { container } = renderToolbar();
+    const handle = container.querySelector("[data-annotation-toolbar-drag-handle]") as HTMLElement;
+
+    fireEvent.mouseDown(handle, { clientX: 110, clientY: 320 });
+    fireEvent.mouseMove(document, { clientX: -200, clientY: -160 });
+    fireEvent.mouseUp(document);
+
+    const toolbar = container.querySelector("[data-annotation-toolbar]") as HTMLElement;
+    expect(toolbar.style.left).toBe("0px");
+    expect(toolbar.style.top).toBe("0px");
+  });
+
+  it("provides hover tooltips for toolbar operations", () => {
+    renderToolbar();
+
+    [
+      "Pen",
+      "Line",
+      "Arrow",
+      "Rectangle",
+      "Ellipse",
+      "Text",
+      "Blur",
+      "Highlight",
+      "Eraser",
+      "Undo (CMD+Z)",
+      "Redo (CMD+SHIFT+Z)",
+      "Copy (CMD+C)",
+      "Save (CMD+S)",
+      "Cancel (ESC)",
+    ].forEach((title) => {
+      expect(screen.getByTitle(title)).not.toBeNull();
+    });
+  });
+
+  it("shows an immediate custom tooltip and keeps copy visually consistent", () => {
+    renderToolbar();
+    const copy = screen.getByTitle("Copy (CMD+C)");
+
+    fireEvent.mouseEnter(copy);
+
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip.textContent).toBe("Copy (CMD+C)");
+    expect(tooltip.getAttribute("style")).toContain("background: rgba(18, 18, 18, 0.48)");
+    expect(copy.style.background).toBe("transparent");
+  });
+
+  it("positions toolbar tooltips from the toolbar edge", () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const el = this;
+      if (el.hasAttribute("data-annotation-toolbar")) {
+        return domRect({ top: 120, left: 80, width: 420, height: 40 });
+      }
+      if (el.getAttribute("title") === "Copy (CMD+C)") {
+        return domRect({ top: 124, left: 390, width: 32, height: 32 });
+      }
+      return domRect();
+    });
+    renderToolbar();
+    const copy = screen.getByTitle("Copy (CMD+C)");
+
+    fireEvent.mouseEnter(copy);
+
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip.style.top).toBe("116px");
+    expect(tooltip.style.bottom).toBe("");
+  });
+
+  it("renders toolbar tooltips outside the filtered toolbar surface", () => {
+    renderToolbar();
+    const copy = screen.getByTitle("Copy (CMD+C)");
+
+    fireEvent.mouseEnter(copy);
+
+    expect(screen.getByRole("tooltip").parentElement).toBe(document.body);
+  });
+
+  it("uses control-key shortcuts on non-mac platforms", () => {
+    setNavigatorPlatform("Win32");
+
+    renderToolbar();
+
+    expect(screen.getByTitle("Undo (CTRL+Z)")).not.toBeNull();
+    expect(screen.getByTitle("Redo (CTRL+SHIFT+Z)")).not.toBeNull();
+    expect(screen.getByTitle("Copy (CTRL+C)")).not.toBeNull();
+    expect(screen.getByTitle("Save (CTRL+S)")).not.toBeNull();
+  });
+
+  it("shows undo and redo tooltips even when unavailable", () => {
+    renderToolbar();
+    const undo = screen.getByTitle("Undo (CMD+Z)");
+
+    fireEvent.mouseEnter(undo);
+
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip.textContent).toBe("Undo (CMD+Z)");
+    expect(tooltip.getAttribute("style")).toContain("background: rgba(18, 18, 18, 0.48)");
+    expect(undo.getAttribute("aria-disabled")).toBe("true");
+    expect(undo.style.opacity).toBe("");
+  });
+
+  it("keeps the property panel gap consistent above and below the toolbar", () => {
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(34);
+
+    useAnnotation.getState().addObject(selectedRect);
+    useAnnotation.getState().setSelectedObject(selectedRect.id);
+
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 700 });
+    const belowRender = renderToolbar();
+    const belowToolbar = belowRender.container.querySelector("[data-annotation-toolbar]") as HTMLElement;
+    const belowPanel = propertyPanelElement(belowRender.container);
+    const belowToolbarBottom = parseFloat(belowToolbar.style.top) + parseFloat(belowToolbar.style.height);
+    expect(parseFloat(belowPanel.style.top) - belowToolbarBottom).toBe(4);
+    belowRender.unmount();
+
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 352 });
+    const aboveRender = renderToolbar();
+    const aboveToolbar = aboveRender.container.querySelector("[data-annotation-toolbar]") as HTMLElement;
+    const abovePanel = propertyPanelElement(aboveRender.container);
+    const aboveToolbarTop = parseFloat(aboveToolbar.style.top);
+    const abovePanelBottom = parseFloat(abovePanel.style.top) + 34;
+    expect(aboveToolbarTop - abovePanelBottom).toBe(4);
+  });
+});
+
+function domRect(partial: Partial<DOMRect> = {}): DOMRect {
+  const left = partial.left ?? 0;
+  const top = partial.top ?? 0;
+  const width = partial.width ?? 0;
+  const height = partial.height ?? 0;
+  return {
+    x: left,
+    y: top,
+    left,
+    top,
+    width,
+    height,
+    right: partial.right ?? left + width,
+    bottom: partial.bottom ?? top + height,
+    toJSON: () => {},
+  } as DOMRect;
+}

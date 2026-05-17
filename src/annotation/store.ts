@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createCommandStack, type CommandStack } from "@/annotation/commands";
+import { normalizeTextStyle } from "@/annotation/fonts";
 import {
   DEFAULT_STYLE,
   type AnnotationId,
@@ -14,15 +15,71 @@ const STYLE_STORAGE_KEY = "flashot:annotation-style";
 function loadPersistedStyle(): AnnotationStyle {
   try {
     const raw = localStorage.getItem(STYLE_STORAGE_KEY);
-    if (raw) return { ...DEFAULT_STYLE, ...JSON.parse(raw) };
+    if (raw) return normalizeTextStyle({ ...DEFAULT_STYLE, ...JSON.parse(raw) });
   } catch { /* ignore */ }
-  return { ...DEFAULT_STYLE };
+  return normalizeTextStyle({ ...DEFAULT_STYLE });
 }
 
 function persistStyle(style: AnnotationStyle) {
   try {
     localStorage.setItem(STYLE_STORAGE_KEY, JSON.stringify(style));
   } catch { /* ignore */ }
+}
+
+type ToolStyleMemory = {
+  line: Pick<AnnotationStyle, "lineShape" | "lineStyle">;
+  arrow: Pick<AnnotationStyle, "lineStyle" | "arrowStyle">;
+};
+
+function lineToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["line"] {
+  const lineShape = style.lineShape ?? DEFAULT_STYLE.lineShape;
+  return {
+    lineShape,
+    lineStyle: lineShape === "wavy" ? "solid" : (style.lineStyle ?? DEFAULT_STYLE.lineStyle),
+  };
+}
+
+function arrowToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["arrow"] {
+  return {
+    lineStyle: style.lineStyle ?? DEFAULT_STYLE.lineStyle,
+    arrowStyle: style.arrowStyle ?? DEFAULT_STYLE.arrowStyle,
+  };
+}
+
+function createToolStyleMemory(style: AnnotationStyle): ToolStyleMemory {
+  return {
+    line: lineToolStyle(style),
+    arrow: arrowToolStyle(style),
+  };
+}
+
+function normalizeActiveStyleForTool(tool: ToolType, style: AnnotationStyle): AnnotationStyle {
+  style = normalizeTextStyle(style);
+  if (tool === "line") {
+    return { ...style, ...lineToolStyle(style) };
+  }
+  if (tool === "arrow") {
+    return { ...style, lineShape: "straight", ...arrowToolStyle(style) };
+  }
+  return style;
+}
+
+function rememberToolStyle(tool: ToolType, style: AnnotationStyle) {
+  if (tool === "line") {
+    toolStyleMemory.line = lineToolStyle(style);
+  } else if (tool === "arrow") {
+    toolStyleMemory.arrow = arrowToolStyle(style);
+  }
+}
+
+function styleForTool(tool: ToolType, baseStyle: AnnotationStyle): AnnotationStyle {
+  if (tool === "line") {
+    return normalizeActiveStyleForTool(tool, { ...baseStyle, ...toolStyleMemory.line });
+  }
+  if (tool === "arrow") {
+    return normalizeActiveStyleForTool(tool, { ...baseStyle, ...toolStyleMemory.arrow });
+  }
+  return baseStyle;
 }
 
 type DrawingState = "idle" | "active";
@@ -53,11 +110,13 @@ type AnnotationActions = {
 };
 
 let commandStack: CommandStack = createCommandStack();
+const initialActiveStyle = loadPersistedStyle();
+let toolStyleMemory = createToolStyleMemory(initialActiveStyle);
 
 const initialState: AnnotationState = {
   objects: [],
   activeTool: "select",
-  activeStyle: loadPersistedStyle(),
+  activeStyle: initialActiveStyle,
   selectedObjectId: null,
   drawingState: "idle",
   canUndo: false,
@@ -68,11 +127,20 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
   ...initialState,
 
   setActiveTool(tool) {
-    set({ activeTool: tool, selectedObjectId: null });
+    const { activeTool, activeStyle } = get();
+    rememberToolStyle(activeTool, activeStyle);
+    const nextStyle = styleForTool(tool, activeStyle);
+    persistStyle(nextStyle);
+    set({ activeTool: tool, activeStyle: nextStyle, selectedObjectId: null });
   },
 
   setActiveStyle(partial) {
-    const activeStyle = { ...get().activeStyle, ...partial };
+    const state = get();
+    const activeStyle = normalizeActiveStyleForTool(
+      state.activeTool,
+      { ...state.activeStyle, ...partial },
+    );
+    rememberToolStyle(state.activeTool, activeStyle);
     persistStyle(activeStyle);
     set({ activeStyle });
   },

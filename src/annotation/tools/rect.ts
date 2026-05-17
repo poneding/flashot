@@ -22,9 +22,10 @@ export function onRectStart(x: number, y: number) {
     y,
     width: 0,
     height: 0,
-    fill: isSolid ? activeStyle.color : undefined,
+    fill: isSolid ? activeStyle.color : "rgba(0,0,0,0)",
     stroke: isSolid ? undefined : activeStyle.color,
     strokeWidth: isSolid ? 0 : activeStyle.strokeWidth,
+    strokeScaleEnabled: false,
     cornerRadius: activeStyle.cornerRadius ?? 0,
     listening: false,
   });
@@ -84,9 +85,10 @@ export function onRectEnd(x: number, y: number): AnnotationObject | null {
 export function renderRectObject(obj: AnnotationObject): Konva.Rect {
   const start = obj.start ?? { x: 0, y: 0 };
   const end = obj.end ?? { x: 0, y: 0 };
+  const transform = obj.transform;
 
-  const x = Math.min(start.x, end.x);
-  const y = Math.min(start.y, end.y);
+  const x = Math.min(start.x, end.x) + transform.x;
+  const y = Math.min(start.y, end.y) + transform.y;
   const width = Math.abs(end.x - start.x);
   const height = Math.abs(end.y - start.y);
 
@@ -95,14 +97,17 @@ export function renderRectObject(obj: AnnotationObject): Konva.Rect {
   return new Konva.Rect({
     id: obj.id,
     draggable: true,
-    ...obj.transform,
     x,
     y,
+    scaleX: transform.scaleX,
+    scaleY: transform.scaleY,
+    rotation: transform.rotation,
     width,
     height,
-    fill: isSolid ? obj.style.color : undefined,
+    fill: isSolid ? obj.style.color : "rgba(0,0,0,0)",
     stroke: isSolid ? undefined : obj.style.color,
     strokeWidth: isSolid ? 0 : obj.style.strokeWidth,
+    strokeScaleEnabled: false,
     cornerRadius: obj.style.cornerRadius ?? 0,
   });
 }

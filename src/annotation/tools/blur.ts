@@ -209,6 +209,7 @@ export function onBlurEnd(x: number, y: number): AnnotationObject | null {
 export function renderBlurObject(obj: AnnotationObject): Konva.Image | null {
   const start = obj.start ?? { x: 0, y: 0 };
   const end = obj.end ?? { x: 0, y: 0 };
+  const transform = obj.transform;
   const w = end.x - start.x;
   const h = end.y - start.y;
   if (w < 1 || h < 1) return null;
@@ -217,6 +218,11 @@ export function renderBlurObject(obj: AnnotationObject): Konva.Image | null {
   const img = applyBlur(start.x, start.y, w, h, mode, intensity);
   if (!img) return null;
   img.id(obj.id);
+  img.x(start.x + transform.x);
+  img.y(start.y + transform.y);
+  img.scaleX(transform.scaleX);
+  img.scaleY(transform.scaleY);
+  img.rotation(transform.rotation);
   img.listening(true);
   img.draggable(true);
   return img;
