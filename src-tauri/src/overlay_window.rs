@@ -143,12 +143,11 @@ fn prepare_platform_text_input(window: &WebviewWindow) -> Result<()> {
         )?;
 
         if let Some(app_class) = Class::get("NSApplication") {
-            let app: *mut Object = app_class.send_message(Sel::register("sharedApplication"), ())?;
+            let app: *mut Object =
+                app_class.send_message(Sel::register("sharedApplication"), ())?;
             if !app.is_null() {
-                (*app).send_message::<_, ()>(
-                    Sel::register("activateIgnoringOtherApps:"),
-                    (YES,),
-                )?;
+                (*app)
+                    .send_message::<_, ()>(Sel::register("activateIgnoringOtherApps:"), (YES,))?;
             }
         }
 
@@ -206,9 +205,9 @@ fn text_input_overlay_window_level() -> isize {
     const K_CG_POP_UP_MENU_WINDOW_LEVEL_KEY: i32 = 11;
 
     unsafe {
-        text_input_overlay_level_from_popup_level(
-            CGWindowLevelForKey(K_CG_POP_UP_MENU_WINDOW_LEVEL_KEY) as isize,
-        )
+        text_input_overlay_level_from_popup_level(CGWindowLevelForKey(
+            K_CG_POP_UP_MENU_WINDOW_LEVEL_KEY,
+        ) as isize)
     }
 }
 
