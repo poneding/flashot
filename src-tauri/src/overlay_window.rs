@@ -48,6 +48,7 @@ fn overlay_level_from_window_levels(shielding_level: isize, maximum_level: isize
     maximum_level.max(shielding_level + 1)
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn text_input_overlay_level_from_popup_level(popup_level: isize) -> isize {
     popup_level - 1
 }
