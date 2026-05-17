@@ -30,7 +30,7 @@ function generateWavyPoints(x1: number, y1: number, x2: number, y2: number): num
 }
 
 function createArrowHead(x: number, y: number, angle: number, style: AnnotationStyle): Konva.Shape {
-  const size = style.strokeWidth * 3;
+  const size = Math.max(style.strokeWidth * 3, 10);
 
   if (style.arrowStyle === "filled-triangle") {
     return new Konva.RegularPolygon({
@@ -45,10 +45,11 @@ function createArrowHead(x: number, y: number, angle: number, style: AnnotationS
 
   if (style.arrowStyle === "pointed") {
     const narrowAngle = Math.PI / 8;
-    const p1x = x - size * 1.2 * Math.cos(angle - narrowAngle);
-    const p1y = y - size * 1.2 * Math.sin(angle - narrowAngle);
-    const p2x = x - size * 1.2 * Math.cos(angle + narrowAngle);
-    const p2y = y - size * 1.2 * Math.sin(angle + narrowAngle);
+    const len = Math.max(size * 1.5, 14);
+    const p1x = x - len * Math.cos(angle - narrowAngle);
+    const p1y = y - len * Math.sin(angle - narrowAngle);
+    const p2x = x - len * Math.cos(angle + narrowAngle);
+    const p2y = y - len * Math.sin(angle + narrowAngle);
     return new Konva.Line({
       points: [p1x, p1y, x, y, p2x, p2y],
       stroke: style.color,

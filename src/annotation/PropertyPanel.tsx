@@ -59,6 +59,172 @@ function Separator() {
   );
 }
 
+// ─── Color utilities ─────────────────────────────────────────────────────────
+
+function hexToHsv(hex: string): [number, number, number] {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const d = max - min;
+  const s = max === 0 ? 0 : d / max;
+  const v = max;
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+  return [h * 360, s * 100, v * 100];
+}
+
+function hsvToHex(h: number, s: number, v: number): string {
+  h = h / 360; s = s / 100; v = v / 100;
+  const i = Math.floor(h * 6);
+  const f = h * 6 - i;
+  const p = v * (1 - s);
+  const q = v * (1 - f * s);
+  const t = v * (1 - (1 - f) * s);
+  let r = 0, g = 0, b = 0;
+  switch (i % 6) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    case 5: r = v; g = p; b = q; break;
+  }
+  const toHex = (n: number) => Math.round(n * 255).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+// ─── GradientPicker ──────────────────────────────────────────────────────────
+
+function GradientPicker({
+  value,
+  onChange,
+  onClose,
+}: {
+  value: string;
+  onChange: (color: string) => void;
+  onClose: () => void;
+}) {
+  const [hsv, setHsv] = useState<[number, number, number]>(() => hexToHsv(value));
+  const squareRef = useRef<HTMLDivElement>(null);
+  const hueRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const close = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [onClose]);
+
+  const pickFromSquare = (e: MouseEvent | React.MouseEvent) => {
+    const rect = squareRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const s = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+    const v = Math.max(0, Math.min(100, (1 - (e.clientY - rect.top) / rect.height) * 100));
+    const next: [number, number, number] = [hsv[0], s, v];
+    setHsv(next);
+    onChange(hsvToHex(next[0], next[1], next[2]));
+  };
+
+  const pickFromHue = (e: MouseEvent | React.MouseEvent) => {
+    const rect = hueRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const h = Math.max(0, Math.min(360, ((e.clientX - rect.left) / rect.width) * 360));
+    const next: [number, number, number] = [h, hsv[1], hsv[2]];
+    setHsv(next);
+    onChange(hsvToHex(next[0], next[1], next[2]));
+  };
+
+  const startDrag = (pickFn: (e: MouseEvent) => void) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    pickFn(e.nativeEvent);
+    const onMove = (ev: MouseEvent) => pickFn(ev);
+    const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
+  const hueColor = hsvToHex(hsv[0], 100, 100);
+
+  return (
+    <div
+      ref={containerRef}
+      onMouseDown={(e) => e.stopPropagation()}
+      style={{
+        position: "absolute",
+        top: "calc(100% + 6px)",
+        left: 0,
+        padding: 8,
+        borderRadius: 8,
+        background: "rgba(30, 30, 30, 0.95)",
+        border: "1px solid rgba(255,255,255,0.15)",
+        boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+        zIndex: 10010,
+      }}
+    >
+      {/* SV square */}
+      <div
+        ref={squareRef}
+        onMouseDown={startDrag(pickFromSquare)}
+        style={{
+          width: 160,
+          height: 160,
+          borderRadius: 4,
+          position: "relative",
+          cursor: "crosshair",
+          background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hueColor})`,
+        }}
+      >
+        <div style={{
+          position: "absolute",
+          left: `${hsv[1]}%`,
+          top: `${100 - hsv[2]}%`,
+          width: 10,
+          height: 10,
+          borderRadius: "50%",
+          border: "2px solid #fff",
+          boxShadow: "0 0 2px rgba(0,0,0,0.6)",
+          transform: "translate(-50%, -50%)",
+          pointerEvents: "none",
+        }} />
+      </div>
+      {/* Hue bar */}
+      <div
+        ref={hueRef}
+        onMouseDown={startDrag(pickFromHue)}
+        style={{
+          width: 160,
+          height: 12,
+          marginTop: 8,
+          borderRadius: 6,
+          cursor: "pointer",
+          position: "relative",
+          background: "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)",
+        }}
+      >
+        <div style={{
+          position: "absolute",
+          left: `${(hsv[0] / 360) * 100}%`,
+          top: "50%",
+          width: 10,
+          height: 10,
+          borderRadius: "50%",
+          border: "2px solid #fff",
+          boxShadow: "0 0 2px rgba(0,0,0,0.6)",
+          transform: "translate(-50%, -50%)",
+          pointerEvents: "none",
+        }} />
+      </div>
+    </div>
+  );
+}
+
 // ─── ColorPicker ──────────────────────────────────────────────────────────────
 
 function ColorPicker({
@@ -68,6 +234,9 @@ function ColorPicker({
   value: string;
   onChange: (color: string) => void;
 }) {
+  const [showGradient, setShowGradient] = useState(false);
+  const isPreset = PRESET_COLORS.some((c) => c.toLowerCase() === value.toLowerCase());
+
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
       {PRESET_COLORS.map((c) => (
@@ -91,23 +260,34 @@ function ColorPicker({
           }}
         />
       ))}
-      <input
-        type="color"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        title="Custom color"
-        style={{
-          width: 18,
-          height: 18,
-          borderRadius: "50%",
-          border: "2px solid rgba(255,255,255,0.3)",
-          cursor: "pointer",
-          padding: 0,
-          background: "transparent",
-          outline: "none",
-          overflow: "hidden",
-        }}
-      />
+      <div style={{ position: "relative" }}>
+        <button
+          title="Custom color"
+          onClick={() => setShowGradient((v) => !v)}
+          style={{
+            width: 18,
+            height: 18,
+            borderRadius: 3,
+            background: isPreset
+              ? "conic-gradient(from 0deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)"
+              : value,
+            border: showGradient || !isPreset
+              ? "2px solid #fff"
+              : "2px solid #888",
+            cursor: "pointer",
+            padding: 0,
+            flexShrink: 0,
+            outline: "none",
+          }}
+        />
+        {showGradient && (
+          <GradientPicker
+            value={value}
+            onChange={onChange}
+            onClose={() => setShowGradient(false)}
+          />
+        )}
+      </div>
     </div>
   );
 }
