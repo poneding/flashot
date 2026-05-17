@@ -20,6 +20,27 @@ describe("useAnnotation store", () => {
     expect(useAnnotation.getState().selectedObjectId).toBeNull();
   });
 
+  it("keeps line and arrow line styles independent when switching tools", () => {
+    useAnnotation.getState().setActiveTool("line");
+    useAnnotation.getState().setActiveStyle({ lineShape: "wavy", lineStyle: "solid" });
+
+    useAnnotation.getState().setActiveTool("arrow");
+    useAnnotation.getState().setActiveStyle({ lineStyle: "dashed" });
+
+    expect(useAnnotation.getState().activeStyle.lineStyle).toBe("dashed");
+
+    useAnnotation.getState().setActiveTool("line");
+
+    expect(useAnnotation.getState().activeStyle.lineShape).toBe("wavy");
+    expect(useAnnotation.getState().activeStyle.lineStyle).toBe("solid");
+  });
+
+  it("normalizes legacy handwriting font values in active style memory", () => {
+    useAnnotation.getState().setActiveStyle({ fontFamily: "Excalifont" });
+
+    expect(useAnnotation.getState().activeStyle.fontFamily).toBe("handwriting");
+  });
+
   it("adds an object via addObject", () => {
     const obj = {
       id: "1",

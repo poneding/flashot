@@ -14,16 +14,18 @@ export function onArrowEnd(x: number, y: number): AnnotationObject | null {
   // Temporarily force arrow: "end" so onLineEnd adds the arrowhead
   const store = useAnnotation.getState();
   const prevArrow = store.activeStyle.arrow;
-  store.setActiveStyle({ arrow: "end" });
+  const prevLineShape = store.activeStyle.lineShape;
+  store.setActiveStyle({ arrow: "end", lineShape: "straight" });
 
   const obj = onLineEnd(x, y);
 
-  // Restore previous arrow setting
-  store.setActiveStyle({ arrow: prevArrow });
+  // Restore previous arrow/line settings
+  store.setActiveStyle({ arrow: prevArrow, lineShape: prevLineShape });
 
   if (obj) {
     obj.type = "arrow";
     obj.style.arrow = "end";
+    obj.style.lineShape = "straight";
   }
   return obj;
 }

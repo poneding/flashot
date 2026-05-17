@@ -2,6 +2,7 @@ import Konva from "konva";
 import { getLayer } from "@/annotation/Stage";
 import { useAnnotation } from "@/annotation/store";
 import type { AnnotationObject, AnnotationStyle } from "@/annotation/types";
+import type { Point } from "@/lib/types";
 
 let currentGroup: Konva.Group | null = null;
 let startX = 0;
@@ -29,27 +30,94 @@ function generateWavyPoints(x1: number, y1: number, x2: number, y2: number): num
   return points;
 }
 
+function generateQuadraticPoints(start: Point, control: Point, end: Point): number[] {
+  const points: number[] = [];
+  const segments = 32;
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const mt = 1 - t;
+    points.push(
+      mt * mt * start.x + 2 * mt * t * control.x + t * t * end.x,
+      mt * mt * start.y + 2 * mt * t * control.y + t * t * end.y,
+    );
+  }
+  return points;
+}
+
+function quadraticPoint(start: Point, control: Point, end: Point, t: number): Point {
+  const mt = 1 - t;
+  return {
+    x: mt * mt * start.x + 2 * mt * t * control.x + t * t * end.x,
+    y: mt * mt * start.y + 2 * mt * t * control.y + t * t * end.y,
+  };
+}
+
+function quadraticTangent(start: Point, control: Point, end: Point, t: number): Point {
+  return {
+    x: 2 * (1 - t) * (control.x - start.x) + 2 * t * (end.x - control.x),
+    y: 2 * (1 - t) * (control.y - start.y) + 2 * t * (end.y - control.y),
+  };
+}
+
+function generateWavyQuadraticPoints(start: Point, control: Point, end: Point): number[] {
+  const wavelength = 28;
+  const amplitude = 2;
+  const lengthSamples = 32;
+  let length = 0;
+  let prev = start;
+
+  for (let i = 1; i <= lengthSamples; i++) {
+    const point = quadraticPoint(start, control, end, i / lengthSamples);
+    length += Math.hypot(point.x - prev.x, point.y - prev.y);
+    prev = point;
+  }
+
+  const segments = Math.max(Math.round(length / 3), 10);
+  const points: number[] = [];
+  let distance = 0;
+  prev = start;
+
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const point = quadraticPoint(start, control, end, t);
+    if (i > 0) distance += Math.hypot(point.x - prev.x, point.y - prev.y);
+
+    const tangent = quadraticTangent(start, control, end, t);
+    const tangentLength = Math.hypot(tangent.x, tangent.y) || 1;
+    const offset = Math.sin((distance / wavelength) * Math.PI * 2) * amplitude;
+    points.push(
+      point.x + (-tangent.y / tangentLength) * offset,
+      point.y + (tangent.x / tangentLength) * offset,
+    );
+    prev = point;
+  }
+
+  return points;
+}
+
+export function lineControlPoint(obj: AnnotationObject): Point {
+  if (obj.points && obj.points.length >= 2) {
+    return { x: obj.points[0], y: obj.points[1] };
+  }
+  const start = obj.start ?? { x: 0, y: 0 };
+  const end = obj.end ?? start;
+  return {
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2,
+  };
+}
+
 function createArrowHead(x: number, y: number, angle: number, style: AnnotationStyle): Konva.Shape {
   const size = Math.max(style.strokeWidth * 3, 10);
 
   if (style.arrowStyle === "filled-triangle") {
-    return new Konva.RegularPolygon({
-      x,
-      y,
-      sides: 3,
-      radius: size,
-      fill: style.color,
-      rotation: (angle * 180) / Math.PI + 90,
-    });
-  }
-
-  if (style.arrowStyle === "pointed") {
     const narrowAngle = Math.PI / 8;
-    const len = Math.max(size * 1.5, 14);
+    const len = Math.max(size * 1.25, 12);
     const p1x = x - len * Math.cos(angle - narrowAngle);
     const p1y = y - len * Math.sin(angle - narrowAngle);
     const p2x = x - len * Math.cos(angle + narrowAngle);
     const p2y = y - len * Math.sin(angle + narrowAngle);
+
     return new Konva.Line({
       points: [p1x, p1y, x, y, p2x, p2y],
       stroke: style.color,
@@ -82,6 +150,11 @@ function getDashPattern(style: AnnotationStyle): number[] | undefined {
   return undefined;
 }
 
+function effectiveLineShape(objOrType: AnnotationObject | "line" | "arrow", style: AnnotationStyle) {
+  const type = typeof objOrType === "string" ? objOrType : objOrType.type;
+  return type === "arrow" ? "straight" : style.lineShape;
+}
+
 export function onLineStart(x: number, y: number) {
   const layer = getLayer();
   if (!layer) return;
@@ -110,7 +183,7 @@ export function onLineMove(x: number, y: number) {
   const mainLine = currentGroup.findOne(".main-line") as Konva.Line;
   if (!mainLine) return;
 
-  if (activeStyle.lineShape === "wavy") {
+  if (effectiveLineShape(activeTool === "arrow" ? "arrow" : "line", activeStyle) === "wavy") {
     const wavyPoints = generateWavyPoints(startX, startY, x, y);
     mainLine.points(wavyPoints);
     mainLine.tension(0);
@@ -151,21 +224,6 @@ export function onLineEnd(x: number, y: number): AnnotationObject | null {
   const { activeStyle } = useAnnotation.getState();
   const id = crypto.randomUUID();
 
-  // Remove preview arrowheads
-  currentGroup.find(".temp-arrow").forEach((n) => n.destroy());
-
-  const angle = Math.atan2(y - startY, x - startX);
-  if (activeStyle.arrow === "end" || activeStyle.arrow === "both") {
-    currentGroup.add(createArrowHead(x, y, angle, activeStyle));
-  }
-  if (activeStyle.arrow === "start" || activeStyle.arrow === "both") {
-    currentGroup.add(createArrowHead(startX, startY, angle + Math.PI, activeStyle));
-  }
-
-  currentGroup.id(id);
-  currentGroup.listening(true);
-  currentGroup.draggable(true);
-
   const obj: AnnotationObject = {
     id,
     type: "line",
@@ -175,20 +233,35 @@ export function onLineEnd(x: number, y: number): AnnotationObject | null {
     transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
   };
 
+  currentGroup.id(id);
+  currentGroup.listening(true);
+  currentGroup.draggable(false);
+  currentGroup.position({ x: startX, y: startY });
+  buildLineObjectChildren(currentGroup, obj);
+
   currentGroup = null;
   return obj;
 }
 
-export function renderLineObject(obj: AnnotationObject): Konva.Group {
-  const group = new Konva.Group({ id: obj.id, draggable: true, ...obj.transform });
+function buildLineObjectChildren(group: Konva.Group, obj: AnnotationObject) {
+  group.destroyChildren();
   const { start, end, style } = obj;
   const x1 = start!.x, y1 = start!.y, x2 = end!.x, y2 = end!.y;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const control = lineControlPoint(obj);
+  const localControl = { x: control.x - x1, y: control.y - y1 };
+  const lineShape = effectiveLineShape(obj, style);
 
   let points: number[];
-  if (style.lineShape === "wavy") {
-    points = generateWavyPoints(x1, y1, x2, y2);
+  if (obj.points && obj.points.length >= 2 && lineShape === "wavy") {
+    points = generateWavyQuadraticPoints({ x: 0, y: 0 }, localControl, { x: dx, y: dy });
+  } else if (obj.points && obj.points.length >= 2) {
+    points = generateQuadraticPoints({ x: 0, y: 0 }, localControl, { x: dx, y: dy });
+  } else if (lineShape === "wavy") {
+    points = generateWavyPoints(0, 0, dx, dy);
   } else {
-    points = [x1, y1, x2, y2];
+    points = [0, 0, dx, dy];
   }
 
   const line = new Konva.Line({
@@ -201,13 +274,40 @@ export function renderLineObject(obj: AnnotationObject): Konva.Group {
   });
   group.add(line);
 
-  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const endAngle = obj.points && obj.points.length >= 2
+    ? Math.atan2(dy - localControl.y, dx - localControl.x)
+    : Math.atan2(dy, dx);
+  const startAngle = obj.points && obj.points.length >= 2
+    ? Math.atan2(localControl.y, localControl.x)
+    : Math.atan2(dy, dx);
   if (style.arrow === "end" || style.arrow === "both") {
-    group.add(createArrowHead(x2, y2, angle, style));
+    group.add(createArrowHead(dx, dy, endAngle, style));
   }
   if (style.arrow === "start" || style.arrow === "both") {
-    group.add(createArrowHead(x1, y1, angle + Math.PI, style));
+    group.add(createArrowHead(0, 0, startAngle + Math.PI, style));
   }
+}
+
+export function updateLineObjectNode(group: Konva.Group, obj: AnnotationObject) {
+  buildLineObjectChildren(group, obj);
+}
+
+export function renderLineObject(obj: AnnotationObject): Konva.Group {
+  const transform = obj.transform;
+  const { start } = obj;
+  const x1 = start!.x, y1 = start!.y;
+
+  const group = new Konva.Group({
+    id: obj.id,
+    draggable: false,
+    x: x1 + transform.x,
+    y: y1 + transform.y,
+    scaleX: transform.scaleX,
+    scaleY: transform.scaleY,
+    rotation: transform.rotation,
+  });
+
+  buildLineObjectChildren(group, obj);
 
   return group;
 }

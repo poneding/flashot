@@ -1,6 +1,5 @@
 import { useRef, useState, useLayoutEffect } from "react";
 import {
-  MousePointer2,
   Pencil,
   Minus,
   MoveRight,
@@ -15,14 +14,17 @@ import {
   Copy,
   Save,
   X,
+  GripVertical,
 } from "lucide-react";
-import { computeToolbarPosition } from "@/lib/geometry";
+import { clampToolbarPosition, computeToolbarPosition } from "@/lib/geometry";
 import { useAnnotation } from "@/annotation/store";
 import { PropertyPanel } from "@/annotation/PropertyPanel";
+import { TooltipBubble } from "@/annotation/Tooltip";
 import type { ToolType } from "@/annotation/types";
 import type { Rect } from "@/lib/types";
 
 const TOOLBAR_SIZE = { width: 0, height: 40 };
+const PROPERTY_PANEL_GAP = 4;
 
 type ToolDef = {
   id: ToolType;
@@ -31,7 +33,6 @@ type ToolDef = {
 };
 
 const TOOLS: ToolDef[] = [
-  { id: "select", icon: <MousePointer2 size={18} />, label: "Select" },
   { id: "draw", icon: <Pencil size={18} />, label: "Pen" },
   { id: "line", icon: <Minus size={18} />, label: "Line" },
   { id: "arrow", icon: <MoveRight size={18} />, label: "Arrow" },
@@ -43,6 +44,12 @@ const TOOLS: ToolDef[] = [
   { id: "eraser", icon: <Eraser size={18} />, label: "Eraser" },
 ];
 
+function shortcutTitle(action: string, key: string, options: { shift?: boolean } = {}): string {
+  const isMac = /Mac|iPhone|iPad|iPod/.test(window.navigator.platform);
+  const modifier = isMac ? "CMD" : "CTRL";
+  return `${action} (${modifier}+${options.shift ? "SHIFT+" : ""}${key})`;
+}
+
 type Props = {
   selection: Rect;
   monitorRect: Rect;
@@ -53,23 +60,33 @@ type Props = {
 
 export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Props) {
   const { activeTool, setActiveTool, canUndo, canRedo, undo, redo } = useAnnotation();
+  const objects = useAnnotation((s) => s.objects);
+  const selectedObjectId = useAnnotation((s) => s.selectedObjectId);
   const [showPanel, setShowPanel] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const propertyPanelRef = useRef<HTMLDivElement>(null);
   const [measuredWidth, setMeasuredWidth] = useState(TOOLBAR_SIZE.width);
+  const [propertyPanelHeight, setPropertyPanelHeight] = useState(TOOLBAR_SIZE.height);
   const [customPos, setCustomPos] = useState<{ x: number; y: number } | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const selectedObject = objects.find((obj) => obj.id === selectedObjectId);
 
   useLayoutEffect(() => {
     if (toolbarRef.current) {
       setMeasuredWidth(toolbarRef.current.offsetWidth);
     }
+    if (propertyPanelRef.current) {
+      const nextHeight = propertyPanelRef.current.offsetHeight;
+      if (nextHeight > 0) setPropertyPanelHeight(nextHeight);
+    }
   });
 
   const computedPos = computeToolbarPosition(selection, { width: measuredWidth, height: TOOLBAR_SIZE.height }, monitorRect);
-  const pos = customPos ?? computedPos;
+  const toolbarSize = { width: measuredWidth, height: TOOLBAR_SIZE.height };
+  const pos = customPos ? clampToolbarPosition(customPos, toolbarSize, monitorRect) : computedPos;
 
   function handleToolClick(tool: ToolType) {
-    if (tool === "select" || tool === "eraser") {
+    if (tool === "eraser") {
       setActiveTool(tool);
       setShowPanel(false);
       return;
@@ -82,17 +99,20 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Pro
     }
   }
 
-  const handleToolbarMouseDown = (e: React.MouseEvent) => {
+  const startToolbarDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
-    // Only start drag if clicking on the toolbar background, not on buttons
-    if ((e.target as HTMLElement).closest("button")) return;
     dragRef.current = { startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y };
 
     const onMove = (ev: MouseEvent) => {
       if (!dragRef.current) return;
       const dx = ev.clientX - dragRef.current.startX;
       const dy = ev.clientY - dragRef.current.startY;
-      setCustomPos({ x: dragRef.current.origX + dx, y: dragRef.current.origY + dy });
+      setCustomPos(clampToolbarPosition(
+        { x: dragRef.current.origX + dx, y: dragRef.current.origY + dy },
+        toolbarSize,
+        monitorRect,
+      ));
     };
     const onUp = () => {
       dragRef.current = null;
@@ -103,12 +123,16 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Pro
     document.addEventListener("mouseup", onUp);
   };
 
-  const panelOffset = TOOLBAR_SIZE.height + 6;
-  const panelHeight = 40;
+  const panelTool = selectedObject?.type ?? activeTool;
+  const shouldShowPanel = Boolean(selectedObject) || (showPanel && activeTool !== "select" && activeTool !== "eraser");
+  const undoTitle = shortcutTitle("Undo", "Z");
+  const redoTitle = shortcutTitle("Redo", "Z", { shift: true });
+  const copyTitle = shortcutTitle("Copy", "C");
+  const saveTitle = shortcutTitle("Save", "S");
   const panelTop = (() => {
-    const belowY = pos.y + panelOffset;
-    if (belowY + panelHeight > window.innerHeight) {
-      return pos.y - panelOffset;
+    const belowY = pos.y + TOOLBAR_SIZE.height + PROPERTY_PANEL_GAP;
+    if (belowY + propertyPanelHeight > window.innerHeight) {
+      return pos.y - propertyPanelHeight - PROPERTY_PANEL_GAP;
     }
     return belowY;
   })();
@@ -116,9 +140,11 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Pro
   return (
     <>
       {/* Property panel */}
-      {showPanel && activeTool !== "select" && activeTool !== "eraser" && (
+      {shouldShowPanel && panelTool !== "select" && panelTool !== "eraser" && (
         <PropertyPanel
-          tool={activeTool}
+          panelRef={propertyPanelRef}
+          tool={panelTool}
+          object={selectedObject}
           style={{
             position: "fixed",
             left: pos.x,
@@ -131,7 +157,8 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Pro
       {/* Toolbar */}
       <div
         ref={toolbarRef}
-        onMouseDown={handleToolbarMouseDown}
+        data-annotation-toolbar
+        onMouseDown={(e) => e.stopPropagation()}
         style={{
           position: "fixed",
           left: pos.x,
@@ -148,9 +175,28 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Pro
           border: "1px solid rgba(255,255,255,0.1)",
           zIndex: 10000,
           userSelect: "none",
-          cursor: "move",
         }}
       >
+        <div
+          data-annotation-toolbar-drag-handle
+          onMouseDown={startToolbarDrag}
+          style={{
+            position: "relative",
+            width: 16,
+            height: 32,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "rgba(255,255,255,0.45)",
+            cursor: "move",
+            flexShrink: 0,
+          }}
+        >
+          <GripVertical size={14} />
+        </div>
+
+        <Separator />
+
         {/* Group 1: Tool buttons */}
         {TOOLS.map((tool) => (
           <ToolButton
@@ -167,13 +213,13 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Pro
         {/* Group 2: Undo / Redo */}
         <ActionButton
           icon={<Undo2 size={18} />}
-          label="Undo"
+          label={undoTitle}
           disabled={!canUndo}
           onClick={undo}
         />
         <ActionButton
           icon={<Redo2 size={18} />}
-          label="Redo"
+          label={redoTitle}
           disabled={!canRedo}
           onClick={redo}
         />
@@ -183,12 +229,11 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Pro
         {/* Group 3: Output */}
         <ActionButton
           icon={<Copy size={18} />}
-          label="Copy"
+          label={copyTitle}
           onClick={onCopy}
-          primary
         />
-        <ActionButton icon={<Save size={18} />} label="Save" onClick={onSave} />
-        <ActionButton icon={<X size={18} />} label="Close" onClick={onClose} />
+        <ActionButton icon={<Save size={18} />} label={saveTitle} onClick={onSave} />
+        <ActionButton icon={<X size={18} />} label="Cancel (ESC)" onClick={onClose} />
       </div>
     </>
   );
@@ -204,10 +249,17 @@ type ToolButtonProps = {
 };
 
 function ToolButton({ icon, label, active, onClick }: ToolButtonProps) {
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
   return (
     <button
+      ref={buttonRef}
+      type="button"
       title={label}
       onClick={onClick}
+      onMouseEnter={() => setTooltipVisible(true)}
+      onMouseLeave={() => setTooltipVisible(false)}
       style={{
         position: "relative",
         width: 32,
@@ -225,6 +277,7 @@ function ToolButton({ icon, label, active, onClick }: ToolButtonProps) {
       }}
     >
       {icon}
+      {tooltipVisible && <TooltipBubble label={label} anchorRef={buttonRef} />}
       {active && (
         <span
           style={{
@@ -248,16 +301,29 @@ type ActionButtonProps = {
   label: string;
   disabled?: boolean;
   onClick: () => void;
-  primary?: boolean;
 };
 
-function ActionButton({ icon, label, disabled, onClick, primary }: ActionButtonProps) {
+function ActionButton({ icon, label, disabled, onClick }: ActionButtonProps) {
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
   return (
     <button
+      ref={buttonRef}
+      type="button"
       title={label}
-      onClick={onClick}
-      disabled={disabled}
+      aria-disabled={disabled ? "true" : undefined}
+      onClick={(e) => {
+        if (disabled) {
+          e.preventDefault();
+          return;
+        }
+        onClick();
+      }}
+      onMouseEnter={() => setTooltipVisible(true)}
+      onMouseLeave={() => setTooltipVisible(false)}
       style={{
+        position: "relative",
         width: 32,
         height: 32,
         display: "flex",
@@ -266,14 +332,14 @@ function ActionButton({ icon, label, disabled, onClick, primary }: ActionButtonP
         borderRadius: 6,
         border: "none",
         cursor: disabled ? "default" : "pointer",
-        background: primary ? "#3b82f6" : "transparent",
-        color: "#fff",
-        opacity: disabled ? 0.5 : 1,
+        background: "transparent",
+        color: disabled ? "rgba(255,255,255,0.45)" : "#fff",
         flexShrink: 0,
         transition: "background 0.1s, opacity 0.1s",
       }}
     >
       {icon}
+      {tooltipVisible && <TooltipBubble label={label} anchorRef={buttonRef} />}
     </button>
   );
 }

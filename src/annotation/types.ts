@@ -17,7 +17,7 @@ export type ToolType =
 export type LineShape = "straight" | "wavy";
 export type LineStyle = "solid" | "dotted" | "dashed";
 export type ArrowDirection = "none" | "start" | "end" | "both";
-export type ArrowStyle = "v-shape" | "filled-triangle" | "pointed";
+export type ArrowStyle = "v-shape" | "filled-triangle";
 export type FillMode = "hollow" | "solid";
 export type BlurMode = "mosaic" | "gaussian";
 export type BlurMethod = "rect" | "freehand";
@@ -93,7 +93,7 @@ export const DEFAULT_STYLE: AnnotationStyle = {
   arrowStyle: "v-shape",
   fill: "hollow",
   cornerRadius: 0,
-  fontFamily: "Excalifont",
+  fontFamily: "handwriting",
   fontSize: 24,
   blurMode: "mosaic",
   blurMethod: "rect",

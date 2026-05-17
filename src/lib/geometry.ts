@@ -1,6 +1,6 @@
 import type { Point, Rect, ToolbarPosition } from "@/lib/types";
 
-export const TOOLBAR_GAP = 8;
+export const TOOLBAR_GAP = 4;
 
 export function computeToolbarPosition(
   sel: Rect,
@@ -25,10 +25,21 @@ export function computeToolbarPosition(
     return { kind: "above", x, y: aboveY };
   }
 
-  // Inside selection (bottom-right)
-  const insideX = sel.x + sel.width - toolbar.width - TOOLBAR_GAP;
+  // Inside selection (bottom-left), preserving the normal left-aligned toolbar behavior.
+  const insideX = Math.max(sel.x + TOOLBAR_GAP, monitor.x + TOOLBAR_GAP);
   const insideY = sel.y + sel.height - toolbar.height - TOOLBAR_GAP;
   return { kind: "inside", x: insideX, y: insideY };
+}
+
+export function clampToolbarPosition(
+  pos: { x: number; y: number },
+  toolbar: { width: number; height: number },
+  monitor: Rect,
+): { x: number; y: number } {
+  return {
+    x: clamp(pos.x, monitor.x, monitor.x + monitor.width - toolbar.width),
+    y: clamp(pos.y, monitor.y, monitor.y + monitor.height - toolbar.height),
+  };
 }
 
 export type HandleId = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";

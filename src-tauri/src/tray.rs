@@ -11,11 +11,11 @@ const TRAY_ID: &str = "main";
 
 pub fn install(app: &AppHandle, capture_hotkey: &str) -> Result<()> {
     let menu = build_menu(app, capture_hotkey)?;
-    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/menubar-logo.png"))?;
+    let tray_icon = tray_icon_image()?;
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(tray_icon)
-        .icon_as_template(true)
+        .icon_as_template(tray_icon_is_template())
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -43,6 +43,24 @@ pub fn install(app: &AppHandle, capture_hotkey: &str) -> Result<()> {
         .build(app)?;
 
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn tray_icon_image() -> Result<tauri::image::Image<'static>> {
+    Ok(tauri::image::Image::from_bytes(include_bytes!(
+        "../icons/menubar-logo.png"
+    ))?)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn tray_icon_image() -> Result<tauri::image::Image<'static>> {
+    Ok(tauri::image::Image::from_bytes(include_bytes!(
+        "../icons/menubar-colored-logo.png"
+    ))?)
+}
+
+fn tray_icon_is_template() -> bool {
+    cfg!(target_os = "macos")
 }
 
 pub fn update_menu(app: &AppHandle, capture_hotkey: &str) -> Result<()> {

@@ -26,6 +26,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      cn-fontsource-xiaolai-sc-regular:
+        specifier: 1.0.2
+        version: 1.0.2
       konva:
         specifier: ^10.3.0
         version: 10.3.0
@@ -1144,6 +1147,9 @@ packages:
   clsx@2.1.1:
     resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==, tarball: https://registry.npmjs.org/clsx/-/clsx-2.1.1.tgz}
     engines: {node: '>=6'}
+
+  cn-fontsource-xiaolai-sc-regular@1.0.2:
+    resolution: {integrity: sha512-rkLcZXlACDqqVPAsqA6G3fUoJH/GsUkxJunWEQcS9xHDYmObGJm+ZYvhuwjAbwgJZW+LIStJIkeYwNI4tp30sQ==, tarball: https://registry.npmjs.org/cn-fontsource-xiaolai-sc-regular/-/cn-fontsource-xiaolai-sc-regular-1.0.2.tgz}
 
   code-block-writer@13.0.3:
     resolution: {integrity: sha512-Oofo0pq3IKnsFtuHqSF7TqBfr71aeyZDVJ0HpmqB7FBM2qEigL0iPONSCZSO9pE9dZTAxANe5XHG9Uy0YMv8cg==, tarball: https://registry.npmjs.org/code-block-writer/-/code-block-writer-13.0.3.tgz}
@@ -3669,6 +3675,8 @@ snapshots:
       wrap-ansi: 7.0.0
 
   clsx@2.1.1: {}
+
+  cn-fontsource-xiaolai-sc-regular@1.0.2: {}
 
   code-block-writer@13.0.3: {}
 

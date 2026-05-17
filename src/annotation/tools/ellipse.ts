@@ -22,9 +22,10 @@ export function onEllipseStart(x: number, y: number) {
     y,
     radiusX: 0,
     radiusY: 0,
-    fill: isSolid ? activeStyle.color : undefined,
+    fill: isSolid ? activeStyle.color : "rgba(0,0,0,0)",
     stroke: isSolid ? undefined : activeStyle.color,
     strokeWidth: isSolid ? 0 : activeStyle.strokeWidth,
+    strokeScaleEnabled: false,
     listening: false,
   });
 
@@ -83,9 +84,10 @@ export function onEllipseEnd(x: number, y: number): AnnotationObject | null {
 export function renderEllipseObject(obj: AnnotationObject): Konva.Ellipse {
   const start = obj.start ?? { x: 0, y: 0 };
   const end = obj.end ?? { x: 0, y: 0 };
+  const transform = obj.transform;
 
-  const cx = (start.x + end.x) / 2;
-  const cy = (start.y + end.y) / 2;
+  const cx = (start.x + end.x) / 2 + transform.x;
+  const cy = (start.y + end.y) / 2 + transform.y;
   const rx = Math.abs(end.x - start.x) / 2;
   const ry = Math.abs(end.y - start.y) / 2;
 
@@ -94,13 +96,16 @@ export function renderEllipseObject(obj: AnnotationObject): Konva.Ellipse {
   return new Konva.Ellipse({
     id: obj.id,
     draggable: true,
-    ...obj.transform,
     x: cx,
     y: cy,
+    scaleX: transform.scaleX,
+    scaleY: transform.scaleY,
+    rotation: transform.rotation,
     radiusX: rx,
     radiusY: ry,
-    fill: isSolid ? obj.style.color : undefined,
+    fill: isSolid ? obj.style.color : "rgba(0,0,0,0)",
     stroke: isSolid ? undefined : obj.style.color,
     strokeWidth: isSolid ? 0 : obj.style.strokeWidth,
+    strokeScaleEnabled: false,
   });
 }

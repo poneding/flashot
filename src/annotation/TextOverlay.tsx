@@ -1,4 +1,11 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
+import {
+  normalizeTextStyle,
+  resolveTextFontFamily,
+  TEXT_LINE_HEIGHT,
+  textEditorHeight,
+  textHotspotOffset,
+} from "@/annotation/fonts";
 import { useAnnotation } from "@/annotation/store";
 import type { AnnotationObject } from "@/annotation/types";
 import type { Rect } from "@/lib/types";
@@ -13,19 +20,17 @@ type Props = {
   flushRef?: MutableRefObject<(() => void) | null>;
 };
 
-function textHotspotOffset(fontSize: number): number {
-  return Math.round(fontSize * 0.5);
-}
-
 export function TextOverlay({ position, selection, onConfirm, onCancel, editingObject, flushRef }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { activeStyle } = useAnnotation.getState();
-  const style = editingObject?.style ?? activeStyle;
+  const style = normalizeTextStyle(editingObject?.style ?? activeStyle);
   const initialText = editingObject?.text ?? "";
   const confirmedRef = useRef(false);
   const composingRef = useRef(false);
   const pendingBlurRef = useRef(false);
   const fontSize = style.fontSize ?? 24;
+  const editorHeight = textEditorHeight(fontSize);
+  const fontFamily = resolveTextFontFamily(style.fontFamily);
   const editorPosition = editingObject?.start
     ? {
         x: selection.x + editingObject.start.x + editingObject.transform.x,
@@ -52,7 +57,7 @@ export function TextOverlay({ position, selection, onConfirm, onCancel, editingO
     if (!el) return;
     if (initialText) {
       el.style.height = "auto";
-      el.style.height = el.scrollHeight + "px";
+      el.style.height = Math.max(el.scrollHeight, editorHeight) + "px";
       el.setSelectionRange(initialText.length, initialText.length);
     }
     setTimeout(() => el.focus(), 0);
@@ -91,7 +96,7 @@ export function TextOverlay({ position, selection, onConfirm, onCancel, editingO
 
   const resizeToContent = (el: HTMLTextAreaElement) => {
     el.style.height = "auto";
-    el.style.height = el.scrollHeight + "px";
+    el.style.height = Math.max(el.scrollHeight, editorHeight) + "px";
   };
 
   const confirm = () => {
@@ -127,7 +132,7 @@ export function TextOverlay({ position, selection, onConfirm, onCancel, editingO
         display: "block",
         boxSizing: "border-box",
         width: 400,
-        height: fontSize,
+        height: editorHeight,
         padding: 0,
         margin: 0,
         border: "none",
@@ -135,8 +140,8 @@ export function TextOverlay({ position, selection, onConfirm, onCancel, editingO
         appearance: "none",
         color: style.color,
         fontSize,
-        fontFamily: style.fontFamily ?? "Excalifont",
-        lineHeight: 1,
+        fontFamily,
+        lineHeight: TEXT_LINE_HEIGHT,
         outline: "none",
         overflow: "hidden",
         resize: "none",
