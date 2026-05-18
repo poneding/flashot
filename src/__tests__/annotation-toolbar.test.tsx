@@ -137,6 +137,14 @@ describe("Annotation toolbar", () => {
     expect(copy.style.background).toBe("transparent");
   });
 
+  it("uses semantic colors for cancel, save, and copy actions", () => {
+    renderToolbar();
+
+    expect(screen.getByTitle("Cancel (ESC)").style.color).toBe("rgb(248, 113, 113)");
+    expect(screen.getByTitle("Save (Cmd+S)").style.color).toBe("rgb(96, 165, 250)");
+    expect(screen.getByTitle("Copy (Cmd+C)").style.color).toBe("rgb(74, 222, 128)");
+  });
+
   it("positions toolbar tooltips from the toolbar edge", () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const el = this;

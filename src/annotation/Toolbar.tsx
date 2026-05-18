@@ -12,14 +12,14 @@ import {
   GripVertical,
   Highlighter,
   Minus,
-  MoveRight,
+  MoveUpRight,
   Pencil,
   Redo2,
   Save,
   Square,
   Type,
   Undo2,
-  X,
+  X
 } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 
@@ -35,7 +35,7 @@ type ToolDef = {
 const TOOLS: ToolDef[] = [
   { id: "draw", icon: <Pencil size={18} />, label: "Pen" },
   { id: "line", icon: <Minus size={18} />, label: "Line" },
-  { id: "arrow", icon: <MoveRight size={18} />, label: "Arrow" },
+  { id: "arrow", icon: <MoveUpRight size={18} />, label: "Arrow" },
   { id: "rect", icon: <Square size={18} />, label: "Rectangle" },
   { id: "ellipse", icon: <Circle size={18} />, label: "Ellipse" },
   { id: "text", icon: <Type size={18} />, label: "Text" },
@@ -227,13 +227,14 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Pro
         <Separator />
 
         {/* Group 3: Output */}
+        <ActionButton icon={<X size={18} />} label="Cancel (ESC)" tone="danger" onClick={onClose} />
+        <ActionButton icon={<Save size={18} />} label={saveTitle} tone="primary" onClick={onSave} />
         <ActionButton
           icon={<Copy size={18} />}
           label={copyTitle}
+          tone="success"
           onClick={onCopy}
         />
-        <ActionButton icon={<Save size={18} />} label={saveTitle} onClick={onSave} />
-        <ActionButton icon={<X size={18} />} label="Cancel (ESC)" onClick={onClose} />
       </div>
     </>
   );
@@ -299,13 +300,22 @@ function ToolButton({ icon, label, active, onClick }: ToolButtonProps) {
 type ActionButtonProps = {
   icon: React.ReactNode;
   label: string;
+  tone?: "default" | "danger" | "primary" | "success";
   disabled?: boolean;
   onClick: () => void;
 };
 
-function ActionButton({ icon, label, disabled, onClick }: ActionButtonProps) {
+const ACTION_COLORS: Record<NonNullable<ActionButtonProps["tone"]>, string> = {
+  default: "rgba(255,255,255,0.7)",
+  danger: "#f87171",
+  primary: "#60a5fa",
+  success: "#4ade80",
+};
+
+function ActionButton({ icon, label, tone = "default", disabled, onClick }: ActionButtonProps) {
   const [tooltipVisible, setTooltipVisible] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const color = disabled ? "rgba(255,255,255,0.45)" : ACTION_COLORS[tone];
 
   return (
     <button
@@ -333,9 +343,9 @@ function ActionButton({ icon, label, disabled, onClick }: ActionButtonProps) {
         border: "none",
         cursor: disabled ? "default" : "pointer",
         background: "transparent",
-        color: disabled ? "rgba(255,255,255,0.45)" : "#fff",
+        color,
         flexShrink: 0,
-        transition: "background 0.1s, opacity 0.1s",
+        transition: "background 0.1s, color 0.1s, opacity 0.1s",
       }}
     >
       {icon}
