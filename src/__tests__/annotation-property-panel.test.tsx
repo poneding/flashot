@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PropertyPanel } from "@/annotation/PropertyPanel";
 import { useAnnotation } from "@/annotation/store";
 
+vi.mock("@/lib/ipc", () => ({
+  listSystemFonts: vi.fn().mockResolvedValue(["Arial", "Helvetica", "Times New Roman"]),
+}));
+
 const defaultInnerHeight = window.innerHeight;
 
 describe("Annotation property panel", () => {
@@ -134,7 +138,7 @@ describe("Annotation property panel", () => {
 
     render(<PropertyPanel tool="text" />);
 
-    expect(screen.getByLabelText("Font family: Handwriting")).not.toBeNull();
+    expect(screen.getByLabelText("Font: Handwriting")).not.toBeNull();
   });
 
   it("uses centered SVG previews for line style dropdown options", () => {
@@ -143,11 +147,10 @@ describe("Annotation property panel", () => {
     fireEvent.click(screen.getByLabelText("Line style: Solid"));
 
     expect(iconPaths(container, "solid")).toEqual(["M3 12h18"]);
-    expect(iconPaths(container, "dotted")).toEqual([
-      "M3 12h2",
-      "M8.33 12h2",
-      "M13.67 12h2",
-      "M19 12h2",
+    expect(iconCircles(container, "dotted")).toEqual([
+      { cx: "6", cy: "12", r: "1.5" },
+      { cx: "12", cy: "12", r: "1.5" },
+      { cx: "18", cy: "12", r: "1.5" },
     ]);
     expect(iconPaths(container, "dashed")).toEqual([
       "M3 12h4",
@@ -158,11 +161,10 @@ describe("Annotation property panel", () => {
     rerender(<PropertyPanel tool="arrow" />);
     fireEvent.click(screen.getByLabelText("Line style: Solid"));
 
-    expect(iconPaths(container, "dotted")).toEqual([
-      "M3 12h2",
-      "M8.33 12h2",
-      "M13.67 12h2",
-      "M19 12h2",
+    expect(iconCircles(container, "dotted")).toEqual([
+      { cx: "6", cy: "12", r: "1.5" },
+      { cx: "12", cy: "12", r: "1.5" },
+      { cx: "18", cy: "12", r: "1.5" },
     ]);
     expect(iconPaths(container, "dashed")).toEqual([
       "M3 12h4",
@@ -261,8 +263,18 @@ function iconPaths(container: HTMLElement, style: string): string[] {
   return Array.from(icon!.querySelectorAll("path")).map((path) => path.getAttribute("d") ?? "");
 }
 
+function iconCircles(container: HTMLElement, style: string): Array<{ cx: string; cy: string; r: string }> {
+  const icon = container.querySelector(`svg[data-line-style-icon="${style}"]`);
+  expect(icon).not.toBeNull();
+  return Array.from(icon!.querySelectorAll("circle")).map((circle) => ({
+    cx: circle.getAttribute("cx") ?? "",
+    cy: circle.getAttribute("cy") ?? "",
+    r: circle.getAttribute("r") ?? "",
+  }));
+}
+
 function fillOptionIcon(container: HTMLElement, title: string): SVGElement {
-  const button = container.querySelector(`button[title="${title}"]`);
+  const button = container.querySelector(`button[aria-label="${title}"]`);
   expect(button).not.toBeNull();
   const svg = button!.querySelector("svg");
   expect(svg).not.toBeNull();

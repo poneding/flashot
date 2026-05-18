@@ -201,6 +201,7 @@ pub fn run() {
             commands::end_text_input_session,
             commands::open_about_window,
             commands::quit_app,
+            commands::list_system_fonts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

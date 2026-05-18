@@ -19,8 +19,7 @@ export type LineStyle = "solid" | "dotted" | "dashed";
 export type ArrowDirection = "none" | "start" | "end" | "both";
 export type ArrowStyle = "v-shape" | "filled-triangle";
 export type FillMode = "hollow" | "solid";
-export type BlurMode = "mosaic" | "gaussian";
-export type BlurMethod = "rect" | "freehand";
+export type BlurMode = "mosaic" | "gaussian" | "solid";
 export type HighlightMode = "freehand" | "straight";
 
 export type AnnotationStyle = {
@@ -35,8 +34,8 @@ export type AnnotationStyle = {
   fontFamily?: string;
   fontSize?: number;
   blurMode?: BlurMode;
-  blurMethod?: BlurMethod;
   blurIntensity?: number;
+  blurSolidColor?: string;
   highlightMode?: HighlightMode;
   opacity?: number;
 };
@@ -96,8 +95,8 @@ export const DEFAULT_STYLE: AnnotationStyle = {
   fontFamily: "handwriting",
   fontSize: 24,
   blurMode: "mosaic",
-  blurMethod: "rect",
   blurIntensity: 10,
+  blurSolidColor: "#000000",
   highlightMode: "freehand",
   opacity: 0.35,
 };

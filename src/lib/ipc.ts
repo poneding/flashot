@@ -39,6 +39,9 @@ export async function beginTextInputSession(): Promise<void> {
 export async function endTextInputSession(): Promise<void> {
   await invoke("end_text_input_session");
 }
+export async function listSystemFonts(): Promise<string[]> {
+  return await invoke<string[]>("list_system_fonts");
+}
 
 export function onCaptureStart(cb: (p: CaptureStartPayload) => void): Promise<UnlistenFn> {
   return getCurrentWebviewWindow().listen<CaptureStartPayload>(

@@ -428,13 +428,16 @@ mod tests {
     }
 
     #[test]
-    fn settings_menu_icon_uses_gear_shape() {
+    fn settings_menu_icon_uses_cog_shape() {
         let image = super::lucide_menu_icon(super::MenuIcon::Settings, super::MenuIconTheme::Light);
 
-        assert!(alpha_at_scaled(&image, 10.0, 4.1) > 100);
-        assert!(alpha_at_scaled(&image, 14.0, 4.1) > 100);
-        assert!(alpha_at_scaled(&image, 12.0, 12.0) < 20);
-        assert!(alpha_at_scaled(&image, 17.6, 6.2) > 100);
+        // Outer circle passes through top/bottom
+        assert!(alpha_at_scaled(&image, 12.0, 4.0) > 100);
+        assert!(alpha_at_scaled(&image, 12.0, 20.0) > 100);
+        // Inner circle at center
+        assert!(alpha_at_scaled(&image, 12.0, 10.0) > 100);
+        // Spoke extends outward
+        assert!(alpha_at_scaled(&image, 2.0, 12.0) > 100);
     }
 
     #[test]

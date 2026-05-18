@@ -72,9 +72,7 @@ unsafe fn window_rect_from_hwnd(hwnd: HWND) -> Option<WindowRect> {
         return None;
     }
 
-    let Some(r) = read_visible_rect(hwnd) else {
-        return None;
-    };
+    let r = read_visible_rect(hwnd)?;
     let width = (r.right - r.left).max(0) as u32;
     let height = (r.bottom - r.top).max(0) as u32;
     if width < 2 || height < 2 {
@@ -83,7 +81,6 @@ unsafe fn window_rect_from_hwnd(hwnd: HWND) -> Option<WindowRect> {
 
     let title = read_title(hwnd);
     let class_name = read_class_name(hwnd);
-    let is_desktop_surface = is_desktop_surface_class(&class_name);
     let (pid, app) = read_owner(hwnd);
     let style = WINDOW_STYLE(GetWindowLongPtrW(hwnd, GWL_STYLE) as u32);
     let ex_style = WINDOW_EX_STYLE(GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32);

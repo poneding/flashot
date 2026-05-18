@@ -185,6 +185,25 @@ pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+pub fn list_system_fonts() -> Vec<String> {
+    let mut db = fontdb::Database::new();
+    db.load_system_fonts();
+
+    let mut families: Vec<String> = db
+        .faces()
+        .filter_map(|face| {
+            face.families
+                .first()
+                .map(|(name, _)| name.clone())
+        })
+        .collect();
+
+    families.sort_unstable();
+    families.dedup();
+    families
+}
+
 pub(crate) struct CroppedImage {
     pub(crate) rgba: Vec<u8>,
     pub(crate) width: u32,

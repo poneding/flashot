@@ -1,6 +1,6 @@
 import { useAnnotation } from "@/annotation/store";
 import { TooltipBubble } from "@/annotation/Tooltip";
-import { HANDWRITING_FONT_VALUE, normalizeTextFontFamilyValue } from "@/annotation/fonts";
+import { HANDWRITING_FONT_VALUE, getSystemFonts, normalizeTextFontFamilyValue } from "@/annotation/fonts";
 import {
   PRESET_COLORS,
   type AnnotationObject,
@@ -10,14 +10,9 @@ import {
 import {
   ChevronDown,
   Circle,
-  CircleDashed,
-  Code2,
-  Grid3X3,
   Minus,
   PencilLine,
-  Pilcrow,
   Square,
-  Type,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
@@ -77,6 +72,41 @@ function Separator() {
 
 // ─── Color utilities ─────────────────────────────────────────────────────────
 
+function parseColorInput(input: string): string | null {
+  const trimmed = input.trim();
+
+  // HEX format: #RGB or #RRGGBB
+  if (/^#[0-9a-fA-F]{3}$/.test(trimmed)) {
+    // Convert #RGB to #RRGGBB
+    const r = trimmed[1];
+    const g = trimmed[2];
+    const b = trimmed[3];
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+
+  // RGB format: rgb(r, g, b) or r, g, b
+  const rgbMatch = trimmed.match(/^(?:rgb\()?(\d+),\s*(\d+),\s*(\d+)\)?$/i);
+  if (rgbMatch) {
+    const r = Math.max(0, Math.min(255, parseInt(rgbMatch[1], 10)));
+    const g = Math.max(0, Math.min(255, parseInt(rgbMatch[2], 10)));
+    const b = Math.max(0, Math.min(255, parseInt(rgbMatch[3], 10)));
+    const toHex = (n: number) => n.toString(16).padStart(2, "0");
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }
+
+  return null;
+}
+
+function hexToRgb(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `${r}, ${g}, ${b}`;
+}
+
 function hexToHsv(hex: string): [number, number, number] {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
   const g = parseInt(hex.slice(3, 5), 16) / 255;
@@ -133,6 +163,8 @@ function GradientPicker({
   flipUp: boolean;
 }) {
   const [hsv, setHsv] = useState<[number, number, number]>(() => hexToHsv(value));
+  const [colorInput, setColorInput] = useState("");
+  const [inputError, setInputError] = useState(false);
   const squareRef = useRef<HTMLDivElement>(null);
   const hueRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -144,6 +176,11 @@ function GradientPicker({
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [onClose]);
+
+  useEffect(() => {
+    // Update HSV when value changes externally
+    setHsv(hexToHsv(value));
+  }, [value]);
 
   const pickFromSquare = (e: MouseEvent | React.MouseEvent) => {
     const rect = squareRef.current?.getBoundingClientRect();
@@ -171,6 +208,22 @@ function GradientPicker({
     const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
+  };
+
+  const handleColorInput = (input: string) => {
+    setColorInput(input);
+    if (!input) {
+      setInputError(false);
+      return;
+    }
+    const parsed = parseColorInput(input);
+    if (parsed) {
+      setInputError(false);
+      setHsv(hexToHsv(parsed));
+      onChange(parsed);
+    } else {
+      setInputError(true);
+    }
   };
 
   const hueColor = hsvToHex(hsv[0], 100, 100);
@@ -248,6 +301,35 @@ function GradientPicker({
           transform: "translate(-50%, -50%)",
           pointerEvents: "none",
         }} />
+      </div>
+      {/* Color input */}
+      <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+        <input
+          type="text"
+          placeholder="HEX or RGB"
+          value={colorInput}
+          onChange={(e) => handleColorInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              onClose();
+            }
+          }}
+          style={{
+            width: "100%",
+            padding: "4px 6px",
+            background: "rgba(255,255,255,0.1)",
+            border: `1px solid ${inputError ? "rgba(255,100,100,0.5)" : "rgba(255,255,255,0.2)"}`,
+            borderRadius: 4,
+            color: "#fff",
+            fontSize: 11,
+            outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
+        <div style={{ display: "flex", gap: 4, fontSize: 10, color: "rgba(255,255,255,0.5)" }}>
+          <span>HEX: {value.toUpperCase()}</span>
+          <span>RGB: {hexToRgb(value)}</span>
+        </div>
       </div>
     </div>
   );
@@ -439,14 +521,30 @@ function CustomIcon({
 
 const lineStylePaths = {
   solid: ["M3 12h18"],
-  dotted: ["M3 12h2", "M8.33 12h2", "M13.67 12h2", "M19 12h2"],
   dashed: ["M3 12h4", "M10 12h4", "M17 12h4"],
   wavy: ["M3 12c2.25-4 4.25-4 6.5 0s4.25 4 6.5 0 4.25-4 6.5 0"],
 } as const;
 
-type LineStyleIconVariant = keyof typeof lineStylePaths;
+type LineStyleIconVariant = "solid" | "dotted" | "dashed" | "wavy";
 
 function LineStyleIcon({ variant }: { variant: LineStyleIconVariant }) {
+  if (variant === "dotted") {
+    return (
+      <svg
+        data-line-style-icon="dotted"
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="none"
+        aria-hidden="true"
+      >
+        <circle cx="6" cy="12" r="1.5" fill="currentColor" />
+        <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+        <circle cx="18" cy="12" r="1.5" fill="currentColor" />
+      </svg>
+    );
+  }
   return (
     <CustomIcon lineStyleIcon={variant}>
       {lineStylePaths[variant].map((d) => (
@@ -516,6 +614,61 @@ function FilledCircleIcon() {
       aria-hidden="true"
     >
       <circle cx="12" cy="12" r="10" fill="currentColor" />
+    </svg>
+  );
+}
+
+function MosaicIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="none"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="9" height="9" fill="currentColor" />
+      <rect x="12" y="3" width="9" height="9" fill="currentColor" opacity="0.3" />
+      <rect x="3" y="12" width="9" height="9" fill="currentColor" opacity="0.3" />
+      <rect x="12" y="12" width="9" height="9" fill="currentColor" />
+    </svg>
+  );
+}
+
+function GaussianIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <defs>
+        <filter id="blur-icon-filter">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" />
+        </filter>
+      </defs>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <rect x="5" y="5" width="14" height="14" fill="currentColor" filter="url(#blur-icon-filter)" />
+    </svg>
+  );
+}
+
+function SolidIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="none"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="18" height="18" fill="currentColor" />
     </svg>
   );
 }
@@ -665,6 +818,36 @@ function DropdownSelect<T extends string>({
 
 type ToggleOption<T extends string> = { value: T; label: ReactNode; title: string };
 
+function ToggleButton<T extends string>({
+  option,
+  selected,
+  onSelect,
+}: {
+  option: ToggleOption<T>;
+  selected: boolean;
+  onSelect: (value: T) => void;
+}) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        aria-label={option.title}
+        onMouseEnter={() => setTooltipVisible(true)}
+        onMouseLeave={() => setTooltipVisible(false)}
+        onClick={() => onSelect(option.value)}
+        style={selected ? btnActive : btnBase}
+      >
+        {option.label}
+      </button>
+      {tooltipVisible && <TooltipBubble label={option.title} anchorRef={btnRef} />}
+    </>
+  );
+}
+
 function ToggleGroup<T extends string>({
   options,
   value,
@@ -677,14 +860,12 @@ function ToggleGroup<T extends string>({
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
       {options.map((opt) => (
-        <button
+        <ToggleButton
           key={opt.value}
-          title={opt.title}
-          onClick={() => onChange(opt.value)}
-          style={value === opt.value ? btnActive : btnBase}
-        >
-          {opt.label}
-        </button>
+          option={opt}
+          selected={value === opt.value}
+          onSelect={onChange}
+        />
       ))}
     </div>
   );
@@ -838,6 +1019,155 @@ function EllipseSection({
   );
 }
 
+function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [fonts, setFonts] = useState<string[]>([]);
+  const [open, setOpen] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+
+  useEffect(() => {
+    getSystemFonts().then(setFonts);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  useEffect(() => {
+    if (open && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [open]);
+
+  const handleOpen = () => {
+    if (!open && ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setFlipUp(rect.bottom + 208 > window.innerHeight);
+    }
+    setOpen(!open);
+    if (!open) {
+      setSearchQuery("");
+    }
+  };
+
+  const allOptions = [
+    { value: HANDWRITING_FONT_VALUE, label: "Handwriting" },
+    ...fonts.map((f) => ({ value: f, label: f })),
+  ];
+
+  const filteredOptions = searchQuery
+    ? allOptions.filter((opt) =>
+        opt.label.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : allOptions;
+
+  const selectedLabel = allOptions.find((o) => o.value === value)?.label ?? value;
+  const title = `Font: ${selectedLabel}`;
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label={title}
+        onMouseEnter={() => setTooltipVisible(true)}
+        onMouseLeave={() => setTooltipVisible(false)}
+        style={{ ...btnBase, gap: 4 }}
+        onClick={handleOpen}
+      >
+        <span style={{ color: "#fff", maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}>
+          {selectedLabel}
+        </span>
+        <ChevronDown size={12} style={{ opacity: 0.6 }} />
+      </button>
+      {tooltipVisible && !open && <TooltipBubble label={title} anchorRef={triggerRef} />}
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            ...(flipUp ? { bottom: "calc(100% + 4px)" } : { top: "calc(100% + 4px)" }),
+            left: 0,
+            minWidth: 140,
+            background: "rgba(30, 30, 30, 0.95)",
+            border: "1px solid rgba(255,255,255,0.15)",
+            borderRadius: 6,
+            padding: 4,
+            zIndex: 10010,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+          }}
+        >
+          <input
+            ref={searchInputRef}
+            type="text"
+            placeholder="Search fonts..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && filteredOptions.length > 0) {
+                onChange(filteredOptions[0].value);
+                setOpen(false);
+              } else if (e.key === "Escape") {
+                setOpen(false);
+              }
+            }}
+            style={{
+              width: "100%",
+              padding: "4px 8px",
+              marginBottom: 4,
+              background: "rgba(255,255,255,0.1)",
+              border: "1px solid rgba(255,255,255,0.2)",
+              borderRadius: 4,
+              color: "#fff",
+              fontSize: 11,
+              outline: "none",
+            }}
+          />
+          <div
+            style={{
+              maxHeight: 200,
+              overflowY: "auto",
+            }}
+          >
+            {filteredOptions.length === 0 ? (
+              <div style={{ padding: "8px", color: "rgba(255,255,255,0.5)", fontSize: 11, textAlign: "center" }}>
+                No fonts found
+              </div>
+            ) : (
+              filteredOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => { onChange(opt.value); setOpen(false); }}
+                  style={{
+                    ...btnBase,
+                    width: "100%",
+                    textAlign: "left" as const,
+                    justifyContent: "flex-start",
+                    padding: "4px 8px",
+                    whiteSpace: "nowrap",
+                    ...(opt.value === value ? { background: "rgba(255,255,255,0.15)", color: "#fff" } : {}),
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TextSection({
   style,
   set,
@@ -849,14 +1179,7 @@ function TextSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <DropdownSelect
-        title="Font family"
-        options={[
-          { value: HANDWRITING_FONT_VALUE, label: "Handwriting", icon: PanelIcon(PencilLine) },
-          { value: "sans-serif", label: "Sans-serif", icon: PanelIcon(Type) },
-          { value: "serif", label: "Serif", icon: PanelIcon(Pilcrow) },
-          { value: "monospace", label: "Monospace", icon: PanelIcon(Code2) },
-        ]}
+      <FontFamilySelect
         value={normalizeTextFontFamilyValue(style.fontFamily)}
         onChange={(fontFamily) => set({ fontFamily })}
       />
@@ -873,28 +1196,33 @@ function BlurSection({
   style: AnnotationStyle;
   set: (p: Partial<AnnotationStyle>) => void;
 }) {
+  const mode = style.blurMode ?? "mosaic";
+  const showIntensity = mode === "mosaic" || mode === "gaussian";
+  const showColorPicker = mode === "solid";
+
   return (
     <>
-      <DropdownSelect
-        title="Blur mode"
-        options={[
-          { value: "mosaic", label: "Mosaic", icon: PanelIcon(Grid3X3) },
-          { value: "gaussian", label: "Gaussian", icon: PanelIcon(CircleDashed) },
-        ]}
-        value={style.blurMode ?? "mosaic"}
-        onChange={(blurMode) => set({ blurMode })}
-      />
-      <Separator />
       <ToggleGroup
         options={[
-          { value: "rect", label: PanelIcon(Square), title: "Rectangle" },
-          { value: "freehand", label: PanelIcon(PencilLine), title: "Freehand" },
+          { value: "mosaic", label: <MosaicIcon />, title: "Mosaic" },
+          { value: "gaussian", label: <GaussianIcon />, title: "Gaussian Blur" },
+          { value: "solid", label: <SolidIcon />, title: "Solid Color" },
         ]}
-        value={style.blurMethod ?? "rect"}
-        onChange={(blurMethod) => set({ blurMethod })}
+        value={mode}
+        onChange={(blurMode) => set({ blurMode })}
       />
-      <Separator />
-      <NumberStepper label="Strength" title="Blur intensity" value={style.blurIntensity ?? 10} onChange={(blurIntensity) => set({ blurIntensity })} min={3} max={30} step={1} suffix="" />
+      {showColorPicker && (
+        <>
+          <Separator />
+          <ColorPicker value={style.blurSolidColor ?? "#000000"} onChange={(blurSolidColor) => set({ blurSolidColor })} />
+        </>
+      )}
+      {showIntensity && (
+        <>
+          <Separator />
+          <NumberStepper label="Strength" title="Blur intensity" value={style.blurIntensity ?? 10} onChange={(blurIntensity) => set({ blurIntensity })} min={3} max={30} step={1} suffix="" />
+        </>
+      )}
     </>
   );
 }
