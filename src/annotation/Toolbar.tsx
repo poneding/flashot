@@ -1,27 +1,27 @@
-import { useRef, useState, useLayoutEffect } from "react";
-import {
-  Pencil,
-  Minus,
-  MoveRight,
-  Square,
-  Circle,
-  Type,
-  Droplets,
-  Highlighter,
-  Eraser,
-  Undo2,
-  Redo2,
-  Copy,
-  Save,
-  X,
-  GripVertical,
-} from "lucide-react";
-import { clampToolbarPosition, computeToolbarPosition } from "@/lib/geometry";
-import { useAnnotation } from "@/annotation/store";
 import { PropertyPanel } from "@/annotation/PropertyPanel";
+import { useAnnotation } from "@/annotation/store";
 import { TooltipBubble } from "@/annotation/Tooltip";
 import type { ToolType } from "@/annotation/types";
+import { clampToolbarPosition, computeToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
+import {
+  Circle,
+  Copy,
+  Droplets,
+  Eraser,
+  GripVertical,
+  Highlighter,
+  Minus,
+  MoveRight,
+  Pencil,
+  Redo2,
+  Save,
+  Square,
+  Type,
+  Undo2,
+  X,
+} from "lucide-react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 const TOOLBAR_SIZE = { width: 0, height: 40 };
 const PROPERTY_PANEL_GAP = 4;
@@ -46,8 +46,8 @@ const TOOLS: ToolDef[] = [
 
 function shortcutTitle(action: string, key: string, options: { shift?: boolean } = {}): string {
   const isMac = /Mac|iPhone|iPad|iPod/.test(window.navigator.platform);
-  const modifier = isMac ? "CMD" : "CTRL";
-  return `${action} (${modifier}+${options.shift ? "SHIFT+" : ""}${key})`;
+  const modifier = isMac ? "Cmd" : "Ctrl";
+  return `${action} (${modifier}+${options.shift ? "Shift+" : ""}${key})`;
 }
 
 type Props = {

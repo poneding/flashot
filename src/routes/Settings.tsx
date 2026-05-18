@@ -5,16 +5,35 @@ import { HotkeyRecorder } from "@/settings/HotkeyRecorder";
 import { ThemeSelect } from "@/settings/ThemeSelect";
 import { getSettings, setSettings } from "@/lib/ipc";
 import type { Settings } from "@/lib/types";
+import { AppWindowIcon, CropIcon, MonitorIcon, type LucideIcon } from "lucide-react";
 
-const DEFAULTS: Settings = {
-  hotkey: navigator.platform.includes("Mac") ? "Cmd+Shift+A" : "Ctrl+Shift+A",
-  theme: "system",
-  launchAtLogin: false,
-  lastSaveDir: null,
-};
+function platformModifier() {
+  return navigator.platform.includes("Mac") ? "Cmd" : "Ctrl";
+}
+
+function defaultSettings(): Settings {
+  const mod = platformModifier();
+  return {
+    captureHotkey: `${mod}+Shift+A`,
+    fullscreenHotkey: `${mod}+Shift+F`,
+    activeWindowHotkey: `${mod}+Shift+W`,
+    theme: "system",
+    launchAtLogin: false,
+    lastSaveDir: null,
+  };
+}
+
+function ShortcutLabel({ icon: Icon, children }: { icon: LucideIcon; children: string }) {
+  return (
+    <label className="flex items-center gap-2 text-sm font-medium">
+      <Icon size={14} strokeWidth={1.55} aria-hidden="true" />
+      {children}
+    </label>
+  );
+}
 
 export function SettingsRoute() {
-  const [s, setS] = useState<Settings>(DEFAULTS);
+  const [s, setS] = useState<Settings>(() => defaultSettings());
   const [saved, setSaved] = useState(false);
 
   useEffect(() => { getSettings().then(setS).catch(() => {}); }, []);
@@ -37,8 +56,27 @@ export function SettingsRoute() {
       <h1 className="text-xl font-semibold">Flashot Settings</h1>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">Hotkey</label>
-        <HotkeyRecorder value={s.hotkey} onChange={(hotkey) => setS({ ...s, hotkey })} />
+        <ShortcutLabel icon={CropIcon}>Capture Region</ShortcutLabel>
+        <HotkeyRecorder
+          value={s.captureHotkey}
+          onChange={(captureHotkey) => setS({ ...s, captureHotkey })}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <ShortcutLabel icon={MonitorIcon}>Capture Screen</ShortcutLabel>
+        <HotkeyRecorder
+          value={s.fullscreenHotkey}
+          onChange={(fullscreenHotkey) => setS({ ...s, fullscreenHotkey })}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <ShortcutLabel icon={AppWindowIcon}>Capture Window</ShortcutLabel>
+        <HotkeyRecorder
+          value={s.activeWindowHotkey}
+          onChange={(activeWindowHotkey) => setS({ ...s, activeWindowHotkey })}
+        />
       </div>
 
       <div className="space-y-2">
@@ -57,7 +95,7 @@ export function SettingsRoute() {
       </div>
 
       <div className="flex justify-end gap-2 pt-4">
-        <Button variant="outline" onClick={() => setS(DEFAULTS)}>Reset</Button>
+        <Button variant="outline" onClick={() => setS(defaultSettings())}>Reset</Button>
         <Button onClick={save}>{saved ? "Saved ✓" : "Save"}</Button>
       </div>
     </div>

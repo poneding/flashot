@@ -115,10 +115,10 @@ describe("Annotation toolbar", () => {
       "Blur",
       "Highlight",
       "Eraser",
-      "Undo (CMD+Z)",
-      "Redo (CMD+SHIFT+Z)",
-      "Copy (CMD+C)",
-      "Save (CMD+S)",
+      "Undo (Cmd+Z)",
+      "Redo (Cmd+Shift+Z)",
+      "Copy (Cmd+C)",
+      "Save (Cmd+S)",
       "Cancel (ESC)",
     ].forEach((title) => {
       expect(screen.getByTitle(title)).not.toBeNull();
@@ -127,12 +127,12 @@ describe("Annotation toolbar", () => {
 
   it("shows an immediate custom tooltip and keeps copy visually consistent", () => {
     renderToolbar();
-    const copy = screen.getByTitle("Copy (CMD+C)");
+    const copy = screen.getByTitle("Copy (Cmd+C)");
 
     fireEvent.mouseEnter(copy);
 
     const tooltip = screen.getByRole("tooltip");
-    expect(tooltip.textContent).toBe("Copy (CMD+C)");
+    expect(tooltip.textContent).toBe("Copy (Cmd+C)");
     expect(tooltip.getAttribute("style")).toContain("background: rgba(18, 18, 18, 0.48)");
     expect(copy.style.background).toBe("transparent");
   });
@@ -143,13 +143,13 @@ describe("Annotation toolbar", () => {
       if (el.hasAttribute("data-annotation-toolbar")) {
         return domRect({ top: 120, left: 80, width: 420, height: 40 });
       }
-      if (el.getAttribute("title") === "Copy (CMD+C)") {
+      if (el.getAttribute("title") === "Copy (Cmd+C)") {
         return domRect({ top: 124, left: 390, width: 32, height: 32 });
       }
       return domRect();
     });
     renderToolbar();
-    const copy = screen.getByTitle("Copy (CMD+C)");
+    const copy = screen.getByTitle("Copy (Cmd+C)");
 
     fireEvent.mouseEnter(copy);
 
@@ -160,7 +160,7 @@ describe("Annotation toolbar", () => {
 
   it("renders toolbar tooltips outside the filtered toolbar surface", () => {
     renderToolbar();
-    const copy = screen.getByTitle("Copy (CMD+C)");
+    const copy = screen.getByTitle("Copy (Cmd+C)");
 
     fireEvent.mouseEnter(copy);
 
@@ -172,20 +172,20 @@ describe("Annotation toolbar", () => {
 
     renderToolbar();
 
-    expect(screen.getByTitle("Undo (CTRL+Z)")).not.toBeNull();
-    expect(screen.getByTitle("Redo (CTRL+SHIFT+Z)")).not.toBeNull();
-    expect(screen.getByTitle("Copy (CTRL+C)")).not.toBeNull();
-    expect(screen.getByTitle("Save (CTRL+S)")).not.toBeNull();
+    expect(screen.getByTitle("Undo (Ctrl+Z)")).not.toBeNull();
+    expect(screen.getByTitle("Redo (Ctrl+Shift+Z)")).not.toBeNull();
+    expect(screen.getByTitle("Copy (Ctrl+C)")).not.toBeNull();
+    expect(screen.getByTitle("Save (Ctrl+S)")).not.toBeNull();
   });
 
   it("shows undo and redo tooltips even when unavailable", () => {
     renderToolbar();
-    const undo = screen.getByTitle("Undo (CMD+Z)");
+    const undo = screen.getByTitle("Undo (Cmd+Z)");
 
     fireEvent.mouseEnter(undo);
 
     const tooltip = screen.getByRole("tooltip");
-    expect(tooltip.textContent).toBe("Undo (CMD+Z)");
+    expect(tooltip.textContent).toBe("Undo (Cmd+Z)");
     expect(tooltip.getAttribute("style")).toContain("background: rgba(18, 18, 18, 0.48)");
     expect(undo.getAttribute("aria-disabled")).toBe("true");
     expect(undo.style.opacity).toBe("");
@@ -229,6 +229,6 @@ function domRect(partial: Partial<DOMRect> = {}): DOMRect {
     height,
     right: partial.right ?? left + width,
     bottom: partial.bottom ?? top + height,
-    toJSON: () => {},
+    toJSON: () => { },
   } as DOMRect;
 }

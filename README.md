@@ -8,12 +8,13 @@ Fast, lightweight screenshot tool built with Tauri + React.
 
 ## Features
 
-- **Global hotkey** — Trigger capture from anywhere (default: Cmd+Shift+A on macOS, Ctrl+Shift+A on Windows)
+- **Global shortcuts** — Trigger region capture, active-screen quick shot, or active-window quick shot from anywhere
 - **Multi-monitor support** — Capture from any connected display
 - **Smart window detection** — Click to auto-select window bounds
 - **Flexible selection** — Click-drag to select region, resize with handles
+- **Quick shots** — Copy the active screen with Cmd/Ctrl+Shift+F or the active window with Cmd/Ctrl+Shift+W
 - **Copy or save** — Send to clipboard with Cmd/Ctrl+C or the toolbar, or save as PNG with Save As
-- **Customizable hotkey** — Change trigger key in settings
+- **Customizable shortcuts** — Change capture and quick-shot keys in settings
 - **Native performance** — Rust backend for speed, React frontend for polish
 
 ## Installation
@@ -34,11 +35,16 @@ Fast, lightweight screenshot tool built with Tauri + React.
 
 ## Usage
 
-1. Press the hotkey (default: Cmd+Shift+A on macOS, Ctrl+Shift+A on Windows)
+1. Press the region capture shortcut (default: Cmd+Shift+A on macOS, Ctrl+Shift+A on Windows)
 2. Screen freezes and overlay appears
 3. Click and drag to select region, or click a window to auto-select
 4. Use the toolbar to copy or Save As, or press **Cmd/Ctrl+C** after committing a selection
 5. Press **ESC** to cancel
+
+Quick shots skip the overlay and copy immediately:
+
+- Active screen: Cmd+Shift+F on macOS, Ctrl+Shift+F on Windows/Linux
+- Active window: Cmd+Shift+W on macOS, Ctrl+Shift+W on Windows/Linux
 
 ## Development
 
@@ -138,12 +144,12 @@ Maintainers can also rerun the release flow from GitHub Actions with
 
 - Requires screen recording permission (granted on first launch)
 - Uses private APIs for overlay rendering (`macOSPrivateApi: true`)
-- Default hotkey: Cmd+Shift+A
+- Default shortcuts: Cmd+Shift+A for region capture, Cmd+Shift+F for active screen, Cmd+Shift+W for active window
 
 ### Windows
 
 - No special permissions required
-- Default hotkey: Ctrl+Shift+A
+- Default shortcuts: Ctrl+Shift+A for region capture, Ctrl+Shift+F for active screen, Ctrl+Shift+W for active window
 
 ## Contributing
 

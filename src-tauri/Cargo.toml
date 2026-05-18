@@ -15,6 +15,7 @@ name = "flashot_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
+resvg = { version = "0.47", default-features = false }
 tauri-build = { version = "2", features = [] }
 
 [dependencies]

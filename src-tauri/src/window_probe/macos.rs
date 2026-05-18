@@ -47,6 +47,13 @@ pub fn enumerate() -> Result<Vec<WindowRect>> {
     Ok(out)
 }
 
+pub fn active_window() -> Result<WindowRect> {
+    enumerate()?
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("no visible normal window found"))
+}
+
 fn window_rect_from_dict(dict: &CFDictionary) -> Option<WindowRect> {
     let rect = read_bounds(dict)?;
     let title = read_string(dict, "kCGWindowName").unwrap_or_default();

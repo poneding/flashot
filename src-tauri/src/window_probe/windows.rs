@@ -15,11 +15,11 @@ use windows::Win32::System::Threading::{
     PROCESS_VM_READ,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetAncestor, GetClassNameW, GetWindow, GetWindowLongPtrW, GetWindowRect,
-    GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
-    GA_ROOT, GWL_EXSTYLE, GWL_STYLE, GW_OWNER, WINDOW_EX_STYLE, WINDOW_STYLE, WS_CAPTION, WS_CHILD,
-    WS_DISABLED, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP, WS_SYSMENU,
-    WS_THICKFRAME,
+    EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow, GetWindow, GetWindowLongPtrW,
+    GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic,
+    IsWindowVisible, GA_ROOT, GWL_EXSTYLE, GWL_STYLE, GW_OWNER, WINDOW_EX_STYLE, WINDOW_STYLE,
+    WS_CAPTION, WS_CHILD, WS_DISABLED, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
 };
 
 struct State {
@@ -39,19 +39,46 @@ pub fn enumerate() -> Result<Vec<WindowRect>> {
     Ok(state.out)
 }
 
+pub fn active_window() -> Result<WindowRect> {
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            anyhow::bail!("GetForegroundWindow returned null");
+        }
+        window_rect_from_hwnd(hwnd)
+            .ok_or_else(|| anyhow::anyhow!("foreground window is not selectable"))
+    }
+}
+
 unsafe extern "system" fn enum_proc(hwnd: HWND, lp: LPARAM) -> BOOL {
     let state = &mut *(lp.0 as *mut State);
-    if !is_candidate_top_level_window(hwnd) {
+    let Some(window) = window_rect_from_hwnd(hwnd) else {
         return TRUE;
+    };
+
+    let class_name = read_class_name(hwnd);
+    let is_desktop_surface = is_desktop_surface_class(&class_name);
+
+    if is_desktop_surface {
+        state.desktop_out.push(window);
+    } else {
+        state.out.push(window);
+    }
+    TRUE
+}
+
+unsafe fn window_rect_from_hwnd(hwnd: HWND) -> Option<WindowRect> {
+    if !is_candidate_top_level_window(hwnd) {
+        return None;
     }
 
     let Some(r) = read_visible_rect(hwnd) else {
-        return TRUE;
+        return None;
     };
     let width = (r.right - r.left).max(0) as u32;
     let height = (r.bottom - r.top).max(0) as u32;
     if width < 2 || height < 2 {
-        return TRUE;
+        return None;
     }
 
     let title = read_title(hwnd);
@@ -69,12 +96,12 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lp: LPARAM) -> BOOL {
         ex_style,
         has_owner(hwnd),
     ) {
-        return TRUE;
+        return None;
     }
 
     let app = if app.is_empty() { class_name } else { app };
 
-    let window = WindowRect {
+    Some(WindowRect {
         rect: Rect {
             x: r.left,
             y: r.top,
@@ -84,14 +111,7 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lp: LPARAM) -> BOOL {
         title,
         app_name: app,
         pid,
-    };
-
-    if is_desktop_surface {
-        state.desktop_out.push(window);
-    } else {
-        state.out.push(window);
-    }
-    TRUE
+    })
 }
 
 unsafe fn is_candidate_top_level_window(hwnd: HWND) -> bool {

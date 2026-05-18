@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useOverlay } from "@/overlay/state";
 import {
   cancelCapture,
@@ -7,10 +7,12 @@ import {
   cropAndSave,
   onCaptureEnd,
   onCaptureStart,
+  onQuickShotFlash,
   onSelectionClaimed,
   onSelectionReleased,
   releaseSelection,
 } from "@/lib/ipc";
+import type { Rect } from "@/lib/types";
 import { currentCursorPointInWindow } from "@/lib/cursor";
 import { cursorForHandle, hitTestHandle, rectContainsPoint } from "@/lib/geometry";
 import { FrozenLayer } from "@/overlay/FrozenLayer";
@@ -41,20 +43,37 @@ export function OverlayRoute() {
   const frameUrl = useOverlay((s) => s.frameUrl);
   const scaleFactor = useOverlay((s) => s.scaleFactor);
   const monitorRect = useOverlay((s) => s.monitorRect);
+  const [flashRect, setFlashRect] = useState<Rect | null>(null);
+  const flashTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     document.body.classList.add("overlay");
     let unsubStart: undefined | (() => void);
     let unsubEnd: undefined | (() => void);
+    let unsubFlash: undefined | (() => void);
     onCaptureStart(start).then((u) => (unsubStart = u));
     onCaptureEnd(() => {
       useAnnotation.getState().reset();
       end();
     }).then((u) => (unsubEnd = u));
+    onQuickShotFlash((p) => {
+      setFlashRect(p.rect);
+      if (flashTimerRef.current != null) {
+        window.clearTimeout(flashTimerRef.current);
+      }
+      flashTimerRef.current = window.setTimeout(() => {
+        setFlashRect(null);
+        flashTimerRef.current = null;
+      }, 420);
+    }).then((u) => (unsubFlash = u));
     return () => {
       document.body.classList.remove("overlay");
+      if (flashTimerRef.current != null) {
+        window.clearTimeout(flashTimerRef.current);
+      }
       unsubStart?.();
       unsubEnd?.();
+      unsubFlash?.();
     };
   }, [start, end]);
 
@@ -242,7 +261,7 @@ export function OverlayRoute() {
     return "default";
   })();
 
-  if (mode === "idle") return null;
+  if (mode === "idle") return flashRect ? <QuickShotFlash rect={flashRect} /> : null;
 
   return (
     <div
@@ -278,6 +297,33 @@ export function OverlayRoute() {
           />
         </>
       )}
+      {flashRect && <QuickShotFlash rect={flashRect} />}
+    </div>
+  );
+}
+
+export function QuickShotFlash({ rect }: { rect: Rect }) {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "fixed",
+        inset: 0,
+        width: "100vw",
+        height: "100vh",
+        pointerEvents: "none",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        className="quick-shot-flash"
+        style={{
+          left: rect.x,
+          top: rect.y,
+          width: rect.width,
+          height: rect.height,
+        }}
+      />
     </div>
   );
 }

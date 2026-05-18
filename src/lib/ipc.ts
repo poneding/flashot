@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import type { CaptureStartPayload, Rect, Settings } from "@/lib/types";
+import type { CaptureStartPayload, QuickShotFlashPayload, Rect, Settings } from "@/lib/types";
 
 export type SelectionClaimPayload = {
   monitorId: number;
@@ -43,6 +43,12 @@ export async function endTextInputSession(): Promise<void> {
 export function onCaptureStart(cb: (p: CaptureStartPayload) => void): Promise<UnlistenFn> {
   return getCurrentWebviewWindow().listen<CaptureStartPayload>(
     "capture:start",
+    (e) => cb(e.payload),
+  );
+}
+export function onQuickShotFlash(cb: (p: QuickShotFlashPayload) => void): Promise<UnlistenFn> {
+  return getCurrentWebviewWindow().listen<QuickShotFlashPayload>(
+    "quick-shot:flash",
     (e) => cb(e.payload),
   );
 }

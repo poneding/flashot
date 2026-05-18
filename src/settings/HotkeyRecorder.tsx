@@ -3,6 +3,11 @@ import { Button } from "@/components/ui/button";
 
 const MOD_NAMES = ["Meta", "Control", "Alt", "Shift"];
 
+export function formatHotkeyForPlatform(value: string, platform = window.navigator.platform): string {
+  const commandOrControl = /Mac|iPhone|iPad|iPod/.test(platform) ? "Cmd" : "Ctrl";
+  return value.replace(/CommandOrControl/gi, commandOrControl).replace(/\bCommand\b/gi, "Cmd");
+}
+
 export function HotkeyRecorder({
   value,
   onChange,
@@ -33,7 +38,7 @@ export function HotkeyRecorder({
 
   return (
     <div className="flex items-center gap-3">
-      <code className="rounded bg-muted px-2 py-1 text-sm">{value}</code>
+      <code className="rounded bg-muted px-2 py-1 text-sm">{formatHotkeyForPlatform(value)}</code>
       <Button onClick={startRecord} disabled={recording} variant="outline" size="sm">
         {recording ? "Press keys…" : "Change"}
       </Button>
