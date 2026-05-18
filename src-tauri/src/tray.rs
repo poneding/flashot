@@ -4,9 +4,7 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, Theme,
 };
-use tauri_plugin_shell::ShellExt;
 
-const REPO_URL: &str = "https://github.com/poneding/flashot";
 const TRAY_ID: &str = "main";
 const MENU_ICON_IMAGE_SIZE: u32 = 36;
 
@@ -38,8 +36,7 @@ pub fn install(
                 let _ = crate::commands::open_settings_window(app.clone());
             }
             "updates" => {
-                #[allow(deprecated)]
-                let _ = app.shell().open(format!("{REPO_URL}/releases"), None);
+                let _ = app.emit("updater:check", ());
             }
             "about" => {
                 let _ = crate::commands::open_about_window(app.clone());

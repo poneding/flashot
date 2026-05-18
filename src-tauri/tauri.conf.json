@@ -20,7 +20,16 @@
       }
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/poneding/flashot/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlFQURGRDQ4N0Y5RjBCOUIKUldTYkM1OS9TUDJ0bmdjZEs2YlJ1WCtTRU8vdTBuRHBLVmYwRDFuYWpyRzU0cHN1eUVpVG1NY3kK"
+    }
+  },
   "bundle": {
+    "createUpdaterArtifacts": true,
     "active": true,
     "targets": "all",
     "icon": [

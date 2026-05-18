@@ -19,7 +19,14 @@ Fast, lightweight screenshot tool built with Tauri + React.
 
 ## Installation
 
-### macOS
+### macOS (Homebrew)
+
+```bash
+brew tap poneding/flashot
+brew install --cask flashot
+```
+
+### macOS (Manual)
 
 1. Download the latest `.dmg` from [Releases](https://github.com/poneding/flashot/releases)
 2. Open the `.dmg` and drag Flashot to Applications
@@ -29,9 +36,43 @@ Fast, lightweight screenshot tool built with Tauri + React.
 
 ### Windows
 
-1. Download the latest `.msi` installer from [Releases](https://github.com/poneding/flashot/releases)
+1. Download the latest `.exe` installer from [Releases](https://github.com/poneding/flashot/releases)
 2. Run the installer
 3. Launch Flashot from Start Menu
+
+### Linux
+
+1. Download the latest `.AppImage` from [Releases](https://github.com/poneding/flashot/releases)
+2. Make it executable: `chmod +x Flashot-*.AppImage`
+3. Run the AppImage
+
+### Unsigned App on macOS
+
+Flashot is not yet code-signed with an Apple Developer certificate. macOS Gatekeeper will block the app on first launch. To resolve this:
+
+**Option A** — Remove the quarantine attribute (recommended):
+
+```bash
+xattr -cr /Applications/Flashot.app
+```
+
+**Option B** — Right-click to open:
+
+1. Right-click (or Control-click) Flashot.app in Applications
+2. Select "Open" from the context menu
+3. Click "Open" in the dialog that appears
+
+This only needs to be done once. Subsequent launches will work normally.
+
+## Auto Update
+
+Flashot includes a built-in updater. When a new version is available, you'll be notified through the tray menu "Check for updates" option. The update is downloaded, verified, and installed automatically — then the app restarts.
+
+If you installed via Homebrew, you can also update with:
+
+```bash
+brew upgrade --cask flashot
+```
 
 ## Usage
 
