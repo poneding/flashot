@@ -1,23 +1,28 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useOverlay } from "@/overlay/state";
 import {
   cancelCapture,
   claimSelection,
   cropAndCopy,
+  cropAndSave,
   onCaptureEnd,
   onCaptureStart,
+  onQuickShotFlash,
   onSelectionClaimed,
   onSelectionReleased,
   releaseSelection,
 } from "@/lib/ipc";
+import type { Rect } from "@/lib/types";
 import { currentCursorPointInWindow } from "@/lib/cursor";
 import { cursorForHandle, hitTestHandle, rectContainsPoint } from "@/lib/geometry";
 import { FrozenLayer } from "@/overlay/FrozenLayer";
 import { DimMask } from "@/overlay/DimMask";
-import { Crosshair } from "@/overlay/Crosshair";
 import { DetectHighlight } from "@/overlay/DetectHighlight";
 import { SelectionBox } from "@/overlay/SelectionBox";
-import { Toolbar } from "@/overlay/Toolbar";
+import { AnnotationStage } from "@/annotation/Stage";
+import { Toolbar as AnnotationToolbar } from "@/annotation/Toolbar";
+import { useAnnotation } from "@/annotation/store";
+import { exportAnnotationLayer } from "@/annotation/export";
 
 export function OverlayRoute() {
   const start = useOverlay((s) => s.start);
@@ -36,17 +41,39 @@ export function OverlayRoute() {
   const cursor = useOverlay((s) => s.cursor);
   const selectionInteraction = useOverlay((s) => s.selectionInteraction);
   const frameUrl = useOverlay((s) => s.frameUrl);
+  const scaleFactor = useOverlay((s) => s.scaleFactor);
+  const monitorRect = useOverlay((s) => s.monitorRect);
+  const [flashRect, setFlashRect] = useState<Rect | null>(null);
+  const flashTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     document.body.classList.add("overlay");
     let unsubStart: undefined | (() => void);
     let unsubEnd: undefined | (() => void);
+    let unsubFlash: undefined | (() => void);
     onCaptureStart(start).then((u) => (unsubStart = u));
-    onCaptureEnd(end).then((u) => (unsubEnd = u));
+    onCaptureEnd(() => {
+      useAnnotation.getState().reset();
+      end();
+    }).then((u) => (unsubEnd = u));
+    onQuickShotFlash((p) => {
+      setFlashRect(p.rect);
+      if (flashTimerRef.current != null) {
+        window.clearTimeout(flashTimerRef.current);
+      }
+      flashTimerRef.current = window.setTimeout(() => {
+        setFlashRect(null);
+        flashTimerRef.current = null;
+      }, 420);
+    }).then((u) => (unsubFlash = u));
     return () => {
       document.body.classList.remove("overlay");
+      if (flashTimerRef.current != null) {
+        window.clearTimeout(flashTimerRef.current);
+      }
       unsubStart?.();
       unsubEnd?.();
+      unsubFlash?.();
     };
   }, [start, end]);
 
@@ -69,10 +96,40 @@ export function OverlayRoute() {
   // Keyboard: Esc cancels; Cmd/Ctrl+C copies when committed
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Don't intercept keys when editing text annotations
+      const active = document.activeElement;
+      if (active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")) return;
+
       if (e.key === "Escape") { e.preventDefault(); cancelCapture(); return; }
-      if (mode === "committed" && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
-        e.preventDefault();
-        if (selection && monitorId != null) cropAndCopy(monitorId, selection);
+
+      if (mode === "committed") {
+        const { undo, redo, deleteObject, selectedObjectId } = useAnnotation.getState();
+
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+          e.preventDefault();
+          undo();
+          return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && e.shiftKey) {
+          e.preventDefault();
+          redo();
+          return;
+        }
+        if ((e.key === "Delete" || e.key === "Backspace") && selectedObjectId) {
+          e.preventDefault();
+          deleteObject(selectedObjectId);
+          return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
+          e.preventDefault();
+          handleCopy();
+          return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+          e.preventDefault();
+          handleSave();
+          return;
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -109,6 +166,22 @@ export function OverlayRoute() {
       window.clearInterval(interval);
     };
   }, [mode, frameUrl]);
+
+  const handleCopy = async () => {
+    if (monitorId == null || !selection) return;
+    const annotationPng = await exportAnnotationLayer(scaleFactor);
+    await cropAndCopy(monitorId, selection, annotationPng ?? undefined);
+  };
+
+  const handleSave = async () => {
+    if (monitorId == null || !selection) return;
+    const annotationPng = await exportAnnotationLayer(scaleFactor);
+    await cropAndSave(monitorId, selection, annotationPng ?? undefined);
+  };
+
+  const handleClose = () => {
+    cancelCapture();
+  };
 
   const claimCurrentOverlay = (claimedMonitorId: number | null) => {
     if (claimedMonitorId == null) return;
@@ -151,8 +224,7 @@ export function OverlayRoute() {
         beginMove(p);
         return;
       }
-      claimCurrentOverlay(state.monitorId);
-      beginDrag(p);
+      // Selection is locked once committed — no re-selection
       return;
     }
 
@@ -179,21 +251,21 @@ export function OverlayRoute() {
   const onContextMenu = (e: React.MouseEvent) => { e.preventDefault(); cancelCapture(); };
 
   const overlayCursor = (() => {
+    if (mode === "hover" || mode === "dragging") return "crosshair";
     if (selectionInteraction?.kind === "resize") return cursorForHandle(selectionInteraction.handle);
     if (selectionInteraction?.kind === "move") return "move";
-    if (mode === "hover" || mode === "dragging") return "crosshair";
     if (mode === "committed" && selection && cursor) {
       const handle = hitTestHandle(cursor, selection, 10);
       if (handle) return cursorForHandle(handle);
-      if (rectContainsPoint(selection, cursor)) return "move";
     }
     return "default";
   })();
 
-  if (mode === "idle") return null;
+  if (mode === "idle") return flashRect ? <QuickShotFlash rect={flashRect} /> : null;
 
   return (
     <div
+      className={mode === "hover" || mode === "dragging" ? "overlay-crosshair" : undefined}
       onMouseMove={onMouseMove}
       onMouseEnter={onMouseMove}
       onMouseDown={onMouseDown}
@@ -213,8 +285,45 @@ export function OverlayRoute() {
       <DimMask />
       <DetectHighlight />
       <SelectionBox />
-      <Crosshair />
-      <Toolbar />
+      {mode === "committed" && selection && monitorRect && monitorId != null && (
+        <>
+          <AnnotationStage selection={selection} scaleFactor={scaleFactor} interacting={!!selectionInteraction} />
+          <AnnotationToolbar
+            selection={selection}
+            monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
+            onCopy={handleCopy}
+            onSave={handleSave}
+            onClose={handleClose}
+          />
+        </>
+      )}
+      {flashRect && <QuickShotFlash rect={flashRect} />}
+    </div>
+  );
+}
+
+export function QuickShotFlash({ rect }: { rect: Rect }) {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "fixed",
+        inset: 0,
+        width: "100vw",
+        height: "100vh",
+        pointerEvents: "none",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        className="quick-shot-flash"
+        style={{
+          left: rect.x,
+          top: rect.y,
+          width: rect.width,
+          height: rect.height,
+        }}
+      />
     </div>
   );
 }

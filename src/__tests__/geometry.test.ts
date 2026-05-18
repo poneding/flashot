@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   computeToolbarPosition,
+  clampToolbarPosition,
   TOOLBAR_GAP,
   hitTestHandle,
   moveRect,
@@ -13,6 +14,10 @@ const monitor: Rect = { x: 0, y: 0, width: 1920, height: 1080 };
 const TB = { width: 240, height: 40 };
 
 describe("computeToolbarPosition", () => {
+  it("uses a compact 4px gap from screenshot and screen edges", () => {
+    expect(TOOLBAR_GAP).toBe(4);
+  });
+
   it("places below when there is room", () => {
     const sel: Rect = { x: 100, y: 100, width: 400, height: 200 };
     const p = computeToolbarPosition(sel, TB, monitor);
@@ -39,6 +44,27 @@ describe("computeToolbarPosition", () => {
     const sel: Rect = { x: 0, y: 0, width: 1920, height: 1080 };
     const p = computeToolbarPosition(sel, TB, monitor);
     expect(p.kind).toBe("inside");
+  });
+
+  it("keeps the inside fallback left-aligned for full-screen selections", () => {
+    const sel: Rect = { x: 0, y: 0, width: 1920, height: 1080 };
+    const p = computeToolbarPosition(sel, TB, monitor);
+
+    expect(p).toMatchObject({
+      kind: "inside",
+      x: TOOLBAR_GAP,
+      y: monitor.height - TB.height - TOOLBAR_GAP,
+    });
+  });
+});
+
+describe("clampToolbarPosition", () => {
+  it("keeps a dragged toolbar inside monitor bounds", () => {
+    expect(clampToolbarPosition({ x: -40, y: -20 }, TB, monitor)).toEqual({ x: 0, y: 0 });
+    expect(clampToolbarPosition({ x: 1900, y: 1070 }, TB, monitor)).toEqual({
+      x: monitor.width - TB.width,
+      y: monitor.height - TB.height,
+    });
   });
 });
 

@@ -7,7 +7,9 @@ use parking_lot::Mutex;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-static CURRENT_ID: AtomicU32 = AtomicU32::new(0);
+static CURRENT_CAPTURE_ID: AtomicU32 = AtomicU32::new(0);
+static CURRENT_FULLSCREEN_ID: AtomicU32 = AtomicU32::new(0);
+static CURRENT_ACTIVE_WINDOW_ID: AtomicU32 = AtomicU32::new(0);
 
 thread_local! {
     static HOTKEY_SERVICE: RefCell<Option<HotkeyService>> = const { RefCell::new(None) };
@@ -15,7 +17,7 @@ thread_local! {
 
 pub struct HotkeyService {
     mgr: GlobalHotKeyManager,
-    current: Mutex<Option<HotKey>>,
+    current: Mutex<Vec<HotKey>>,
     capture_cancel: Mutex<Option<HotKey>>,
 }
 
@@ -23,7 +25,7 @@ impl HotkeyService {
     fn new() -> Result<Self> {
         Ok(Self {
             mgr: GlobalHotKeyManager::new()?,
-            current: Mutex::new(None),
+            current: Mutex::new(Vec::new()),
             capture_cancel: Mutex::new(None),
         })
     }
@@ -31,14 +33,47 @@ impl HotkeyService {
     pub fn set(&self, accelerator: &str) -> Result<u32> {
         let parsed = parse_accelerator(accelerator)?;
         let mut cur = self.current.lock();
-        if let Some(old) = cur.take() {
+        for old in cur.drain(..) {
             let _ = self.mgr.unregister(old);
         }
         self.mgr.register(parsed)?;
         let id = parsed.id();
-        CURRENT_ID.store(id, Ordering::SeqCst);
-        *cur = Some(parsed);
+        store_current_ids(RegisteredHotkeyIds {
+            capture: id,
+            fullscreen: 0,
+            active_window: 0,
+        });
+        cur.push(parsed);
         Ok(id)
+    }
+
+    pub fn set_all(
+        &self,
+        capture: &str,
+        fullscreen: &str,
+        active_window: &str,
+    ) -> Result<RegisteredHotkeyIds> {
+        let parsed = [
+            parse_accelerator(capture)?,
+            parse_accelerator(fullscreen)?,
+            parse_accelerator(active_window)?,
+        ];
+        let mut cur = self.current.lock();
+        for old in cur.drain(..) {
+            let _ = self.mgr.unregister(old);
+        }
+        for hotkey in parsed {
+            self.mgr.register(hotkey)?;
+            cur.push(hotkey);
+        }
+
+        let ids = RegisteredHotkeyIds {
+            capture: parsed[0].id(),
+            fullscreen: parsed[1].id(),
+            active_window: parsed[2].id(),
+        };
+        store_current_ids(ids);
+        Ok(ids)
     }
 
     pub fn set_capture_cancel_enabled(&self, enabled: bool) -> Result<()> {
@@ -61,7 +96,7 @@ impl HotkeyService {
     }
 
     /// Returns the global event receiver. Subscribe once at startup;
-    /// match incoming `event.id` against `current_id()`.
+    /// match incoming `event.id` against `current_ids()`.
     pub fn receiver(&self) -> &'static crossbeam_channel::Receiver<GlobalHotKeyEvent> {
         GlobalHotKeyEvent::receiver()
     }
@@ -87,6 +122,20 @@ pub fn set(accelerator: &str) -> Result<u32> {
     })
 }
 
+pub fn set_all(
+    capture: &str,
+    fullscreen: &str,
+    active_window: &str,
+) -> Result<RegisteredHotkeyIds> {
+    HOTKEY_SERVICE.with(|slot| {
+        let service = slot.borrow();
+        let service = service
+            .as_ref()
+            .ok_or_else(|| anyhow!("hotkey service has not been initialized"))?;
+        service.set_all(capture, fullscreen, active_window)
+    })
+}
+
 pub fn set_capture_cancel_enabled(enabled: bool) -> Result<()> {
     HOTKEY_SERVICE.with(|slot| {
         let service = slot.borrow();
@@ -102,12 +151,29 @@ pub fn receiver() -> &'static crossbeam_channel::Receiver<GlobalHotKeyEvent> {
 }
 
 pub fn current_id() -> u32 {
-    CURRENT_ID.load(Ordering::SeqCst)
+    current_ids().capture
+}
+
+pub fn current_ids() -> RegisteredHotkeyIds {
+    RegisteredHotkeyIds {
+        capture: CURRENT_CAPTURE_ID.load(Ordering::SeqCst),
+        fullscreen: CURRENT_FULLSCREEN_ID.load(Ordering::SeqCst),
+        active_window: CURRENT_ACTIVE_WINDOW_ID.load(Ordering::SeqCst),
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RegisteredHotkeyIds {
+    pub capture: u32,
+    pub fullscreen: u32,
+    pub active_window: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HotkeyAction {
     TriggerCapture,
+    CopyActiveDisplay,
+    CopyActiveWindow,
     CancelCapture,
 }
 
@@ -117,14 +183,33 @@ pub fn capture_cancel_id() -> u32 {
 
 pub fn action_for_event(
     event_id: u32,
-    current_capture_id: u32,
+    ids: RegisteredHotkeyIds,
     in_capture_session: bool,
 ) -> Option<HotkeyAction> {
     if in_capture_session && event_id == capture_cancel_id() {
         return Some(HotkeyAction::CancelCapture);
     }
 
-    (event_id == current_capture_id).then_some(HotkeyAction::TriggerCapture)
+    if event_id == ids.capture {
+        return Some(HotkeyAction::TriggerCapture);
+    }
+    if in_capture_session {
+        return None;
+    }
+    if event_id == ids.fullscreen {
+        return Some(HotkeyAction::CopyActiveDisplay);
+    }
+    if event_id == ids.active_window {
+        return Some(HotkeyAction::CopyActiveWindow);
+    }
+
+    None
+}
+
+fn store_current_ids(ids: RegisteredHotkeyIds) {
+    CURRENT_CAPTURE_ID.store(ids.capture, Ordering::SeqCst);
+    CURRENT_FULLSCREEN_ID.store(ids.fullscreen, Ordering::SeqCst);
+    CURRENT_ACTIVE_WINDOW_ID.store(ids.active_window, Ordering::SeqCst);
 }
 
 fn capture_cancel_hotkey() -> HotKey {
@@ -218,6 +303,10 @@ fn parse_code(s: &str) -> Result<Code> {
 mod tests {
     use super::*;
 
+    fn id_for(accelerator: &str) -> u32 {
+        parse_accelerator(accelerator).unwrap().id()
+    }
+
     #[test]
     fn parses_cmd_shift_x() {
         let h = parse_accelerator("Cmd+Shift+X").unwrap();
@@ -250,27 +339,65 @@ mod tests {
 
     #[test]
     fn escape_hotkey_cancels_only_active_capture_session() {
-        let capture_id = HotKey::new(Some(Modifiers::SUPER), Code::KeyA).id();
+        let ids = RegisteredHotkeyIds {
+            capture: HotKey::new(Some(Modifiers::SUPER), Code::KeyA).id(),
+            fullscreen: id_for("Cmd+Shift+F"),
+            active_window: id_for("Cmd+Shift+W"),
+        };
         let cancel_id = capture_cancel_id();
 
         assert_eq!(
-            action_for_event(cancel_id, capture_id, true),
+            action_for_event(cancel_id, ids, true),
             Some(HotkeyAction::CancelCapture)
         );
-        assert_eq!(action_for_event(cancel_id, capture_id, false), None);
+        assert_eq!(action_for_event(cancel_id, ids, false), None);
     }
 
     #[test]
     fn current_hotkey_still_triggers_capture() {
-        let capture_id = HotKey::new(Some(Modifiers::SUPER), Code::KeyA).id();
+        let ids = RegisteredHotkeyIds {
+            capture: HotKey::new(Some(Modifiers::SUPER), Code::KeyA).id(),
+            fullscreen: id_for("Cmd+Shift+F"),
+            active_window: id_for("Cmd+Shift+W"),
+        };
 
         assert_eq!(
-            action_for_event(capture_id, capture_id, false),
+            action_for_event(ids.capture, ids, false),
             Some(HotkeyAction::TriggerCapture)
         );
         assert_eq!(
-            action_for_event(capture_id, capture_id, true),
+            action_for_event(ids.capture, ids, true),
             Some(HotkeyAction::TriggerCapture)
         );
+    }
+
+    #[test]
+    fn quick_shot_hotkeys_route_to_distinct_actions_outside_capture_sessions() {
+        let ids = RegisteredHotkeyIds {
+            capture: id_for("Cmd+Shift+A"),
+            fullscreen: id_for("Cmd+Shift+F"),
+            active_window: id_for("Cmd+Shift+W"),
+        };
+
+        assert_eq!(
+            action_for_event(ids.fullscreen, ids, false),
+            Some(HotkeyAction::CopyActiveDisplay)
+        );
+        assert_eq!(
+            action_for_event(ids.active_window, ids, false),
+            Some(HotkeyAction::CopyActiveWindow)
+        );
+    }
+
+    #[test]
+    fn quick_shot_hotkeys_are_ignored_during_capture_sessions() {
+        let ids = RegisteredHotkeyIds {
+            capture: id_for("Cmd+Shift+A"),
+            fullscreen: id_for("Cmd+Shift+F"),
+            active_window: id_for("Cmd+Shift+W"),
+        };
+
+        assert_eq!(action_for_event(ids.fullscreen, ids, true), None);
+        assert_eq!(action_for_event(ids.active_window, ids, true), None);
     }
 }

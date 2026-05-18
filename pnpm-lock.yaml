@@ -17,21 +17,36 @@ importers:
       '@tauri-apps/api':
         specifier: ^2
         version: 2.11.0
+      '@tauri-apps/plugin-process':
+        specifier: ^2.3.1
+        version: 2.3.1
       '@tauri-apps/plugin-shell':
         specifier: ^2
         version: 2.3.5
+      '@tauri-apps/plugin-updater':
+        specifier: ^2.10.1
+        version: 2.10.1
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      cn-fontsource-xiaolai-sc-regular:
+        specifier: 1.0.2
+        version: 1.0.2
+      konva:
+        specifier: ^10.3.0
+        version: 10.3.0
       lucide-react:
         specifier: ^1.14.0
         version: 1.14.0(react@18.3.1)
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      perfect-freehand:
+        specifier: ^1.2.3
+        version: 1.2.3
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -44,6 +59,9 @@ importers:
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      stackblur-canvas:
+        specifier: ^3.0.1
+        version: 3.0.1
       tailwind-merge:
         specifier: ^3.5.0
         version: 3.5.0
@@ -863,8 +881,14 @@ packages:
     engines: {node: '>= 10'}
     hasBin: true
 
+  '@tauri-apps/plugin-process@2.3.1':
+    resolution: {integrity: sha512-nCa4fGVaDL/B9ai03VyPOjfAHRHSBz5v6F/ObsB73r/dA3MHHhZtldaDMIc0V/pnUw9ehzr2iEG+XkSEyC0JJA==, tarball: https://registry.npmjs.org/@tauri-apps/plugin-process/-/plugin-process-2.3.1.tgz}
+
   '@tauri-apps/plugin-shell@2.3.5':
     resolution: {integrity: sha512-jewtULhiQ7lI7+owCKAjc8tYLJr92U16bPOeAa472LHJdgaibLP83NcfAF2e+wkEcA53FxKQAZ7byDzs2eeizg==, tarball: https://registry.npmjs.org/@tauri-apps/plugin-shell/-/plugin-shell-2.3.5.tgz}
+
+  '@tauri-apps/plugin-updater@2.10.1':
+    resolution: {integrity: sha512-NFYMg+tWOZPJdzE/PpFj2qfqwAWwNS3kXrb1tm1gnBJ9mYzZ4WDRrwy8udzWoAnfGCHLuePNLY1WVCNHnh3eRA==, tarball: https://registry.npmjs.org/@tauri-apps/plugin-updater/-/plugin-updater-2.10.1.tgz}
 
   '@testing-library/dom@10.4.1':
     resolution: {integrity: sha512-o4PXJQidqJl82ckFaXUeoAW+XysPLauYI43Abki5hABd853iMhitooc6znOnczgbTYmEP6U6/y1ZyKAIsvMKGg==, tarball: https://registry.npmjs.org/@testing-library/dom/-/dom-10.4.1.tgz}
@@ -1138,6 +1162,9 @@ packages:
   clsx@2.1.1:
     resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==, tarball: https://registry.npmjs.org/clsx/-/clsx-2.1.1.tgz}
     engines: {node: '>=6'}
+
+  cn-fontsource-xiaolai-sc-regular@1.0.2:
+    resolution: {integrity: sha512-rkLcZXlACDqqVPAsqA6G3fUoJH/GsUkxJunWEQcS9xHDYmObGJm+ZYvhuwjAbwgJZW+LIStJIkeYwNI4tp30sQ==, tarball: https://registry.npmjs.org/cn-fontsource-xiaolai-sc-regular/-/cn-fontsource-xiaolai-sc-regular-1.0.2.tgz}
 
   code-block-writer@13.0.3:
     resolution: {integrity: sha512-Oofo0pq3IKnsFtuHqSF7TqBfr71aeyZDVJ0HpmqB7FBM2qEigL0iPONSCZSO9pE9dZTAxANe5XHG9Uy0YMv8cg==, tarball: https://registry.npmjs.org/code-block-writer/-/code-block-writer-13.0.3.tgz}
@@ -1760,6 +1787,9 @@ packages:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==, tarball: https://registry.npmjs.org/kleur/-/kleur-4.1.5.tgz}
     engines: {node: '>=6'}
 
+  konva@10.3.0:
+    resolution: {integrity: sha512-gt19K2gzY4lHbnkvsku7eSmB+A9PTS2jG4F9coBMsdjM1UKfJNxJbDbXVpeCW1wjEGRwBD3nBamcHnqJhAeKlg==, tarball: https://registry.npmjs.org/konva/-/konva-10.3.0.tgz}
+
   lilconfig@3.1.3:
     resolution: {integrity: sha512-/vlFKAoH5Cgt3Ie+JLhRbwOsCQePABiU3tJ1egGvyQ+33R/vcwM2Zl2QR/LzjsBeItPt3oSVXapn+m4nQDvpzw==, tarball: https://registry.npmjs.org/lilconfig/-/lilconfig-3.1.3.tgz}
     engines: {node: '>=14'}
@@ -2025,6 +2055,9 @@ packages:
 
   pathval@1.1.1:
     resolution: {integrity: sha512-Dp6zGqpTdETdR63lehJYPeIOqpiNBNtc7BpWSLrOje7UaIsE5aY92r/AunQA7rsXvet3lrJ3JnZX29UPTKXyKQ==, tarball: https://registry.npmjs.org/pathval/-/pathval-1.1.1.tgz}
+
+  perfect-freehand@1.2.3:
+    resolution: {integrity: sha512-bHZSfqDHGNlPpgH2yxXgPHlQSPpEbo+qg7li0M78J9vNAi2yjwLeA4x79BEQhX44lEWpCLSFCeRZwpw0niiXPA==, tarball: https://registry.npmjs.org/perfect-freehand/-/perfect-freehand-1.2.3.tgz}
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==, tarball: https://registry.npmjs.org/picocolors/-/picocolors-1.1.1.tgz}
@@ -2320,6 +2353,10 @@ packages:
 
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==, tarball: https://registry.npmjs.org/stackback/-/stackback-0.0.2.tgz}
+
+  stackblur-canvas@3.0.1:
+    resolution: {integrity: sha512-eJpxkL5PR39dioN3ZapIIhkjQd01wxcigCnBURzbRofZk5M+cHZUA8VwBelHLhsFW20gO9vdH6hFRIekA+jJfA==, tarball: https://registry.npmjs.org/stackblur-canvas/-/stackblur-canvas-3.0.1.tgz}
+    engines: {node: '>=0.1.16'}
 
   statuses@2.0.2:
     resolution: {integrity: sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw==, tarball: https://registry.npmjs.org/statuses/-/statuses-2.0.2.tgz}
@@ -3340,7 +3377,15 @@ snapshots:
       '@tauri-apps/cli-win32-ia32-msvc': 2.11.1
       '@tauri-apps/cli-win32-x64-msvc': 2.11.1
 
+  '@tauri-apps/plugin-process@2.3.1':
+    dependencies:
+      '@tauri-apps/api': 2.11.0
+
   '@tauri-apps/plugin-shell@2.3.5':
+    dependencies:
+      '@tauri-apps/api': 2.11.0
+
+  '@tauri-apps/plugin-updater@2.10.1':
     dependencies:
       '@tauri-apps/api': 2.11.0
 
@@ -3657,6 +3702,8 @@ snapshots:
       wrap-ansi: 7.0.0
 
   clsx@2.1.1: {}
+
+  cn-fontsource-xiaolai-sc-regular@1.0.2: {}
 
   code-block-writer@13.0.3: {}
 
@@ -4236,6 +4283,8 @@ snapshots:
 
   kleur@4.1.5: {}
 
+  konva@10.3.0: {}
+
   lilconfig@3.1.3: {}
 
   lines-and-columns@1.2.4: {}
@@ -4480,6 +4529,8 @@ snapshots:
   pathe@2.0.3: {}
 
   pathval@1.1.1: {}
+
+  perfect-freehand@1.2.3: {}
 
   picocolors@1.1.1: {}
 
@@ -4841,6 +4892,8 @@ snapshots:
   source-map@0.6.1: {}
 
   stackback@0.0.2: {}
+
+  stackblur-canvas@3.0.1: {}
 
   statuses@2.0.2: {}
 

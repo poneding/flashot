@@ -1,0 +1,9 @@
+@import "cn-fontsource-xiaolai-sc-regular/font.css";
+
+@font-face {
+  font-family: "Excalifont";
+  src: url("/fonts/Excalifont.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}

@@ -1,0 +1,89 @@
+name: Update Homebrew Tap
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to update cask for (e.g., v0.2.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+
+jobs:
+  update-cask:
+    name: Update Homebrew Cask
+    runs-on: macos-latest
+    if: ${{ !github.event.release.prerelease }}
+    steps:
+      - name: Wait for release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+          for i in $(seq 1 30); do
+            ASSETS=$(gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" --json assets -q '.assets[].name')
+            if echo "$ASSETS" | grep -q "macos-aarch64.dmg" && echo "$ASSETS" | grep -q "macos-x64.dmg"; then
+              echo "Both macOS DMGs found"
+              exit 0
+            fi
+            echo "Waiting for macOS DMG assets... (attempt $i/30)"
+            sleep 30
+          done
+          echo "::error::Timed out waiting for macOS DMG assets"
+          exit 1
+
+      - name: Download DMGs and compute SHA256
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "$RELEASE_TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern "*macos-aarch64.dmg" \
+            --pattern "*macos-x64.dmg" \
+            --dir ./tmp
+
+          AARCH64_DMG=$(ls ./tmp/*macos-aarch64.dmg)
+          X64_DMG=$(ls ./tmp/*macos-x64.dmg)
+
+          AARCH64_SHA=$(shasum -a 256 "$AARCH64_DMG" | awk '{print $1}')
+          X64_SHA=$(shasum -a 256 "$X64_DMG" | awk '{print $1}')
+
+          echo "AARCH64_SHA=$AARCH64_SHA" >> "$GITHUB_ENV"
+          echo "X64_SHA=$X64_SHA" >> "$GITHUB_ENV"
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: poneding/homebrew-flashot
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Update cask file
+        run: |
+          CASK_FILE="tap/Casks/flashot.rb"
+
+          sed -i '' "s/version \".*\"/version \"$VERSION\"/" "$CASK_FILE"
+          sed -i '' "s/arm:   \".*\"/arm:   \"$AARCH64_SHA\"/" "$CASK_FILE"
+          sed -i '' "s/intel: \".*\"/intel: \"$X64_SHA\"/" "$CASK_FILE"
+
+          echo "Updated cask to version $VERSION"
+          cat "$CASK_FILE"
+
+      - name: Commit and push
+        working-directory: tap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/flashot.rb
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "Update flashot to $VERSION"
+          git push

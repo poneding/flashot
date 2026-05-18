@@ -44,7 +44,7 @@ describe("release workflow", () => {
     expect(workflow).toContain("macos-x86_64");
     expect(workflow).toContain("windows-x86_64");
     expect(workflow).toContain("linux-x86_64");
-    expect(workflow).toContain("tauri-apps/tauri-action@v1");
+    expect(workflow).toContain("tauri-apps/tauri-action@v0");
     expect(workflow).toContain("generateReleaseNotes: true");
   });
 

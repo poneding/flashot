@@ -1,17 +1,25 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import type { CaptureStartPayload, Rect, Settings } from "@/lib/types";
+import type { CaptureStartPayload, QuickShotFlashPayload, Rect, Settings } from "@/lib/types";
 
 export type SelectionClaimPayload = {
   monitorId: number;
 };
 
-export async function cropAndCopy(monitorId: number, rect: Rect): Promise<void> {
-  await invoke("crop_and_copy", { monitorId, rect });
+export async function cropAndCopy(monitorId: number, rect: Rect, annotationPng?: ArrayBuffer): Promise<void> {
+  await invoke("crop_and_copy", {
+    monitorId,
+    rect,
+    annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
+  });
 }
-export async function cropAndSave(monitorId: number, rect: Rect): Promise<string | null> {
-  return await invoke<string | null>("crop_and_save", { monitorId, rect });
+export async function cropAndSave(monitorId: number, rect: Rect, annotationPng?: ArrayBuffer): Promise<string | null> {
+  return await invoke<string | null>("crop_and_save", {
+    monitorId,
+    rect,
+    annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
+  });
 }
 export async function cancelCapture(): Promise<void> {
   await invoke("cancel_capture");
@@ -25,10 +33,25 @@ export async function setSettings(s: Settings): Promise<void> {
 export async function openSettingsWindow(): Promise<void> {
   await invoke("open_settings_window");
 }
+export async function beginTextInputSession(): Promise<void> {
+  await invoke("begin_text_input_session");
+}
+export async function endTextInputSession(): Promise<void> {
+  await invoke("end_text_input_session");
+}
+export async function listSystemFonts(): Promise<string[]> {
+  return await invoke<string[]>("list_system_fonts");
+}
 
 export function onCaptureStart(cb: (p: CaptureStartPayload) => void): Promise<UnlistenFn> {
   return getCurrentWebviewWindow().listen<CaptureStartPayload>(
     "capture:start",
+    (e) => cb(e.payload),
+  );
+}
+export function onQuickShotFlash(cb: (p: QuickShotFlashPayload) => void): Promise<UnlistenFn> {
+  return getCurrentWebviewWindow().listen<QuickShotFlashPayload>(
+    "quick-shot:flash",
     (e) => cb(e.payload),
   );
 }

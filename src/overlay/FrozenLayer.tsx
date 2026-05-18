@@ -27,6 +27,8 @@ export function FrozenLayer() {
     <img
       src={frameSourceFromUrl(url)}
       alt=""
+      data-frozen-layer
+      crossOrigin="anonymous"
       draggable={false}
       style={{
         position: "absolute",
@@ -36,6 +38,7 @@ export function FrozenLayer() {
         objectFit: "fill",
         pointerEvents: "none",
         userSelect: "none",
+        cursor: "inherit",
       }}
     />
   );

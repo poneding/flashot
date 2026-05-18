@@ -94,7 +94,7 @@ jobs:
           - name: windows-x86_64
             os: windows-latest
             rust-target: x86_64-pc-windows-msvc
-            tauri-args: --target x86_64-pc-windows-msvc
+            tauri-args: --target x86_64-pc-windows-msvc --bundles nsis
           - name: linux-x86_64
             os: ubuntu-latest
             rust-target: x86_64-unknown-linux-gnu
@@ -124,15 +124,17 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libpipewire-0.3-dev libwayland-dev libgbm-dev libegl-dev
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Build and publish GitHub Release assets
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "Flashot ${{ env.RELEASE_TAG }}"

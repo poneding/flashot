@@ -1,6 +1,6 @@
 [package]
 name = "flashot"
-version = "0.1.0"
+version = "0.2.1"
 description = "Flashot is a screenshot tool built with Rust and Tauri."
 authors = ["poneding@gmail.com"]
 edition = "2021"
@@ -15,6 +15,7 @@ name = "flashot_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
+resvg = { version = "0.47", default-features = false }
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
@@ -29,6 +30,10 @@ tauri-plugin-store = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-autostart = "2"
+tauri-plugin-process = "2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
@@ -49,9 +54,13 @@ crossbeam-channel = "0.5"
 chrono = { version = "0.4", features = ["clock"] }
 xcap = "0.9"
 global-hotkey = "0.6"
-arboard = "3"
+arboard = { version = "3", features = ["wayland-data-control"] }
 rfd = "0.14"
 image = { version = "0.25", default-features = false, features = ["png"] }
+fontdb = "0.23.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+xcb = "1.5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.23"

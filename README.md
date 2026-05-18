@@ -8,17 +8,25 @@ Fast, lightweight screenshot tool built with Tauri + React.
 
 ## Features
 
-- **Global hotkey** — Trigger capture from anywhere (default: Cmd+Shift+A on macOS, Ctrl+Shift+A on Windows)
+- **Global shortcuts** — Trigger region capture, active-screen quick shot, or active-window quick shot from anywhere
 - **Multi-monitor support** — Capture from any connected display
 - **Smart window detection** — Click to auto-select window bounds
 - **Flexible selection** — Click-drag to select region, resize with handles
+- **Quick shots** — Copy the active screen with Cmd/Ctrl+Shift+F or the active window with Cmd/Ctrl+Shift+W
 - **Copy or save** — Send to clipboard with Cmd/Ctrl+C or the toolbar, or save as PNG with Save As
-- **Customizable hotkey** — Change trigger key in settings
+- **Customizable shortcuts** — Change capture and quick-shot keys in settings
 - **Native performance** — Rust backend for speed, React frontend for polish
 
 ## Installation
 
-### macOS
+### macOS (Homebrew)
+
+```bash
+brew tap poneding/flashot
+brew install --cask flashot
+```
+
+### macOS (Manual)
 
 1. Download the latest `.dmg` from [Releases](https://github.com/poneding/flashot/releases)
 2. Open the `.dmg` and drag Flashot to Applications
@@ -28,17 +36,56 @@ Fast, lightweight screenshot tool built with Tauri + React.
 
 ### Windows
 
-1. Download the latest `.msi` installer from [Releases](https://github.com/poneding/flashot/releases)
+1. Download the latest `.exe` installer from [Releases](https://github.com/poneding/flashot/releases)
 2. Run the installer
 3. Launch Flashot from Start Menu
 
+### Linux
+
+1. Download the latest `.AppImage` from [Releases](https://github.com/poneding/flashot/releases)
+2. Make it executable: `chmod +x Flashot-*.AppImage`
+3. Run the AppImage
+
+### Unsigned App on macOS
+
+Flashot is not yet code-signed with an Apple Developer certificate. macOS Gatekeeper will block the app on first launch. To resolve this:
+
+**Option A** — Remove the quarantine attribute (recommended):
+
+```bash
+xattr -cr /Applications/Flashot.app
+```
+
+**Option B** — Right-click to open:
+
+1. Right-click (or Control-click) Flashot.app in Applications
+2. Select "Open" from the context menu
+3. Click "Open" in the dialog that appears
+
+This only needs to be done once. Subsequent launches will work normally.
+
+## Auto Update
+
+Flashot includes a built-in updater. When a new version is available, you'll be notified through the tray menu "Check for updates" option. The update is downloaded, verified, and installed automatically — then the app restarts.
+
+If you installed via Homebrew, you can also update with:
+
+```bash
+brew upgrade --cask flashot
+```
+
 ## Usage
 
-1. Press the hotkey (default: Cmd+Shift+A on macOS, Ctrl+Shift+A on Windows)
+1. Press the region capture shortcut (default: Cmd+Shift+A on macOS, Ctrl+Shift+A on Windows)
 2. Screen freezes and overlay appears
 3. Click and drag to select region, or click a window to auto-select
 4. Use the toolbar to copy or Save As, or press **Cmd/Ctrl+C** after committing a selection
 5. Press **ESC** to cancel
+
+Quick shots skip the overlay and copy immediately:
+
+- Active screen: Cmd+Shift+F on macOS, Ctrl+Shift+F on Windows/Linux
+- Active window: Cmd+Shift+W on macOS, Ctrl+Shift+W on Windows/Linux
 
 ## Development
 
@@ -138,12 +185,12 @@ Maintainers can also rerun the release flow from GitHub Actions with
 
 - Requires screen recording permission (granted on first launch)
 - Uses private APIs for overlay rendering (`macOSPrivateApi: true`)
-- Default hotkey: Cmd+Shift+A
+- Default shortcuts: Cmd+Shift+A for region capture, Cmd+Shift+F for active screen, Cmd+Shift+W for active window
 
 ### Windows
 
 - No special permissions required
-- Default hotkey: Ctrl+Shift+A
+- Default shortcuts: Ctrl+Shift+A for region capture, Ctrl+Shift+F for active screen, Ctrl+Shift+W for active window
 
 ## Contributing
 

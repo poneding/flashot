@@ -28,6 +28,10 @@ export type CaptureStartPayload = {
   windows: WindowRect[];     // already translated to monitor-local coords
 };
 
+export type QuickShotFlashPayload = {
+  rect: Rect;
+};
+
 export type Mode = "idle" | "hover" | "dragging" | "committed" | "locked";
 
 export type ToolbarPosition =
@@ -38,7 +42,9 @@ export type ToolbarPosition =
   | { kind: "right"; x: number; y: number };
 
 export type Settings = {
-  hotkey: string;             // e.g. "CommandOrControl+Shift+A"
+  captureHotkey: string;      // e.g. "Cmd+Shift+A"
+  fullscreenHotkey: string;   // e.g. "Cmd+Shift+F"
+  activeWindowHotkey: string; // e.g. "Cmd+Shift+W"
   theme: "system" | "light" | "dark";
   launchAtLogin: boolean;
   lastSaveDir: string | null;

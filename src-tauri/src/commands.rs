@@ -1,17 +1,21 @@
 use crate::{
-    clipboard, saver, settings_store, settings_store::Settings, types::Rect, window_mgr::WindowMgr,
+    clipboard, overlay_window, saver, settings_store, settings_store::Settings, types::Rect,
+    window_mgr::WindowMgr,
 };
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tauri_plugin_autostart::ManagerExt as _;
 
 const ABOUT_WINDOW_WIDTH: f64 = 360.0;
 const ABOUT_WINDOW_HEIGHT: f64 = 300.0;
+const SETTINGS_WINDOW_WIDTH: f64 = 560.0;
+const SETTINGS_WINDOW_HEIGHT: f64 = 560.0;
 
 #[tauri::command]
 pub async fn crop_and_copy(
     monitor_id: u32,
     rect: Rect,
+    annotation_png: Option<Vec<u8>>,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
@@ -24,7 +28,11 @@ pub async fn crop_and_copy(
         frame.scale_factor,
     )
     .ok_or("crop failed")?;
-    clipboard::copy_image(cropped.rgba, cropped.width, cropped.height)
+    let final_image = match annotation_png {
+        Some(png_data) if !png_data.is_empty() => composite_annotation(&cropped, &png_data)?,
+        _ => cropped,
+    };
+    clipboard::copy_image(final_image.rgba, final_image.width, final_image.height)
         .map_err(|e| e.to_string())?;
     mgr.end_session(&app);
     Ok(())
@@ -34,6 +42,7 @@ pub async fn crop_and_copy(
 pub async fn crop_and_save(
     monitor_id: u32,
     rect: Rect,
+    annotation_png: Option<Vec<u8>>,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
@@ -46,10 +55,19 @@ pub async fn crop_and_save(
         frame.scale_factor,
     )
     .ok_or("crop failed")?;
+    let final_image = match annotation_png {
+        Some(png_data) if !png_data.is_empty() => composite_annotation(&cropped, &png_data)?,
+        _ => cropped,
+    };
     let mut settings = settings_store::load().unwrap_or_default();
     mgr.end_session(&app);
-    let path = saver::save_image_dialog(cropped.rgba, cropped.width, cropped.height, &settings)
-        .map_err(|e| e.to_string())?;
+    let path = saver::save_image_dialog(
+        final_image.rgba,
+        final_image.width,
+        final_image.height,
+        &settings,
+    )
+    .map_err(|e| e.to_string())?;
     if path.is_some() {
         if let Some(saved_path) = path.as_deref() {
             saver::remember_last_save_dir(&mut settings, saved_path);
@@ -116,13 +134,24 @@ pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let url = tauri::WebviewUrl::App("index.html#/settings".into());
+    let (width, height) = settings_window_size();
     tauri::WebviewWindowBuilder::new(&app, "settings", url)
         .title("Flashot Settings")
-        .inner_size(560.0, 420.0)
+        .inner_size(width, height)
         .resizable(false)
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn begin_text_input_session(window: WebviewWindow) -> Result<(), String> {
+    overlay_window::prepare_overlay_text_input(&window).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn end_text_input_session(window: WebviewWindow) -> Result<(), String> {
+    overlay_window::restore_overlay_after_text_input(&window).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -147,18 +176,41 @@ fn about_window_size() -> (f64, f64) {
     (ABOUT_WINDOW_WIDTH, ABOUT_WINDOW_HEIGHT)
 }
 
+fn settings_window_size() -> (f64, f64) {
+    (SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
+}
+
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
-struct CroppedImage {
-    rgba: Vec<u8>,
-    width: u32,
-    height: u32,
+#[tauri::command]
+pub fn list_system_fonts() -> Vec<String> {
+    let mut db = fontdb::Database::new();
+    db.load_system_fonts();
+
+    let mut families: Vec<String> = db
+        .faces()
+        .filter_map(|face| {
+            face.families
+                .first()
+                .map(|(name, _)| name.clone())
+        })
+        .collect();
+
+    families.sort_unstable();
+    families.dedup();
+    families
 }
 
-fn crop_rgba(
+pub(crate) struct CroppedImage {
+    pub(crate) rgba: Vec<u8>,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+}
+
+pub(crate) fn crop_rgba(
     src: &[u8],
     src_width: u32,
     src_height: u32,
@@ -186,6 +238,42 @@ fn crop_rgba(
         rgba: out,
         width: pw,
         height: ph,
+    })
+}
+
+fn composite_annotation(
+    base: &CroppedImage,
+    annotation_png: &[u8],
+) -> Result<CroppedImage, String> {
+    use image::{imageops, ImageBuffer, RgbaImage};
+
+    let mut base_img: RgbaImage = ImageBuffer::from_raw(base.width, base.height, base.rgba.clone())
+        .ok_or("Failed to create base image buffer")?;
+
+    let annotation_img =
+        image::load_from_memory_with_format(annotation_png, image::ImageFormat::Png)
+            .map_err(|e| format!("Failed to decode annotation PNG: {}", e))?
+            .to_rgba8();
+
+    // Resize annotation to match base if dimensions differ
+    let annotation_resized =
+        if annotation_img.width() != base.width || annotation_img.height() != base.height {
+            imageops::resize(
+                &annotation_img,
+                base.width,
+                base.height,
+                imageops::FilterType::Lanczos3,
+            )
+        } else {
+            annotation_img
+        };
+
+    imageops::overlay(&mut base_img, &annotation_resized, 0, 0);
+
+    Ok(CroppedImage {
+        rgba: base_img.into_raw(),
+        width: base.width,
+        height: base.height,
     })
 }
 
@@ -293,6 +381,11 @@ mod tests {
     #[test]
     fn about_window_has_vertical_room_for_content() {
         assert_eq!(about_window_size(), (360.0, 300.0));
+    }
+
+    #[test]
+    fn settings_window_has_vertical_room_for_quick_shot_shortcuts() {
+        assert_eq!(settings_window_size(), (560.0, 560.0));
     }
 
     #[derive(Default)]
