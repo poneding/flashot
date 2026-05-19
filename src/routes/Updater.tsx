@@ -70,6 +70,12 @@ export function UpdaterRoute() {
 
   return (
     <main className="flex h-screen flex-col items-center justify-center gap-4 p-6 text-center select-none">
+      <img
+        src="/app-logo.svg"
+        alt="Flashot"
+        className="size-12"
+        draggable={false}
+      />
       {state === "checking" && (
         <>
           <LoaderCircleIcon size={36} className="animate-spin text-muted-foreground" />
