@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import {
   CircleCheckIcon,
   ArrowUpCircleIcon,
@@ -48,6 +48,13 @@ export function UpdaterRoute() {
     getVersion().then(setVersion).catch(() => setVersion("unknown"));
     doCheck();
   }, [doCheck]);
+
+  // Auto-resize window when update is available with release notes
+  useEffect(() => {
+    if (state === "available" && updateInfo?.body) {
+      getCurrentWindow().setSize(new LogicalSize(360, 420));
+    }
+  }, [state, updateInfo]);
 
   const handleDownload = async () => {
     setState("downloading");
@@ -104,7 +111,7 @@ export function UpdaterRoute() {
             <p className="text-sm text-muted-foreground">v{updateInfo.version}</p>
           </div>
           {updateInfo.body && (
-            <div className="max-h-[100px] w-full overflow-y-auto rounded-md bg-muted/50 p-3 text-left text-xs text-muted-foreground">
+            <div className="max-h-[160px] w-full overflow-y-auto rounded-md bg-muted/50 p-3 text-left text-xs text-muted-foreground whitespace-pre-wrap">
               {updateInfo.body}
             </div>
           )}

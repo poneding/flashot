@@ -10,7 +10,8 @@ vi.mock("@tauri-apps/api/app", () => ({
 }));
 
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: vi.fn(() => ({ close: vi.fn() })),
+  getCurrentWindow: vi.fn(() => ({ close: vi.fn(), setSize: vi.fn() })),
+  LogicalSize: vi.fn((w: number, h: number) => ({ width: w, height: h })),
 }));
 
 vi.mock("@tauri-apps/plugin-process", () => ({

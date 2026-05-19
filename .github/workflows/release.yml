@@ -75,10 +75,29 @@ jobs:
           console.log(`Release ${tag} matches project version ${expected}.`);
           NODE
 
+  changelog:
+    name: Generate release notes
+    runs-on: ubuntu-latest
+    needs: validate
+    outputs:
+      body: ${{ steps.git-cliff.outputs.content }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: git-cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+
   release:
     name: Build release (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
-    needs: validate
+    needs: [validate, changelog]
     strategy:
       fail-fast: false
       matrix:
@@ -138,10 +157,9 @@ jobs:
         with:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "Flashot ${{ env.RELEASE_TAG }}"
-          releaseBody: "Installers are built automatically from the tagged source. Release notes are generated from merged pull requests and commits."
+          releaseBody: ${{ needs.changelog.outputs.body }}
           releaseDraft: ${{ env.RELEASE_DRAFT }}
           prerelease: ${{ env.RELEASE_PRERELEASE }}
-          generateReleaseNotes: true
           releaseAssetNamePattern: "[name]-[version]-[platform]-[arch][ext]"
           uploadWorkflowArtifacts: true
           workflowArtifactNamePattern: "[name]-[version]-[platform]-[arch]-[bundle]"

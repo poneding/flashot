@@ -45,7 +45,14 @@ describe("release workflow", () => {
     expect(workflow).toContain("windows-x86_64");
     expect(workflow).toContain("linux-x86_64");
     expect(workflow).toContain("tauri-apps/tauri-action@v0");
-    expect(workflow).toContain("generateReleaseNotes: true");
+  });
+
+  it("generates structured release notes with git-cliff", () => {
+    const workflow = readFileSync(releaseWorkflowPath, "utf8");
+
+    expect(workflow).toContain("orhun/git-cliff-action@v4");
+    expect(workflow).toContain("--latest --strip header");
+    expect(workflow).toContain("needs.changelog.outputs.body");
   });
 
   it("derives prerelease status from the release tag for tag and manual runs", () => {
