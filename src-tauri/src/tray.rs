@@ -36,7 +36,7 @@ pub fn install(
                 let _ = crate::commands::open_settings_window(app.clone());
             }
             "updates" => {
-                let _ = app.emit("updater:check", ());
+                let _ = crate::commands::open_updater_window(app.clone());
             }
             "about" => {
                 let _ = crate::commands::open_about_window(app.clone());
