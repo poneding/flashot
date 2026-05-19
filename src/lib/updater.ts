@@ -1,5 +1,4 @@
 import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 
 export interface UpdateInfo {
   version: string;
@@ -29,19 +28,19 @@ export async function downloadAndInstall(
   if (!update) return;
 
   let downloaded = 0;
+  let total: number | null = null;
   await update.downloadAndInstall((event) => {
     switch (event.event) {
       case "Started":
-        onProgress?.({ downloaded: 0, total: event.data.contentLength ?? null });
+        total = event.data.contentLength ?? null;
+        onProgress?.({ downloaded: 0, total });
         break;
       case "Progress":
         downloaded += event.data.chunkLength;
-        onProgress?.({ downloaded, total: null });
+        onProgress?.({ downloaded, total });
         break;
       case "Finished":
         break;
     }
   });
-
-  await relaunch();
 }
