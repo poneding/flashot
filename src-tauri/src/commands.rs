@@ -10,6 +10,8 @@ const ABOUT_WINDOW_WIDTH: f64 = 360.0;
 const ABOUT_WINDOW_HEIGHT: f64 = 300.0;
 const SETTINGS_WINDOW_WIDTH: f64 = 560.0;
 const SETTINGS_WINDOW_HEIGHT: f64 = 560.0;
+const UPDATER_WINDOW_WIDTH: f64 = 360.0;
+const UPDATER_WINDOW_HEIGHT: f64 = 280.0;
 
 #[tauri::command]
 pub async fn crop_and_copy(
@@ -166,6 +168,23 @@ pub fn open_about_window(app: AppHandle) -> Result<(), String> {
     tauri::WebviewWindowBuilder::new(&app, "about", url)
         .title("About Flashot")
         .inner_size(width, height)
+        .resizable(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_updater_window(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("updater") {
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let url = tauri::WebviewUrl::App("index.html#/updater".into());
+    tauri::WebviewWindowBuilder::new(&app, "updater", url)
+        .title("Check for Updates")
+        .inner_size(UPDATER_WINDOW_WIDTH, UPDATER_WINDOW_HEIGHT)
         .resizable(false)
         .build()
         .map_err(|e| e.to_string())?;

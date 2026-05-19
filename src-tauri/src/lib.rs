@@ -200,6 +200,7 @@ pub fn run() {
             commands::begin_text_input_session,
             commands::end_text_input_session,
             commands::open_about_window,
+            commands::open_updater_window,
             commands::quit_app,
             commands::list_system_fonts,
         ])
