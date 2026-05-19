@@ -54,4 +54,13 @@ describe("Tauri asset protocol", () => {
     expect(manifest).toContain("tauri-plugin-autostart");
     expect(lib).toContain("tauri_plugin_autostart::init");
   });
+
+  it("keeps quick shot flash feedback wired through overlay event helpers", () => {
+    const ipcSource = readFileSync(resolve(__dirname, "../lib/ipc.ts"), "utf8");
+    const overlaySource = readFileSync(resolve(__dirname, "../routes/Overlay.tsx"), "utf8");
+
+    expect(ipcSource).toContain("quick-shot:flash");
+    expect(overlaySource).toContain("onQuickShotFlash");
+    expect(overlaySource).toContain("QuickShotFlash");
+  });
 });

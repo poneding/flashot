@@ -8,20 +8,78 @@ const traySource = readFileSync(
   path.resolve(__dirname, "../../src-tauri/src/tray.rs"),
   "utf8",
 );
+const buildSource = readFileSync(
+  path.resolve(__dirname, "../../src-tauri/build.rs"),
+  "utf8",
+);
+const libSource = readFileSync(
+  path.resolve(__dirname, "../../src-tauri/src/lib.rs"),
+  "utf8",
+);
 
 describe("tray menu", () => {
   it("uses the configured capture hotkey for the capture accelerator", () => {
-    expect(traySource).toMatch(/install\(app: &AppHandle, capture_hotkey: &str\)/);
+    expect(traySource).toMatch(/install\(\s*app: &AppHandle,\s*capture_hotkey: &str,\s*fullscreen_hotkey: &str,\s*active_window_hotkey: &str,\s*\)/);
     expect(traySource).toContain("capture_menu_accelerator(capture_hotkey)");
-    expect(traySource).toContain("pub fn update_menu(app: &AppHandle, capture_hotkey: &str)");
+    expect(traySource).toContain("active_screen_menu_accelerator(fullscreen_hotkey)");
+    expect(traySource).toContain("active_window_menu_accelerator(active_window_hotkey)");
+    expect(traySource).toContain("pub fn update_menu(");
+  });
+
+  it("adds tray menu actions for active screen and active window quick shots", () => {
+    expect(traySource).toContain('"quick-active-screen"');
+    expect(traySource).toContain('"quick-active-window"');
+    expect(traySource).toContain('"quick-shot:active-display"');
+    expect(traySource).toContain('"quick-shot:active-window"');
+  });
+
+  it("labels and icons the three capture actions consistently", () => {
+    expect(traySource).toContain('"Capture Region"');
+    expect(traySource).toContain('"Capture Screen"');
+    expect(traySource).toContain('"Capture Window"');
+    expect(traySource).toContain("IconMenuItem::with_id");
+    expect(traySource).toContain("MenuIcon::Crop");
+    expect(traySource).toContain("MenuIcon::Monitor");
+    expect(traySource).toContain("MenuIcon::AppWindow");
+  });
+
+  it("uses icons or reserved icon slots for every normal tray menu item", () => {
+    expect(traySource).toContain("MenuIcon::Settings");
+    expect(traySource).toContain("MenuIcon::Refresh");
+    expect(traySource).toContain("MenuIcon::Info");
+    expect(traySource).toContain("MenuIcon::CircleX");
+    expect(traySource).not.toContain("MenuIcon::Power");
+    expect(traySource).toContain("transparent_menu_icon()");
+    expect(traySource).toContain("menu_item_icon(");
+    expect(traySource).not.toMatch(/\bMenuItem::with_id\(/);
+  });
+
+  it("generates tray menu icons from Lucide SVG assets at build time", () => {
+    expect(buildSource).toContain("LUCIDE_STROKE_WIDTH");
+    expect(buildSource).toContain("MENU_ICON_OPACITY");
+    expect(buildSource).toContain("stroke-linecap=\"round\"");
+    expect(buildSource).not.toContain("stroke-opacity=");
+    expect(buildSource).toContain('format!("{}-light.png", icon.name)');
+    expect(buildSource).toContain("refresh-cw");
+    expect(traySource).toContain('env!("OUT_DIR")');
+    expect(traySource).toContain("/menu-icons/crop-light.png");
+    expect(traySource).not.toContain("struct MenuIconCanvas");
+  });
+
+  it("refreshes tray menu icons when the system theme changes", () => {
+    expect(libSource).toContain(".on_window_event");
+    expect(libSource).toContain("WindowEvent::ThemeChanged");
+    expect(libSource).toContain("tray::update_menu");
   });
 
   it("marks settings with a platform-aware accelerator", () => {
-    expect(traySource).toContain("CommandOrControl+,");
+    expect(traySource).toContain("settings_menu_accelerator()");
+    expect(traySource).not.toContain("CommandOrControl+,");
   });
 
   it("marks quit with a platform-aware accelerator that exits the app", () => {
-    expect(traySource).toContain("CommandOrControl+Q");
+    expect(traySource).toContain("quit_menu_accelerator()");
+    expect(traySource).not.toContain("CommandOrControl+Q");
     expect(traySource).toContain('"quit" => app.exit(0)');
   });
 

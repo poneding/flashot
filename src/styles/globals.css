@@ -61,6 +61,27 @@
   /* Overlay window: must be transparent + click-pass-when-needed */
   body.overlay { background: transparent !important; overflow: hidden; }
   body.overlay .overlay-crosshair, body.overlay .overlay-crosshair img { cursor: crosshair !important; }
+  body.overlay .quick-shot-flash {
+    position: absolute;
+    box-sizing: border-box;
+    border: 2px solid rgba(255, 255, 255, 0.96);
+    background: rgba(74, 195, 255, 0.2);
+    box-shadow:
+      0 0 0 9999px rgba(255, 255, 255, 0.08),
+      0 0 28px rgba(74, 195, 255, 0.5);
+    animation: quick-shot-flash 420ms ease-out both;
+  }
+  @keyframes quick-shot-flash {
+    0% { opacity: 0; transform: scale(0.995); }
+    18% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.01); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    body.overlay .quick-shot-flash {
+      animation-duration: 220ms;
+      transform: none;
+    }
+  }
   * {
     @apply border-border;
   }

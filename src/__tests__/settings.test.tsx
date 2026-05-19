@@ -12,7 +12,9 @@ vi.mock("@/lib/ipc", () => ({
 }));
 
 const settings: Settings = {
-  hotkey: "CommandOrControl+Shift+A",
+  captureHotkey: "CommandOrControl+Shift+A",
+  fullscreenHotkey: "CommandOrControl+Shift+F",
+  activeWindowHotkey: "CommandOrControl+Shift+W",
   theme: "system",
   launchAtLogin: false,
   lastSaveDir: null,
@@ -32,6 +34,10 @@ describe("ThemeSelect", () => {
 describe("SettingsRoute", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(window.navigator, "platform", {
+      configurable: true,
+      value: "MacIntel",
+    });
     Object.defineProperty(window, "matchMedia", {
       writable: true,
       value: vi.fn().mockImplementation((query: string) => ({
@@ -65,6 +71,30 @@ describe("SettingsRoute", () => {
         launchAtLogin: true,
       });
     });
+  });
+
+  it("shows editable shortcuts for region, screen, and window capture", async () => {
+    render(<SettingsRoute />);
+
+    expect(await screen.findByText("Capture Region")).toBeTruthy();
+    expect(screen.getByText("Capture Screen")).toBeTruthy();
+    expect(screen.getByText("Capture Window")).toBeTruthy();
+
+    expect(screen.getByText("Cmd+Shift+A")).toBeTruthy();
+    expect(screen.getByText("Cmd+Shift+F")).toBeTruthy();
+    expect(screen.getByText("Cmd+Shift+W")).toBeTruthy();
+    expect(screen.queryByText(/CommandOrControl/)).toBeNull();
+  });
+
+  it("uses compact shortcut label icons", async () => {
+    render(<SettingsRoute />);
+
+    const label = (await screen.findByText("Capture Region")).closest("label");
+    const icon = label?.querySelector("svg");
+
+    expect(icon?.getAttribute("width")).toBe("14");
+    expect(icon?.getAttribute("height")).toBe("14");
+    expect(icon?.getAttribute("stroke-width")).toBe("1.55");
   });
 
   it("places the launch at login checkbox directly to the left of its label", async () => {

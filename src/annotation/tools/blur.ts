@@ -2,12 +2,11 @@ import Konva from "konva";
 import { getLayer } from "@/annotation/Stage";
 import { useAnnotation } from "@/annotation/store";
 import type { AnnotationObject } from "@/annotation/types";
+import { canvasRGBA } from "stackblur-canvas";
 
 let startX = 0;
 let startY = 0;
 let currentRect: Konva.Rect | null = null;
-let currentPoints: number[] = [];
-let currentLine: Konva.Line | null = null;
 
 function pixelate(imageData: ImageData, blockSize: number): ImageData {
   const { data, width, height } = imageData;
@@ -69,89 +68,77 @@ function getBackgroundImageData(x: number, y: number, w: number, h: number): Ima
   }
 }
 
-function applyBlur(x: number, y: number, w: number, h: number, mode: "mosaic" | "gaussian", intensity: number): Konva.Image | null {
-  const imageData = getBackgroundImageData(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+function applyBlur(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  mode: "mosaic" | "gaussian" | "solid",
+  intensity: number,
+  solidColor?: string
+): Konva.Image | Konva.Rect | null {
+  const rx = Math.round(x);
+  const ry = Math.round(y);
+  const rw = Math.round(w);
+  const rh = Math.round(h);
+
+  // For solid mode, use Konva.Rect for better performance
+  if (mode === "solid") {
+    const color = solidColor ?? "#000000";
+    return new Konva.Rect({
+      x: rx, y: ry, width: rw, height: rh,
+      fill: color,
+    });
+  }
+
+  // For mosaic and gaussian, process the image
+  const imageData = getBackgroundImageData(rx, ry, rw, rh);
   if (!imageData) return null;
-  const blurred = mode === "mosaic" ? pixelate(imageData, intensity) : gaussianBlur(imageData, intensity);
+
+  let processed: ImageData;
+  if (mode === "mosaic") {
+    processed = pixelate(imageData, intensity);
+  } else {
+    // gaussian mode - use StackBlur
+    processed = stackBlur(imageData, intensity);
+  }
+
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(w); canvas.height = Math.round(h);
+  canvas.width = rw;
+  canvas.height = rh;
   const ctx = canvas.getContext("2d")!;
-  ctx.putImageData(blurred, 0, 0);
-  return new Konva.Image({ x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h), image: canvas });
+  ctx.putImageData(processed, 0, 0);
+  return new Konva.Image({ x: rx, y: ry, width: rw, height: rh, image: canvas });
 }
 
-function gaussianBlur(imageData: ImageData, radius: number): ImageData {
-  const { data, width, height } = imageData;
-  const out = new ImageData(new Uint8ClampedArray(data), width, height);
-  const size = radius * 2 + 1;
-  const kernel: number[] = [];
-  let sum = 0;
-  for (let i = 0; i < size; i++) {
-    const x = i - radius;
-    const val = Math.exp(-(x * x) / (2 * radius * radius));
-    kernel.push(val);
-    sum += val;
-  }
-  for (let i = 0; i < size; i++) kernel[i] /= sum;
+function stackBlur(imageData: ImageData, radius: number): ImageData {
+  const { width, height } = imageData;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+  ctx.putImageData(imageData, 0, 0);
 
-  const temp = new Uint8ClampedArray(data.length);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      let r = 0, g = 0, b = 0, a = 0;
-      for (let k = 0; k < size; k++) {
-        const sx = Math.min(Math.max(x + k - radius, 0), width - 1);
-        const i = (y * width + sx) * 4;
-        r += data[i] * kernel[k]; g += data[i + 1] * kernel[k];
-        b += data[i + 2] * kernel[k]; a += data[i + 3] * kernel[k];
-      }
-      const i = (y * width + x) * 4;
-      temp[i] = r; temp[i + 1] = g; temp[i + 2] = b; temp[i + 3] = a;
-    }
-  }
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      let r = 0, g = 0, b = 0, a = 0;
-      for (let k = 0; k < size; k++) {
-        const sy = Math.min(Math.max(y + k - radius, 0), height - 1);
-        const i = (sy * width + x) * 4;
-        r += temp[i] * kernel[k]; g += temp[i + 1] * kernel[k];
-        b += temp[i + 2] * kernel[k]; a += temp[i + 3] * kernel[k];
-      }
-      const i = (y * width + x) * 4;
-      out.data[i] = r; out.data[i + 1] = g; out.data[i + 2] = b; out.data[i + 3] = a;
-    }
-  }
-  return out;
+  // Use StackBlur library - much faster than custom implementation
+  canvasRGBA(canvas, 0, 0, width, height, radius);
+
+  return ctx.getImageData(0, 0, width, height);
 }
 
 export function onBlurStart(x: number, y: number) {
   const layer = getLayer();
   if (!layer) return;
-  const { activeStyle } = useAnnotation.getState();
   startX = x; startY = y;
 
-  if (activeStyle.blurMethod === "freehand") {
-    currentPoints = [x, y];
-    currentLine = new Konva.Line({
-      points: currentPoints, stroke: "rgba(100,100,255,0.3)", strokeWidth: 20,
-      lineCap: "round", lineJoin: "round", listening: false,
-    });
-    layer.add(currentLine);
-  } else {
-    currentRect = new Konva.Rect({
-      x, y, width: 0, height: 0, stroke: "rgba(100,100,255,0.5)",
-      strokeWidth: 1, dash: [4, 4], listening: false,
-    });
-    layer.add(currentRect);
-  }
+  currentRect = new Konva.Rect({
+    x, y, width: 0, height: 0, stroke: "rgba(100,100,255,0.5)",
+    strokeWidth: 1, dash: [4, 4], listening: false,
+  });
+  layer.add(currentRect);
 }
 
 export function onBlurMove(x: number, y: number) {
-  const { activeStyle } = useAnnotation.getState();
-  if (activeStyle.blurMethod === "freehand" && currentLine) {
-    currentPoints.push(x, y);
-    currentLine.points([...currentPoints]);
-  } else if (currentRect) {
+  if (currentRect) {
     const w = x - startX; const h = y - startY;
     currentRect.x(w < 0 ? x : startX); currentRect.y(h < 0 ? y : startY);
     currentRect.width(Math.abs(w)); currentRect.height(Math.abs(h));
@@ -163,40 +150,19 @@ export function onBlurEnd(x: number, y: number): AnnotationObject | null {
   const layer = getLayer();
   const { activeStyle } = useAnnotation.getState();
   const intensity = activeStyle.blurIntensity ?? 10;
-
-  if (activeStyle.blurMethod === "freehand" && currentLine) {
-    currentLine.destroy(); currentLine = null;
-    if (currentPoints.length < 4) { currentPoints = []; return null; }
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (let i = 0; i < currentPoints.length; i += 2) {
-      minX = Math.min(minX, currentPoints[i]); minY = Math.min(minY, currentPoints[i + 1]);
-      maxX = Math.max(maxX, currentPoints[i]); maxY = Math.max(maxY, currentPoints[i + 1]);
-    }
-    const pad = 10; minX -= pad; minY -= pad; maxX += pad; maxY += pad;
-    const blurImage = applyBlur(minX, minY, maxX - minX, maxY - minY, activeStyle.blurMode ?? "mosaic", intensity);
-    if (!blurImage || !layer) { currentPoints = []; return null; }
-    const id = crypto.randomUUID();
-    blurImage.id(id); blurImage.listening(true); blurImage.draggable(true);
-    layer.add(blurImage); layer.batchDraw();
-    const obj: AnnotationObject = {
-      id, type: "blur", points: [...currentPoints],
-      start: { x: minX, y: minY }, end: { x: maxX, y: maxY },
-      style: { ...activeStyle }, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
-    };
-    currentPoints = [];
-    return obj;
-  }
+  const mode = activeStyle.blurMode ?? "mosaic";
+  const solidColor = activeStyle.blurSolidColor;
 
   if (currentRect) {
     currentRect.destroy(); currentRect = null;
     const w = Math.abs(x - startX); const h = Math.abs(y - startY);
     if (w < 4 || h < 4) return null;
     const rx = Math.min(startX, x); const ry = Math.min(startY, y);
-    const blurImage = applyBlur(rx, ry, w, h, activeStyle.blurMode ?? "mosaic", intensity);
-    if (!blurImage || !layer) return null;
+    const blurNode = applyBlur(rx, ry, w, h, mode, intensity, solidColor);
+    if (!blurNode || !layer) return null;
     const id = crypto.randomUUID();
-    blurImage.id(id); blurImage.listening(true); blurImage.draggable(true);
-    layer.add(blurImage); layer.batchDraw();
+    blurNode.id(id); blurNode.listening(true); blurNode.draggable(true);
+    layer.add(blurNode); layer.batchDraw();
     const obj: AnnotationObject = {
       id, type: "blur", start: { x: rx, y: ry }, end: { x: rx + w, y: ry + h },
       style: { ...activeStyle }, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
@@ -206,7 +172,7 @@ export function onBlurEnd(x: number, y: number): AnnotationObject | null {
   return null;
 }
 
-export function renderBlurObject(obj: AnnotationObject): Konva.Image | null {
+export function renderBlurObject(obj: AnnotationObject): Konva.Image | Konva.Rect | null {
   const start = obj.start ?? { x: 0, y: 0 };
   const end = obj.end ?? { x: 0, y: 0 };
   const transform = obj.transform;
@@ -215,15 +181,16 @@ export function renderBlurObject(obj: AnnotationObject): Konva.Image | null {
   if (w < 1 || h < 1) return null;
   const mode = obj.style.blurMode ?? "mosaic";
   const intensity = obj.style.blurIntensity ?? 10;
-  const img = applyBlur(start.x, start.y, w, h, mode, intensity);
-  if (!img) return null;
-  img.id(obj.id);
-  img.x(start.x + transform.x);
-  img.y(start.y + transform.y);
-  img.scaleX(transform.scaleX);
-  img.scaleY(transform.scaleY);
-  img.rotation(transform.rotation);
-  img.listening(true);
-  img.draggable(true);
-  return img;
+  const solidColor = obj.style.blurSolidColor;
+  const node = applyBlur(start.x, start.y, w, h, mode, intensity, solidColor);
+  if (!node) return null;
+  node.id(obj.id);
+  node.x(start.x + transform.x);
+  node.y(start.y + transform.y);
+  node.scaleX(transform.scaleX);
+  node.scaleY(transform.scaleY);
+  node.rotation(transform.rotation);
+  node.listening(true);
+  node.draggable(true);
+  return node;
 }

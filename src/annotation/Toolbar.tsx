@@ -1,27 +1,26 @@
-import { useRef, useState, useLayoutEffect } from "react";
-import {
-  Pencil,
-  Minus,
-  MoveRight,
-  Square,
-  Circle,
-  Type,
-  Droplets,
-  Highlighter,
-  Eraser,
-  Undo2,
-  Redo2,
-  Copy,
-  Save,
-  X,
-  GripVertical,
-} from "lucide-react";
-import { clampToolbarPosition, computeToolbarPosition } from "@/lib/geometry";
-import { useAnnotation } from "@/annotation/store";
 import { PropertyPanel } from "@/annotation/PropertyPanel";
+import { useAnnotation } from "@/annotation/store";
 import { TooltipBubble } from "@/annotation/Tooltip";
 import type { ToolType } from "@/annotation/types";
+import { clampToolbarPosition, computeToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
+import {
+  Circle,
+  Copy,
+  Droplets,
+  Eraser,
+  GripVertical,
+  Highlighter,
+  MoveUpRight,
+  Pencil,
+  Redo2,
+  Save,
+  Square,
+  Type,
+  Undo2,
+  X
+} from "lucide-react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 const TOOLBAR_SIZE = { width: 0, height: 40 };
 const PROPERTY_PANEL_GAP = 4;
@@ -34,8 +33,8 @@ type ToolDef = {
 
 const TOOLS: ToolDef[] = [
   { id: "draw", icon: <Pencil size={18} />, label: "Pen" },
-  { id: "line", icon: <Minus size={18} />, label: "Line" },
-  { id: "arrow", icon: <MoveRight size={18} />, label: "Arrow" },
+  { id: "line", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="19" x2="19" y2="5" /></svg>, label: "Line" },
+  { id: "arrow", icon: <MoveUpRight size={18} />, label: "Arrow" },
   { id: "rect", icon: <Square size={18} />, label: "Rectangle" },
   { id: "ellipse", icon: <Circle size={18} />, label: "Ellipse" },
   { id: "text", icon: <Type size={18} />, label: "Text" },
@@ -46,8 +45,8 @@ const TOOLS: ToolDef[] = [
 
 function shortcutTitle(action: string, key: string, options: { shift?: boolean } = {}): string {
   const isMac = /Mac|iPhone|iPad|iPod/.test(window.navigator.platform);
-  const modifier = isMac ? "CMD" : "CTRL";
-  return `${action} (${modifier}+${options.shift ? "SHIFT+" : ""}${key})`;
+  const modifier = isMac ? "Cmd" : "Ctrl";
+  return `${action} (${modifier}+${options.shift ? "Shift+" : ""}${key})`;
 }
 
 type Props = {
@@ -227,13 +226,14 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Pro
         <Separator />
 
         {/* Group 3: Output */}
+        <ActionButton icon={<X size={18} />} label="Cancel (ESC)" tone="danger" onClick={onClose} />
+        <ActionButton icon={<Save size={18} />} label={saveTitle} tone="primary" onClick={onSave} />
         <ActionButton
           icon={<Copy size={18} />}
           label={copyTitle}
+          tone="success"
           onClick={onCopy}
         />
-        <ActionButton icon={<Save size={18} />} label={saveTitle} onClick={onSave} />
-        <ActionButton icon={<X size={18} />} label="Cancel (ESC)" onClick={onClose} />
       </div>
     </>
   );
@@ -299,13 +299,22 @@ function ToolButton({ icon, label, active, onClick }: ToolButtonProps) {
 type ActionButtonProps = {
   icon: React.ReactNode;
   label: string;
+  tone?: "default" | "danger" | "primary" | "success";
   disabled?: boolean;
   onClick: () => void;
 };
 
-function ActionButton({ icon, label, disabled, onClick }: ActionButtonProps) {
+const ACTION_COLORS: Record<NonNullable<ActionButtonProps["tone"]>, string> = {
+  default: "rgba(255,255,255,0.7)",
+  danger: "#f87171",
+  primary: "#60a5fa",
+  success: "#4ade80",
+};
+
+function ActionButton({ icon, label, tone = "default", disabled, onClick }: ActionButtonProps) {
   const [tooltipVisible, setTooltipVisible] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const color = disabled ? "rgba(255,255,255,0.45)" : ACTION_COLORS[tone];
 
   return (
     <button
@@ -333,9 +342,9 @@ function ActionButton({ icon, label, disabled, onClick }: ActionButtonProps) {
         border: "none",
         cursor: disabled ? "default" : "pointer",
         background: "transparent",
-        color: disabled ? "rgba(255,255,255,0.45)" : "#fff",
+        color,
         flexShrink: 0,
-        transition: "background 0.1s, opacity 0.1s",
+        transition: "background 0.1s, color 0.1s, opacity 0.1s",
       }}
     >
       {icon}
