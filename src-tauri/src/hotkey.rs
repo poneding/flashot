@@ -53,24 +53,33 @@ impl HotkeyService {
         fullscreen: &str,
         active_window: &str,
     ) -> Result<RegisteredHotkeyIds> {
-        let parsed = [
-            parse_accelerator(capture)?,
-            parse_accelerator(fullscreen)?,
-            parse_accelerator(active_window)?,
-        ];
+        let capture_hk = parse_accelerator(capture)?;
+        let fullscreen_hk = parse_accelerator(fullscreen).ok();
+        let active_window_hk = parse_accelerator(active_window).ok();
+
         let mut cur = self.current.lock();
         for old in cur.drain(..) {
             let _ = self.mgr.unregister(old);
         }
-        for hotkey in parsed {
-            self.mgr.register(hotkey)?;
-            cur.push(hotkey);
+
+        self.mgr.register(capture_hk)?;
+        cur.push(capture_hk);
+
+        if let Some(hk) = fullscreen_hk {
+            if self.mgr.register(hk).is_ok() {
+                cur.push(hk);
+            }
+        }
+        if let Some(hk) = active_window_hk {
+            if self.mgr.register(hk).is_ok() {
+                cur.push(hk);
+            }
         }
 
         let ids = RegisteredHotkeyIds {
-            capture: parsed[0].id(),
-            fullscreen: parsed[1].id(),
-            active_window: parsed[2].id(),
+            capture: capture_hk.id(),
+            fullscreen: fullscreen_hk.map_or(0, |hk| hk.id()),
+            active_window: active_window_hk.map_or(0, |hk| hk.id()),
         };
         store_current_ids(ids);
         Ok(ids)
