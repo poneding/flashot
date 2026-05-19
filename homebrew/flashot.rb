@@ -4,7 +4,7 @@
 cask "flashot" do
   arch arm: "aarch64", intel: "x64"
 
-  version "0.2.2"
+  version "0.2.1"
   sha256 arm:   "REPLACE_WITH_AARCH64_SHA256",
          intel: "REPLACE_WITH_X64_SHA256"
 
