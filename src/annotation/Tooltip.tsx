@@ -1,3 +1,4 @@
+import { FLOATING_LABEL_BACKGROUND } from "@/lib/floating-surface";
 import { useLayoutEffect, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 
@@ -65,7 +66,7 @@ export function TooltipBubble({ label, anchorRef, placement = "top" }: TooltipBu
         ...placementStyle,
         padding: "5px 8px",
         borderRadius: 5,
-        background: "rgba(18,18,18,0.48)",
+        background: FLOATING_LABEL_BACKGROUND,
         color: "#fff",
         fontSize: 11,
         lineHeight: 1,

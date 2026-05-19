@@ -133,7 +133,7 @@ describe("Annotation toolbar", () => {
 
     const tooltip = screen.getByRole("tooltip");
     expect(tooltip.textContent).toBe("Copy (Cmd+C)");
-    expect(tooltip.getAttribute("style")).toContain("background: rgba(18, 18, 18, 0.48)");
+    expect(tooltip.getAttribute("style")).toContain("background: rgba(18, 18, 18, 0.72)");
     expect(copy.style.background).toBe("transparent");
   });
 
@@ -194,7 +194,7 @@ describe("Annotation toolbar", () => {
 
     const tooltip = screen.getByRole("tooltip");
     expect(tooltip.textContent).toBe("Undo (Cmd+Z)");
-    expect(tooltip.getAttribute("style")).toContain("background: rgba(18, 18, 18, 0.48)");
+    expect(tooltip.getAttribute("style")).toContain("background: rgba(18, 18, 18, 0.72)");
     expect(undo.getAttribute("aria-disabled")).toBe("true");
     expect(undo.style.opacity).toBe("");
   });

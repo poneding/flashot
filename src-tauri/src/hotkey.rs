@@ -30,20 +30,25 @@ impl HotkeyService {
         })
     }
 
+    fn register_hotkey(&self, hotkey: HotKey, cur: &mut Vec<HotKey>) -> Result<u32> {
+        self.mgr.register(hotkey)?;
+        let id = hotkey.id();
+        cur.push(hotkey);
+        Ok(id)
+    }
+
     pub fn set(&self, accelerator: &str) -> Result<u32> {
         let parsed = parse_accelerator(accelerator)?;
         let mut cur = self.current.lock();
         for old in cur.drain(..) {
             let _ = self.mgr.unregister(old);
         }
-        self.mgr.register(parsed)?;
-        let id = parsed.id();
+        let id = self.register_hotkey(parsed, &mut cur)?;
         store_current_ids(RegisteredHotkeyIds {
             capture: id,
             fullscreen: 0,
             active_window: 0,
         });
-        cur.push(parsed);
         Ok(id)
     }
 
@@ -53,25 +58,32 @@ impl HotkeyService {
         fullscreen: &str,
         active_window: &str,
     ) -> Result<RegisteredHotkeyIds> {
-        let parsed = [
-            parse_accelerator(capture)?,
-            parse_accelerator(fullscreen)?,
-            parse_accelerator(active_window)?,
-        ];
+        let parsed = parse_configured_hotkeys(capture, fullscreen, active_window)?;
         let mut cur = self.current.lock();
         for old in cur.drain(..) {
             let _ = self.mgr.unregister(old);
         }
-        for hotkey in parsed {
-            self.mgr.register(hotkey)?;
-            cur.push(hotkey);
+
+        let mut ids = RegisteredHotkeyIds {
+            capture: self.register_hotkey(parsed.capture, &mut cur)?,
+            fullscreen: 0,
+            active_window: 0,
+        };
+
+        if let Some(hotkey) = parsed.fullscreen {
+            match self.register_hotkey(hotkey, &mut cur) {
+                Ok(id) => ids.fullscreen = id,
+                Err(e) => tracing::warn!("failed to register fullscreen hotkey: {e}"),
+            }
         }
 
-        let ids = RegisteredHotkeyIds {
-            capture: parsed[0].id(),
-            fullscreen: parsed[1].id(),
-            active_window: parsed[2].id(),
-        };
+        if let Some(hotkey) = parsed.active_window {
+            match self.register_hotkey(hotkey, &mut cur) {
+                Ok(id) => ids.active_window = id,
+                Err(e) => tracing::warn!("failed to register active window hotkey: {e}"),
+            }
+        }
+
         store_current_ids(ids);
         Ok(ids)
     }
@@ -216,6 +228,29 @@ fn capture_cancel_hotkey() -> HotKey {
     HotKey::new(None, Code::Escape)
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ParsedHotkeys {
+    capture: HotKey,
+    fullscreen: Option<HotKey>,
+    active_window: Option<HotKey>,
+}
+
+fn parse_configured_hotkeys(
+    capture: &str,
+    fullscreen: &str,
+    active_window: &str,
+) -> Result<ParsedHotkeys> {
+    Ok(ParsedHotkeys {
+        capture: parse_accelerator(capture)?,
+        fullscreen: parse_optional_accelerator(fullscreen),
+        active_window: parse_optional_accelerator(active_window),
+    })
+}
+
+fn parse_optional_accelerator(accelerator: &str) -> Option<HotKey> {
+    parse_accelerator(accelerator).ok()
+}
+
 /// Parse strings like "Cmd+Shift+X", "CommandOrControl+Shift+X", "Ctrl+Alt+1".
 /// Recognized modifier tokens (case-insensitive): cmd, command, super, meta, ctrl,
 /// control, alt, option, shift, commandorcontrol.
@@ -335,6 +370,24 @@ mod tests {
     #[test]
     fn rejects_missing_key() {
         assert!(parse_accelerator("Ctrl+Shift").is_err());
+    }
+
+    #[test]
+    fn blank_quick_shot_hotkeys_do_not_block_capture_hotkey() {
+        let parsed = parse_configured_hotkeys("F1", " ", " ").unwrap();
+
+        assert_eq!(parsed.capture.id(), id_for("F1"));
+        assert!(parsed.fullscreen.is_none());
+        assert!(parsed.active_window.is_none());
+    }
+
+    #[test]
+    fn invalid_quick_shot_hotkeys_do_not_block_capture_hotkey() {
+        let parsed = parse_configured_hotkeys("Cmd+Shift+A", "not-a-key", "Ctrl+Shift").unwrap();
+
+        assert_eq!(parsed.capture.id(), id_for("Cmd+Shift+A"));
+        assert!(parsed.fullscreen.is_none());
+        assert!(parsed.active_window.is_none());
     }
 
     #[test]

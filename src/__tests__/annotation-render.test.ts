@@ -3,8 +3,8 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import Konva from "konva";
 import { renderEllipseObject } from "@/annotation/tools/ellipse";
 import {
-  HANDWRITING_FONT_FAMILY,
   TEXT_LINE_HEIGHT,
+  resolveSystemFont,
 } from "@/annotation/fonts";
 import { highlightMaskPixelRatio, renderHighlightObject } from "@/annotation/tools/highlight";
 import { lineControlPoint, renderLineObject } from "@/annotation/tools/line";
@@ -162,10 +162,9 @@ describe("annotation object rendering", () => {
       transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
     }));
 
-    expect(node.fontFamily()).toBe(HANDWRITING_FONT_FAMILY);
+    // Legacy "handwriting" normalizes to system-ui
+    expect(node.fontFamily()).toBe(resolveSystemFont());
     expect(node.lineHeight()).toBe(TEXT_LINE_HEIGHT);
-    expect(load).toHaveBeenCalledWith('24px "Excalifont"', "hello 你好");
-    expect(load).toHaveBeenCalledWith('24px "Xiaolai SC"', "hello 你好");
   });
 
   it("renders highlights as a single-alpha mask so self-overlap does not darken", () => {

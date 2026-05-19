@@ -35,10 +35,10 @@ describe("useAnnotation store", () => {
     expect(useAnnotation.getState().activeStyle.lineStyle).toBe("solid");
   });
 
-  it("normalizes legacy handwriting font values in active style memory", () => {
+  it("normalizes legacy handwriting font values to system-ui", () => {
     useAnnotation.getState().setActiveStyle({ fontFamily: "Excalifont" });
 
-    expect(useAnnotation.getState().activeStyle.fontFamily).toBe("handwriting");
+    expect(useAnnotation.getState().activeStyle.fontFamily).toBe("system-ui");
   });
 
   it("adds an object via addObject", () => {

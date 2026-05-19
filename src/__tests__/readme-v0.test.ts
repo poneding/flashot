@@ -18,10 +18,12 @@ describe("README V0 alignment", () => {
     expect(text).not.toContain("CommandOrControl");
   });
 
-  it("keeps Linux out of the V0 install path", () => {
+  it("documents the Linux AppImage install path", () => {
     const text = readme();
 
-    expect(text).not.toContain("### Linux");
+    expect(text).toContain("### Linux");
+    expect(text).toContain("Download the latest `.AppImage`");
+    expect(text).toContain("chmod +x Flashot-*.AppImage");
     expect(text).not.toContain("Wayland support is experimental");
   });
 });

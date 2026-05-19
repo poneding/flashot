@@ -1,17 +1,31 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import {
+  SYSTEM_FONT_VALUE,
+  resolveTextFontFamily,
+  getSystemFontDisplayName,
+  normalizeTextFontFamilyValue,
+} from "@/annotation/fonts";
 
 describe("font assets", () => {
-  it("ships Excalifont as a valid WOFF2 file", () => {
-    const font = readFileSync("public/fonts/Excalifont.woff2");
-
-    expect(font.subarray(0, 4).toString("ascii")).toBe("wOF2");
+  it("resolves system-ui to platform font stack", () => {
+    const resolved = resolveTextFontFamily(SYSTEM_FONT_VALUE);
+    expect(resolved).toContain("sans-serif");
   });
 
-  it("ships a bundled Chinese handwriting webfont", () => {
-    const css = readFileSync("node_modules/cn-fontsource-xiaolai-sc-regular/font.css", "utf8");
+  it("returns a platform-specific system font display name", () => {
+    const name = getSystemFontDisplayName();
+    expect(["SF Pro", "Segoe UI", "System"]).toContain(name);
+  });
 
-    expect(css).toContain("Xiaolai SC");
-    expect(css).toContain(".woff2");
+  it("normalizes legacy handwriting values to system-ui", () => {
+    expect(normalizeTextFontFamilyValue("handwriting")).toBe(SYSTEM_FONT_VALUE);
+    expect(normalizeTextFontFamilyValue("Excalifont")).toBe(SYSTEM_FONT_VALUE);
+    expect(normalizeTextFontFamilyValue("Xiaolai SC")).toBe(SYSTEM_FONT_VALUE);
+    expect(normalizeTextFontFamilyValue(undefined)).toBe(SYSTEM_FONT_VALUE);
+  });
+
+  it("preserves explicit font family values", () => {
+    expect(normalizeTextFontFamilyValue("Arial")).toBe("Arial");
+    expect(normalizeTextFontFamilyValue("PingFang SC")).toBe("PingFang SC");
   });
 });

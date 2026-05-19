@@ -1,5 +1,6 @@
 import { useOverlay } from "@/overlay/state";
 import { cursorForHandle, type HandleId } from "@/lib/geometry";
+import { FLOATING_LABEL_BACKGROUND } from "@/lib/floating-surface";
 
 const COLOR = "#4ED1FF";
 
@@ -45,7 +46,7 @@ export function SelectionBox() {
           position: "absolute",
           left: r.x + 6,
           top: r.y - 22,
-          background: "rgba(0,0,0,0.85)",
+          background: FLOATING_LABEL_BACKGROUND,
           color: COLOR,
           padding: "2px 6px",
           fontSize: 11,

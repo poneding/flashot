@@ -92,7 +92,7 @@ export const DEFAULT_STYLE: AnnotationStyle = {
   arrowStyle: "v-shape",
   fill: "hollow",
   cornerRadius: 0,
-  fontFamily: "handwriting",
+  fontFamily: "system-ui",
   fontSize: 24,
   blurMode: "mosaic",
   blurIntensity: 10,

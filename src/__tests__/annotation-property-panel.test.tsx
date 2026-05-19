@@ -97,7 +97,7 @@ describe("Annotation property panel", () => {
 
     const tooltip = screen.getByRole("tooltip");
     expect(tooltip.textContent).toBe("Stroke width");
-    expect(tooltip.getAttribute("style")).toContain("background: rgba(18, 18, 18, 0.48)");
+    expect(tooltip.getAttribute("style")).toContain("background: rgba(18, 18, 18, 0.72)");
   });
 
   it("positions numeric tooltips from the property panel edge", () => {
@@ -133,12 +133,13 @@ describe("Annotation property panel", () => {
     expect(screen.getByRole("tooltip").textContent).toBe("Line style: Solid");
   });
 
-  it("keeps the handwriting font selected for the normalized text font value", () => {
+  it("normalizes legacy handwriting font to system font in text panel", () => {
     useAnnotation.getState().setActiveStyle({ fontFamily: "handwriting" });
 
     render(<PropertyPanel tool="text" />);
 
-    expect(screen.getByLabelText("Font: Handwriting")).not.toBeNull();
+    // Legacy "handwriting" normalizes to system-ui, displayed as platform name
+    expect(screen.getByLabelText(/^Font:/)).not.toBeNull();
   });
 
   it("uses centered SVG previews for line style dropdown options", () => {
@@ -241,6 +242,46 @@ describe("Annotation property panel", () => {
     expect(picker).not.toBeNull();
     expect(picker!.style.bottom).toBe("calc(100% + 6px)");
     expect(picker!.style.top).toBe("");
+  });
+
+  it("closes the font dropdown when another property popover opens", () => {
+    render(<PropertyPanel tool="text" />);
+
+    fireEvent.click(screen.getByLabelText(/^Font:/));
+    expect(screen.getByPlaceholderText("Search fonts...")).not.toBeNull();
+
+    const customColorButton = screen.getByTitle("Custom color");
+    fireEvent.mouseDown(customColorButton);
+    fireEvent.click(customColorButton);
+
+    expect(screen.queryByPlaceholderText("Search fonts...")).toBeNull();
+    expect(customColorButton.nextElementSibling).not.toBeNull();
+  });
+
+  it("uses a dark overlay scrollbar for the font list", () => {
+    render(<PropertyPanel tool="text" />);
+
+    fireEvent.click(screen.getByLabelText(/^Font:/));
+
+    const fontList = screen.getByTestId("annotation-font-list");
+    expect(fontList.className).toContain("flashot-dark-scrollbar");
+    expect(fontList.style.background).toContain("rgba(30, 30, 30, 0.95)");
+    expect(fontList.style.colorScheme).toBe("dark");
+    expect(fontList.style.scrollbarColor).toContain("rgba(255, 255, 255, 0.32)");
+  });
+
+  it("keeps the property panel height fixed across icon and text controls", () => {
+    const { container, rerender } = render(<PropertyPanel tool="rect" />);
+    const iconPanel = container.querySelector("[data-annotation-property-panel]") as HTMLElement;
+
+    expect(iconPanel.style.height).toBe("34px");
+    expect(iconPanel.style.boxSizing).toBe("border-box");
+
+    rerender(<PropertyPanel tool="text" />);
+    const textPanel = container.querySelector("[data-annotation-property-panel]") as HTMLElement;
+
+    expect(textPanel.style.height).toBe("34px");
+    expect(textPanel.style.boxSizing).toBe("border-box");
   });
 
   it("keeps the hue slider thumb inside the hue track at the red edge", () => {

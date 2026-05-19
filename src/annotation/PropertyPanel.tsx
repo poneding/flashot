@@ -1,6 +1,12 @@
+import {
+  SYSTEM_FONT_VALUE,
+  getSystemFontDisplayName,
+  getSystemFonts,
+  normalizeTextFontFamilyValue,
+  resolveSystemFont,
+} from "@/annotation/fonts";
 import { useAnnotation } from "@/annotation/store";
 import { TooltipBubble } from "@/annotation/Tooltip";
-import { HANDWRITING_FONT_VALUE, getSystemFonts, normalizeTextFontFamilyValue } from "@/annotation/fonts";
 import {
   PRESET_COLORS,
   type AnnotationObject,
@@ -15,17 +21,23 @@ import {
   Square,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
+
+const PROPERTY_PANEL_HEIGHT = 34;
+const PROPERTY_CONTROL_HEIGHT = 22;
+const OVERLAY_SURFACE_BACKGROUND = "rgba(30, 30, 30, 0.95)";
 
 const panelStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 6,
+  height: PROPERTY_PANEL_HEIGHT,
   padding: "6px 10px",
+  boxSizing: "border-box",
   borderRadius: 8,
-  background: "rgba(30, 30, 30, 0.85)",
+  background: OVERLAY_SURFACE_BACKGROUND,
   backdropFilter: "blur(12px)",
   boxShadow: "0 4px 24px rgba(0,0,0,0.3)",
   border: "1px solid rgba(255,255,255,0.1)",
@@ -40,6 +52,8 @@ const btnBase: CSSProperties = {
   color: "rgba(255,255,255,0.6)",
   cursor: "pointer",
   borderRadius: 5,
+  height: PROPERTY_CONTROL_HEIGHT,
+  boxSizing: "border-box",
   padding: "3px 6px",
   fontSize: 12,
   lineHeight: 1,
@@ -53,6 +67,29 @@ const btnActive: CSSProperties = {
   color: "rgba(255,255,255,1)",
   background: "rgba(255,255,255,0.15)",
 };
+
+const darkScrollbarStyle: CSSProperties = {
+  scrollbarWidth: "thin",
+  scrollbarColor: "rgba(255, 255, 255, 0.32) rgba(255, 255, 255, 0.08)",
+  colorScheme: "dark",
+  background: OVERLAY_SURFACE_BACKGROUND,
+  borderRadius: 4,
+};
+
+function useDismissOnOutsideMouseDown<T extends HTMLElement>(
+  open: boolean,
+  ref: RefObject<T>,
+  onDismiss: () => void,
+) {
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onDismiss();
+    };
+    document.addEventListener("mousedown", close, true);
+    return () => document.removeEventListener("mousedown", close, true);
+  }, [open, ref, onDismiss]);
+}
 
 // ─── Separator ────────────────────────────────────────────────────────────────
 
@@ -167,15 +204,6 @@ function GradientPicker({
   const [inputError, setInputError] = useState(false);
   const squareRef = useRef<HTMLDivElement>(null);
   const hueRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const close = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [onClose]);
 
   useEffect(() => {
     // Update HSV when value changes externally
@@ -231,7 +259,6 @@ function GradientPicker({
 
   return (
     <div
-      ref={containerRef}
       onMouseDown={(e) => e.stopPropagation()}
       style={{
         position: "absolute",
@@ -241,7 +268,7 @@ function GradientPicker({
         left: 0,
         padding: 8,
         borderRadius: 8,
-        background: "rgba(30, 30, 30, 0.95)",
+        background: OVERLAY_SURFACE_BACKGROUND,
         border: "1px solid rgba(255,255,255,0.15)",
         boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
         zIndex: 10010,
@@ -348,6 +375,8 @@ function ColorPicker({
   const [flipUp, setFlipUp] = useState(false);
   const customColorRef = useRef<HTMLDivElement>(null);
   const isPreset = PRESET_COLORS.some((c) => c.toLowerCase() === value.toLowerCase());
+  useDismissOnOutsideMouseDown(showGradient, customColorRef, () => setShowGradient(false));
+
   const updatePickerPlacement = () => {
     const rect = customColorRef.current?.getBoundingClientRect();
     if (!rect) {
@@ -738,14 +767,7 @@ function DropdownSelect<T extends string>({
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
+  useDismissOnOutsideMouseDown(open, ref, () => setOpen(false));
 
   const handleOpen = () => {
     if (!open && ref.current) {
@@ -786,7 +808,7 @@ function DropdownSelect<T extends string>({
               : { top: "calc(100% + 4px)" }),
             left: 0,
             minWidth: 36,
-            background: "rgba(30, 30, 30, 0.95)",
+            background: OVERLAY_SURFACE_BACKGROUND,
             border: "1px solid rgba(255,255,255,0.15)",
             borderRadius: 6,
             padding: 4,
@@ -1019,6 +1041,11 @@ function EllipseSection({
   );
 }
 
+function getFontStyleForOption(fontValue: string): CSSProperties {
+  if (fontValue === SYSTEM_FONT_VALUE) return { fontFamily: resolveSystemFont() };
+  return { fontFamily: `"${fontValue}", sans-serif` };
+}
+
 function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [fonts, setFonts] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
@@ -1033,14 +1060,7 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
     getSystemFonts().then(setFonts);
   }, []);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
+  useDismissOnOutsideMouseDown(open, ref, () => setOpen(false));
 
   useEffect(() => {
     if (open && searchInputRef.current) {
@@ -1059,15 +1079,16 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
     }
   };
 
+  const systemFontName = getSystemFontDisplayName();
   const allOptions = [
-    { value: HANDWRITING_FONT_VALUE, label: "Handwriting" },
+    { value: SYSTEM_FONT_VALUE, label: systemFontName },
     ...fonts.map((f) => ({ value: f, label: f })),
   ];
 
   const filteredOptions = searchQuery
     ? allOptions.filter((opt) =>
-        opt.label.toLowerCase().includes(searchQuery.toLowerCase())
-      )
+      opt.label.toLowerCase().includes(searchQuery.toLowerCase())
+    )
     : allOptions;
 
   const selectedLabel = allOptions.find((o) => o.value === value)?.label ?? value;
@@ -1084,7 +1105,7 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
         style={{ ...btnBase, gap: 4 }}
         onClick={handleOpen}
       >
-        <span style={{ color: "#fff", maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}>
+        <span style={{ color: "#fff", maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11, ...getFontStyleForOption(value) }}>
           {selectedLabel}
         </span>
         <ChevronDown size={12} style={{ opacity: 0.6 }} />
@@ -1096,8 +1117,10 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
             position: "absolute",
             ...(flipUp ? { bottom: "calc(100% + 4px)" } : { top: "calc(100% + 4px)" }),
             left: 0,
-            minWidth: 140,
-            background: "rgba(30, 30, 30, 0.95)",
+            width: "max-content",
+            minWidth: 160,
+            maxWidth: 240,
+            background: OVERLAY_SURFACE_BACKGROUND,
             border: "1px solid rgba(255,255,255,0.15)",
             borderRadius: 6,
             padding: 4,
@@ -1129,12 +1152,17 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
               color: "#fff",
               fontSize: 11,
               outline: "none",
+              boxSizing: "border-box",
             }}
           />
           <div
+            data-testid="annotation-font-list"
+            className="flashot-dark-scrollbar"
             style={{
               maxHeight: 200,
               overflowY: "auto",
+              overflowX: "hidden",
+              ...darkScrollbarStyle,
             }}
           >
             {filteredOptions.length === 0 ? (
@@ -1153,11 +1181,17 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
                     textAlign: "left" as const,
                     justifyContent: "flex-start",
                     padding: "4px 8px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    ...getFontStyleForOption(opt.value),
                     ...(opt.value === value ? { background: "rgba(255,255,255,0.15)", color: "#fff" } : {}),
                   }}
                 >
-                  {opt.label}
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>{opt.label}</span>
                 </button>
               ))
             )}

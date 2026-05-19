@@ -61,6 +61,32 @@
   /* Overlay window: must be transparent + click-pass-when-needed */
   body.overlay { background: transparent !important; overflow: hidden; }
   body.overlay .overlay-crosshair, body.overlay .overlay-crosshair img { cursor: crosshair !important; }
+  .flashot-dark-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.32) rgba(255, 255, 255, 0.08);
+    color-scheme: dark;
+    background: rgba(30, 30, 30, 0.95);
+  }
+  .flashot-dark-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+    background: rgba(30, 30, 30, 0.95);
+  }
+  .flashot-dark-scrollbar::-webkit-scrollbar-track {
+    background: rgba(30, 30, 30, 0.95);
+    border-radius: 999px;
+  }
+  .flashot-dark-scrollbar::-webkit-scrollbar-corner {
+    background: rgba(30, 30, 30, 0.95);
+  }
+  .flashot-dark-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.28);
+    border: 2px solid rgba(30, 30, 30, 0.95);
+    border-radius: 999px;
+  }
+  .flashot-dark-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.42);
+  }
   body.overlay .quick-shot-flash {
     position: absolute;
     box-sizing: border-box;
