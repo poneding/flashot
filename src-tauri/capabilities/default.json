@@ -5,6 +5,7 @@
   "windows": ["main", "overlay-*", "settings", "about", "updater"],
   "permissions": [
     "core:default",
+    "core:window:allow-set-size",
     "shell:default",
     "updater:default",
     "process:default"
