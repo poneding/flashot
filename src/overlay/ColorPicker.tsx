@@ -172,7 +172,7 @@ function formatColorCss(c: { r: number; g: number; b: number }): string {
   return `rgb(${c.r}, ${c.g}, ${c.b})`;
 }
 
-function formatColorText(c: { r: number; g: number; b: number }, format: "hex" | "rgb"): string {
+export function formatColorText(c: { r: number; g: number; b: number }, format: "hex" | "rgb"): string {
   if (format === "hex") {
     return `#${c.r.toString(16).padStart(2, "0").toUpperCase()}${c.g.toString(16).padStart(2, "0").toUpperCase()}${c.b.toString(16).padStart(2, "0").toUpperCase()}`;
   }
