@@ -49,3 +49,12 @@ export type Settings = {
   launchAtLogin: boolean;
   lastSaveDir: string | null;
 };
+
+export type PinInfo = {
+  id: string;
+  imagePath: string;
+  windowLabel: string;
+  originalWidth: number;
+  originalHeight: number;
+  currentScale: number;
+};
