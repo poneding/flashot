@@ -1,10 +1,10 @@
 import { computeToolbarPosition } from "@/lib/geometry";
-import { cancelCapture, cropAndCopy, cropAndSave } from "@/lib/ipc";
+import { cancelCapture, cropAndCopy, cropAndSave, pinImage } from "@/lib/ipc";
 import { useOverlay } from "@/overlay/state";
-import { CopyIcon, SaveIcon, XIcon, type LucideIcon } from "lucide-react";
+import { CopyIcon, SaveIcon, XIcon, PinIcon, type LucideIcon } from "lucide-react";
 import { useState, type CSSProperties } from "react";
 
-const TB = { width: 116, height: 40 };
+const TB = { width: 148, height: 40 };
 
 type ToolbarButtonProps = {
   label: string;
@@ -81,6 +81,15 @@ export function Toolbar() {
       setBusy(false);
     }
   };
+  const onPin = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await pinImage(monitorId, sel);
+    } finally {
+      setBusy(false);
+    }
+  };
   const onClose = async () => {
     await cancelCapture();
   };
@@ -118,6 +127,7 @@ export function Toolbar() {
         variant="primary"
       />
       <ToolbarButton label="Save As" icon={SaveIcon} onClick={onSave} disabled={busy} />
+      <ToolbarButton label="Pin" icon={PinIcon} onClick={onPin} disabled={busy} />
       <ToolbarButton label="Close" icon={XIcon} onClick={onClose} />
     </div>
   );
