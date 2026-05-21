@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct PinEntry {
     pub id: String,
     pub image_path: PathBuf,
@@ -15,10 +16,12 @@ pub struct PinEntry {
 
 #[derive(Default)]
 pub struct PinManager {
+    #[allow(dead_code)]
     inner: Mutex<Inner>,
 }
 
 #[derive(Default)]
+#[allow(dead_code)]
 struct Inner {
     pins: HashMap<String, PinEntry>,
 }

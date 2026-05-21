@@ -4,6 +4,7 @@ pub mod commands;
 pub mod hotkey;
 pub mod overlay_window;
 pub mod permission;
+pub mod pin_mgr;
 pub mod saver;
 pub mod settings_store;
 pub mod tray;
