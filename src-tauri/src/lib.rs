@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Listener, Manager, WindowEvent};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use pin_mgr::PinManager;
 use window_mgr::WindowMgr;
 
 static FRAME_REVISION_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -62,6 +63,9 @@ pub fn run() {
             // Create shared WindowMgr state
             let mgr = WindowMgr::new();
             app.manage(mgr.clone());
+
+            // Create shared PinManager state for pinned screenshot windows
+            app.manage(PinManager::new());
 
             let settings = settings_store::load().unwrap_or_default();
 
