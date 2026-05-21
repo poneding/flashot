@@ -265,9 +265,24 @@ pub async fn pin_image(
     let outer_width = rect.width as f64 + 2.0 * PIN_SHADOW_PADDING;
     let outer_height = rect.height as f64 + 2.0 * PIN_SHADOW_PADDING;
 
+    // Position the pin window so the *image* lands exactly where the
+    // user's selection was on screen. `rect` is in monitor-local logical
+    // pixels; the window includes a PIN_SHADOW_PADDING ring on every side
+    // for the glow, so we offset both axes by -PADDING. We also need the
+    // monitor's global origin so multi-display setups land on the right
+    // screen.
+    let monitor_origin = crate::capture::enumerate_monitors()
+        .ok()
+        .and_then(|ms| ms.into_iter().find(|m| m.id == monitor_id))
+        .map(|m| (m.rect.x as f64, m.rect.y as f64))
+        .unwrap_or((0.0, 0.0));
+    let pin_x = monitor_origin.0 + rect.x as f64 - PIN_SHADOW_PADDING;
+    let pin_y = monitor_origin.1 + rect.y as f64 - PIN_SHADOW_PADDING;
+
     tauri::WebviewWindowBuilder::new(&app, &window_label, url)
         .title("")
         .inner_size(outer_width, outer_height)
+        .position(pin_x, pin_y)
         .decorations(false)
         .always_on_top(true)
         .transparent(true)
