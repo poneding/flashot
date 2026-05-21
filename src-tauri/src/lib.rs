@@ -42,6 +42,23 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
+            if let WindowEvent::Destroyed = event {
+                let label = window.label();
+                if let Some(pin_id) = label.strip_prefix("pin-") {
+                    if let Some(pin_mgr) = window.app_handle().try_state::<Arc<PinManager>>() {
+                        if let Some(entry) = pin_mgr.remove_pin(pin_id) {
+                            if let Err(e) = std::fs::remove_file(&entry.image_path) {
+                                tracing::warn!(
+                                    "failed to remove pin PNG {:?}: {e}",
+                                    entry.image_path
+                                );
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+
             if !matches!(event, WindowEvent::ThemeChanged(_)) {
                 return;
             }
@@ -66,6 +83,14 @@ pub fn run() {
 
             // Create shared PinManager state for pinned screenshot windows
             app.manage(PinManager::new());
+
+            // Clean up any stale pin PNGs from previous sessions (PinManager always
+            // starts empty, so any leftover files are orphaned).
+            if let Ok(cache_dir) = app.path().app_cache_dir() {
+                if let Err(e) = remove_stale_pin_files(&cache_dir) {
+                    tracing::warn!("failed to clean stale pin files: {e}");
+                }
+            }
 
             let settings = settings_store::load().unwrap_or_default();
 
@@ -719,6 +744,24 @@ fn remove_stale_frame_files(cache_dir: &std::path::Path) -> Result<()> {
         let file_name = file_name.to_string_lossy();
         if file_name.starts_with("frame_") && file_name.ends_with(".png") {
             std::fs::remove_file(entry.path()).context("Failed to remove stale frame file")?;
+        }
+    }
+
+    Ok(())
+}
+
+fn remove_stale_pin_files(cache_dir: &std::path::Path) -> Result<()> {
+    let pins_dir = cache_dir.join("pins");
+    if !pins_dir.exists() {
+        return Ok(());
+    }
+
+    for entry in std::fs::read_dir(&pins_dir).context("Failed to read pins cache directory")? {
+        let entry = entry.context("Failed to read pins cache directory entry")?;
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if file_name.starts_with("pin-") && file_name.ends_with(".png") {
+            std::fs::remove_file(entry.path()).context("Failed to remove stale pin file")?;
         }
     }
 

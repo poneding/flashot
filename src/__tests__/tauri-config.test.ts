@@ -36,6 +36,7 @@ describe("Tauri asset protocol", () => {
 
     expect(config.app?.security?.assetProtocol?.enable).toBe(true);
     expect(config.app?.security?.assetProtocol?.scope).toContain("$APPCACHE/frame_*.png");
+    expect(config.app?.security?.assetProtocol?.scope).toContain("$APPCACHE/pins/pin-*.png");
   });
 
   it("keeps the Rust asset protocol feature enabled for direct cargo builds", () => {
