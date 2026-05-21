@@ -209,6 +209,8 @@ pub fn run() {
             commands::quit_app,
             commands::list_system_fonts,
             commands::pin_image,
+            commands::close_pin,
+            commands::set_pin_scale,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -10,7 +10,6 @@ pub struct PinEntry {
     pub window_label: String,
     pub original_width: u32,
     pub original_height: u32,
-    #[allow(dead_code)]
     pub current_scale: f64,
 }
 
@@ -37,7 +36,6 @@ impl PinManager {
         self.inner.lock().pins.get(id).cloned()
     }
 
-    #[allow(dead_code)]
     pub fn remove_pin(&self, id: &str) -> Option<PinEntry> {
         self.inner.lock().pins.remove(id)
     }

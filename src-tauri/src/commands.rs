@@ -281,6 +281,49 @@ pub async fn pin_image(
     Ok(pin_id)
 }
 
+#[tauri::command]
+pub async fn close_pin(
+    pin_id: String,
+    app: AppHandle,
+    pin_mgr: State<'_, Arc<PinManager>>,
+) -> Result<(), String> {
+    let entry = pin_mgr.remove_pin(&pin_id).ok_or("pin not found")?;
+
+    if let Some(window) = app.get_webview_window(&entry.window_label) {
+        window.close().map_err(|e| e.to_string())?;
+    }
+
+    let _ = std::fs::remove_file(&entry.image_path);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_pin_scale(
+    pin_id: String,
+    scale: f64,
+    app: AppHandle,
+    pin_mgr: State<'_, Arc<PinManager>>,
+) -> Result<(), String> {
+    let mut entry = pin_mgr.get_pin(&pin_id).ok_or("pin not found")?;
+    let clamped_scale = scale.clamp(0.5, 3.0);
+
+    let new_width = entry.original_width as f64 * clamped_scale;
+    let new_height = entry.original_height as f64 * clamped_scale;
+
+    if let Some(window) = app.get_webview_window(&entry.window_label) {
+        window
+            .set_size(tauri::Size::Logical(tauri::LogicalSize {
+                width: new_width,
+                height: new_height,
+            }))
+            .map_err(|e| e.to_string())?;
+    }
+
+    entry.current_scale = clamped_scale;
+    pin_mgr.add_pin(entry);
+    Ok(())
+}
+
 fn save_pin_png(
     rgba: &[u8],
     width: u32,
