@@ -42,6 +42,15 @@ export async function endTextInputSession(): Promise<void> {
 export async function listSystemFonts(): Promise<string[]> {
   return await invoke<string[]>("list_system_fonts");
 }
+export async function pinImage(monitorId: number, rect: Rect): Promise<string> {
+  return await invoke<string>("pin_image", { monitorId, rect });
+}
+export async function closePin(pinId: string): Promise<void> {
+  await invoke("close_pin", { pinId });
+}
+export async function setPinScale(pinId: string, scale: number): Promise<void> {
+  await invoke("set_pin_scale", { pinId, scale });
+}
 
 export function onCaptureStart(cb: (p: CaptureStartPayload) => void): Promise<UnlistenFn> {
   return getCurrentWebviewWindow().listen<CaptureStartPayload>(
