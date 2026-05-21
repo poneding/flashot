@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useOverlay } from "@/overlay/state";
 import {
   cancelCapture,
@@ -101,6 +102,34 @@ export function OverlayRoute() {
       if (active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")) return;
 
       if (e.key === "Escape") { e.preventDefault(); cancelCapture(); return; }
+
+      // Color picker: Tab toggles format, C copies color (active in hover or committed)
+      if (e.key === "Tab" && (mode === "hover" || mode === "committed")) {
+        e.preventDefault();
+        useOverlay.getState().toggleColorFormat();
+        return;
+      }
+      if (
+        e.key === "c" &&
+        (mode === "hover" || mode === "committed") &&
+        !e.metaKey &&
+        !e.ctrlKey
+      ) {
+        const { colorFormat: fmt, currentColor, setColorCopied } = useOverlay.getState();
+        if (!currentColor) return;
+        const colorText =
+          fmt === "hex"
+            ? `#${currentColor.r.toString(16).padStart(2, "0").toUpperCase()}${currentColor.g
+                .toString(16)
+                .padStart(2, "0")
+                .toUpperCase()}${currentColor.b.toString(16).padStart(2, "0").toUpperCase()}`
+            : `rgb(${currentColor.r}, ${currentColor.g}, ${currentColor.b})`;
+        void writeText(colorText).then(() => {
+          setColorCopied(true);
+          window.setTimeout(() => setColorCopied(false), 1500);
+        });
+        return;
+      }
 
       if (mode === "committed") {
         const { undo, redo, deleteObject, selectedObjectId } = useAnnotation.getState();
