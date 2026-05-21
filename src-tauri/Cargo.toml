@@ -58,6 +58,7 @@ arboard = { version = "3", features = ["wayland-data-control"] }
 rfd = "0.14"
 image = { version = "0.25", default-features = false, features = ["png"] }
 fontdb = "0.23.0"
+uuid = { version = "1.11", features = ["v4"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 xcb = "1.5"
