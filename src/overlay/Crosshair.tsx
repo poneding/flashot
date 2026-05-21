@@ -1,6 +1,7 @@
 import { useOverlay } from "@/overlay/state";
+import { SELECTION_COLOR } from "@/lib/colors";
 
-const COLOR = "#4ED1FF";
+const COLOR = SELECTION_COLOR;
 const LINE_LENGTH = 20; // 总长度
 const LINE_THICKNESS = 1.5;
 const CIRCLE_SIZE = 6;

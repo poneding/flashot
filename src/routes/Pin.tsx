@@ -1,11 +1,22 @@
 import { closePin, setPinScale } from "@/lib/ipc";
+import { SELECTION_COLOR } from "@/lib/colors";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { appCacheDir } from "@tauri-apps/api/path";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useEffect, useState, type CSSProperties } from "react";
 
-const PIN_SHADOW_COLOR = "#4ED1FF";
+// Soft outer glow around the pinned image. The window itself reserves
+// PIN_SHADOW_PADDING px on each side (matched in commands.rs) so these
+// shadows have room to render without clipping.
 const PIN_SHADOW_PADDING = 14;
+const PIN_GLOW = [
+  // Tight rim: subtle definition right at the image edge.
+  `0 0 1px ${SELECTION_COLOR}80`,
+  // Mid halo: most of the visible color.
+  `0 0 8px ${SELECTION_COLOR}55`,
+  // Outer bloom: feathered fall-off into the transparent padding.
+  `0 0 18px ${SELECTION_COLOR}33`,
+].join(", ");
 
 function parsePinId(): string | null {
   const h = window.location.hash || "";
@@ -108,7 +119,7 @@ export function PinRoute() {
     objectFit: "contain",
     userSelect: "none",
     pointerEvents: "none",
-    boxShadow: `0 0 ${PIN_SHADOW_PADDING}px ${PIN_SHADOW_COLOR}66`,
+    boxShadow: PIN_GLOW,
   };
 
   if (!id || !imageUrl) return null;
