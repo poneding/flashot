@@ -22,6 +22,7 @@ import { DetectHighlight } from "@/overlay/DetectHighlight";
 import { SelectionBox } from "@/overlay/SelectionBox";
 import { AnnotationStage } from "@/annotation/Stage";
 import { Toolbar as AnnotationToolbar } from "@/annotation/Toolbar";
+import { ColorPicker } from "@/overlay/ColorPicker";
 import { useAnnotation } from "@/annotation/store";
 import { exportAnnotationLayer } from "@/annotation/export";
 
@@ -314,6 +315,7 @@ export function OverlayRoute() {
       <DimMask />
       <DetectHighlight />
       <SelectionBox />
+      <ColorPicker />
       {mode === "committed" && selection && monitorRect && monitorId != null && (
         <>
           <AnnotationStage selection={selection} scaleFactor={scaleFactor} interacting={!!selectionInteraction} />
