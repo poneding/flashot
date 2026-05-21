@@ -1,4 +1,5 @@
 import { useOverlay } from "@/overlay/state";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 const MAGNIFIER_SIZE = 120;
@@ -8,6 +9,22 @@ const PIXEL_BLOCK_SIZE = MAGNIFIER_SIZE / PIXEL_GRID_SIZE; // 8px per pixel
 const PANEL_WIDTH = 136;
 const PANEL_HEIGHT = 170;
 const OFFSET = 20;
+
+const ASSET_LOCALHOST_PREFIX = "asset://localhost/";
+
+function decodeAssetPath(path: string) {
+  if (!path.includes("%")) return path;
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
+}
+
+function frameSourceFromUrl(url: string) {
+  if (!url.startsWith(ASSET_LOCALHOST_PREFIX)) return url;
+  return convertFileSrc(decodeAssetPath(url.slice(ASSET_LOCALHOST_PREFIX.length)));
+}
 
 export function ColorPicker() {
   const mode = useOverlay((s) => s.mode);
@@ -23,15 +40,19 @@ export function ColorPicker() {
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const magnifierCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [frameReady, setFrameReady] = useState(false);
 
   // Load frozen frame into offscreen canvas
   useEffect(() => {
     if (!frameUrl) {
       offscreenCanvasRef.current = null;
+      setFrameReady(false);
       return;
     }
 
+    setFrameReady(false);
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.onload = () => {
       const canvas = document.createElement("canvas");
       canvas.width = img.width;
@@ -40,14 +61,18 @@ export function ColorPicker() {
       if (ctx) {
         ctx.drawImage(img, 0, 0);
         offscreenCanvasRef.current = canvas;
+        setFrameReady(true);
       }
     };
-    img.src = frameUrl;
+    img.onerror = (err) => {
+      console.warn("[ColorPicker] failed to load frame", err);
+    };
+    img.src = frameSourceFromUrl(frameUrl);
   }, [frameUrl]);
 
   // Read pixels and update magnifier on cursor move
   useEffect(() => {
-    if (!cursor || !offscreenCanvasRef.current || !magnifierCanvasRef.current) return;
+    if (!cursor || !frameReady || !offscreenCanvasRef.current || !magnifierCanvasRef.current) return;
 
     const offscreenCtx = offscreenCanvasRef.current.getContext("2d", { willReadFrequently: true });
     const magnifierCtx = magnifierCanvasRef.current.getContext("2d");
@@ -122,7 +147,7 @@ export function ColorPicker() {
       g: pixels[centerIdx + 1],
       b: pixels[centerIdx + 2],
     });
-  }, [cursor, scaleFactor, setCurrentColor]);
+  }, [cursor, scaleFactor, setCurrentColor, frameReady]);
 
   // Position with edge flip
   useEffect(() => {

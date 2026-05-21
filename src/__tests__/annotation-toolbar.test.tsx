@@ -25,6 +25,7 @@ function renderToolbar() {
       monitorRect={monitorRect}
       onCopy={vi.fn()}
       onSave={vi.fn()}
+      onPin={vi.fn()}
       onClose={vi.fn()}
     />
   );
@@ -117,6 +118,7 @@ describe("Annotation toolbar", () => {
       "Eraser",
       "Undo (Cmd+Z)",
       "Redo (Cmd+Shift+Z)",
+      "Pin",
       "Copy (Cmd+C)",
       "Save (Cmd+S)",
       "Cancel (ESC)",

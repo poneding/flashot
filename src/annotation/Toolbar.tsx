@@ -13,6 +13,7 @@ import {
   Highlighter,
   MoveUpRight,
   Pencil,
+  Pin,
   Redo2,
   Save,
   Square,
@@ -54,10 +55,11 @@ type Props = {
   monitorRect: Rect;
   onCopy: () => void;
   onSave: () => void;
+  onPin: () => void;
   onClose: () => void;
 };
 
-export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Props) {
+export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose }: Props) {
   const { activeTool, setActiveTool, canUndo, canRedo, undo, redo } = useAnnotation();
   const objects = useAnnotation((s) => s.objects);
   const selectedObjectId = useAnnotation((s) => s.selectedObjectId);
@@ -227,6 +229,7 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onClose }: Pro
 
         {/* Group 3: Output */}
         <ActionButton icon={<X size={18} />} label="Cancel (ESC)" tone="danger" onClick={onClose} />
+        <ActionButton icon={<Pin size={18} />} label="Pin" onClick={onPin} />
         <ActionButton icon={<Save size={18} />} label={saveTitle} tone="primary" onClick={onSave} />
         <ActionButton
           icon={<Copy size={18} />}

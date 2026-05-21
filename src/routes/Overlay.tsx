@@ -11,6 +11,7 @@ import {
   onQuickShotFlash,
   onSelectionClaimed,
   onSelectionReleased,
+  pinImage,
   releaseSelection,
 } from "@/lib/ipc";
 import type { Rect } from "@/lib/types";
@@ -209,6 +210,11 @@ export function OverlayRoute() {
     await cropAndSave(monitorId, selection, annotationPng ?? undefined);
   };
 
+  const handlePin = async () => {
+    if (monitorId == null || !selection) return;
+    await pinImage(monitorId, selection);
+  };
+
   const handleClose = () => {
     cancelCapture();
   };
@@ -324,6 +330,7 @@ export function OverlayRoute() {
             monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
             onCopy={handleCopy}
             onSave={handleSave}
+            onPin={handlePin}
             onClose={handleClose}
           />
         </>
