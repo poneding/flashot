@@ -46,6 +46,7 @@ impl WindowMgr {
             width: f.width,
             height: f.height,
             scale_factor: f.scale_factor,
+            icc_profile: f.icc_profile.clone(),
         })
     }
 
@@ -110,7 +111,14 @@ mod tests {
     use crate::types::FrozenFrame;
 
     fn fake_frame(id: u32) -> FrozenFrame {
-        FrozenFrame { monitor_id: id, rgba: vec![0; 4], width: 1, height: 1, scale_factor: 1.0 }
+        FrozenFrame {
+            monitor_id: id,
+            rgba: vec![0; 4],
+            width: 1,
+            height: 1,
+            scale_factor: 1.0,
+            icc_profile: None,
+        }
     }
 
     #[test]

@@ -730,11 +730,16 @@ fn encode_frame_as_png(frame: &types::FrozenFrame) -> Result<Vec<u8>> {
     };
 
     let mut png = Vec::new();
-    let encoder = PngEncoder::new_with_quality(
+    let mut encoder = PngEncoder::new_with_quality(
         &mut png,
         CompressionType::Uncompressed,
         FilterType::NoFilter,
     );
+    if let Some(profile) = frame.icc_profile.as_ref() {
+        encoder
+            .set_icc_profile(profile.clone())
+            .map_err(|err| anyhow::anyhow!("Failed to attach frame ICC profile: {err}"))?;
+    }
     encoder
         .write_image(
             &frame.rgba,
@@ -1131,6 +1136,7 @@ mod tests {
                 width: 1,
                 height: 1,
                 scale_factor: 1.0,
+                icc_profile: None,
             },
             types::FrozenFrame {
                 monitor_id: 1,
@@ -1138,6 +1144,7 @@ mod tests {
                 width: 1,
                 height: 1,
                 scale_factor: 1.0,
+                icc_profile: None,
             },
         ];
         let foreground = types::Rect {
@@ -1185,6 +1192,7 @@ mod tests {
                 width: 1440,
                 height: 900,
                 scale_factor: 2.0,
+                icc_profile: None,
             },
             types::FrozenFrame {
                 monitor_id: 2,
@@ -1192,6 +1200,7 @@ mod tests {
                 width: 1920,
                 height: 1080,
                 scale_factor: 1.0,
+                icc_profile: None,
             },
         ];
         let cursor_display = PhysicalDisplay {
@@ -1227,6 +1236,7 @@ mod tests {
             width: 1,
             height: 1,
             scale_factor: 1.0,
+            icc_profile: None,
         }];
 
         let frame = active_display_frame(&[], &frames, None, None)
@@ -1266,6 +1276,7 @@ mod tests {
                 width: 1,
                 height: 1,
                 scale_factor: 1.0,
+                icc_profile: None,
             },
             types::FrozenFrame {
                 monitor_id: 1,
@@ -1273,6 +1284,7 @@ mod tests {
                 width: 1,
                 height: 1,
                 scale_factor: 1.0,
+                icc_profile: None,
             },
         ];
         let foreground = types::Rect {
@@ -1376,6 +1388,7 @@ mod tests {
             width: 2,
             height: 1,
             scale_factor: 1.0,
+            icc_profile: None,
         };
 
         let png = encode_frame_as_png(&frame).expect("png should encode");
@@ -1386,5 +1399,28 @@ mod tests {
             .to_rgba8();
         assert_eq!(decoded.dimensions(), (2, 1));
         assert_eq!(decoded.into_raw(), frame.rgba);
+    }
+
+    #[test]
+    fn overlay_frame_png_preserves_icc_profile() {
+        use image::{codecs::png::PngDecoder, ImageDecoder};
+
+        let profile = b"test-display-profile".to_vec();
+        let frame = types::FrozenFrame {
+            monitor_id: 42,
+            rgba: vec![255, 0, 0, 255],
+            width: 1,
+            height: 1,
+            scale_factor: 1.0,
+            icc_profile: Some(profile.clone()),
+        };
+
+        let png = encode_frame_as_png(&frame).expect("png should encode");
+        let mut decoder = PngDecoder::new(std::io::Cursor::new(png)).expect("png should decode");
+
+        assert_eq!(
+            decoder.icc_profile().expect("icc profile should decode"),
+            Some(profile)
+        );
     }
 }

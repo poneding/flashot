@@ -25,6 +25,7 @@ pub fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
             width: frame_width,
             height: frame_height,
             scale_factor: info.scale_factor,
+            icc_profile: None,
         });
         infos.push(info);
     }
