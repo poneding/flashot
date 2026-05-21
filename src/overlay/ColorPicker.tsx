@@ -1,13 +1,14 @@
 import { useOverlay } from "@/overlay/state";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { Check } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 const MAGNIFIER_SIZE = 120;
 const PIXEL_GRID_SIZE = 15;
 const PIXEL_BLOCK_SIZE = MAGNIFIER_SIZE / PIXEL_GRID_SIZE; // 8px per pixel
 
-const PANEL_WIDTH = 136;
-const PANEL_HEIGHT = 170;
+const PANEL_WIDTH = 152;
+const PANEL_HEIGHT = 200;
 const OFFSET = 20;
 
 const ASSET_LOCALHOST_PREFIX = "asset://localhost/";
@@ -179,16 +180,30 @@ export function ColorPicker() {
         style={canvasStyle}
       />
       <div style={colorInfoStyle}>
-        {colorCopied ? (
-          <span style={copiedStyle}>Copied!</span>
-        ) : currentColor ? (
+        {currentColor ? (
           <>
             <div style={{ ...swatchStyle, backgroundColor: formatColorCss(currentColor) }} />
-            <span>{formatColorText(currentColor, colorFormat)}</span>
+            <span style={colorValueStyle}>{formatColorText(currentColor, colorFormat)}</span>
           </>
         ) : null}
       </div>
-      <div style={hintStyle}>Tab: switch format</div>
+      <div style={hintStyle}>
+        <div>Tips:</div>
+        <div>
+          · Press <kbd style={kbdStyle}>Tab</kbd> to switch HEX / RGB
+        </div>
+        <div style={tipRowStyle}>
+          <span>
+            · Press <kbd style={kbdStyle}>C</kbd> to copy color
+          </span>
+          {colorCopied && (
+            <span style={copiedInlineStyle}>
+              <Check size={11} strokeWidth={3} aria-hidden="true" />
+              Copied!
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -219,6 +234,8 @@ const containerStyle: CSSProperties = {
   color: "#f0f0f5",
   fontSize: 12,
   pointerEvents: "none",
+  width: PANEL_WIDTH,
+  boxSizing: "border-box",
 };
 
 const canvasStyle: CSSProperties = {
@@ -230,23 +247,57 @@ const colorInfoStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 8,
-  fontSize: 13,
-  fontFamily: "monospace",
+  fontSize: 11,
+  fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
+};
+
+const colorValueStyle: CSSProperties = {
+  flex: 1,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 
 const swatchStyle: CSSProperties = {
-  width: 20,
-  height: 20,
+  width: 18,
+  height: 18,
   borderRadius: 3,
   border: "1px solid rgba(255,255,255,0.2)",
+  flexShrink: 0,
 };
 
-const copiedStyle: CSSProperties = {
+const hintStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 3,
+  fontSize: 10,
+  color: "rgba(255,255,255,0.55)",
+  lineHeight: 1.4,
+};
+
+const tipRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 6,
+};
+
+const copiedInlineStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 3,
   color: "#4ade80",
   fontWeight: 500,
 };
 
-const hintStyle: CSSProperties = {
-  fontSize: 10,
-  color: "rgba(255,255,255,0.5)",
+const kbdStyle: CSSProperties = {
+  display: "inline-block",
+  padding: "0 4px",
+  borderRadius: 3,
+  background: "rgba(255,255,255,0.12)",
+  border: "1px solid rgba(255,255,255,0.18)",
+  fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
+  fontSize: 9,
+  lineHeight: "14px",
+  color: "rgba(255,255,255,0.85)",
 };
