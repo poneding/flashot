@@ -21,7 +21,7 @@ const UPDATER_WINDOW_HEIGHT: f64 = 280.0;
 /// Extra padding (logical px per side) added to pin windows so the CSS
 /// boxShadow rendered by the frontend has room outside the image.
 /// Must match `PIN_SHADOW_PADDING` in src/routes/Pin.tsx.
-const PIN_SHADOW_PADDING: f64 = 14.0;
+const PIN_SHADOW_PADDING: f64 = 24.0;
 
 #[tauri::command]
 pub async fn crop_and_copy(

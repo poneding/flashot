@@ -7,15 +7,17 @@ import { useEffect, useState, type CSSProperties } from "react";
 
 // Soft outer glow around the pinned image. The window itself reserves
 // PIN_SHADOW_PADDING px on each side (matched in commands.rs) so these
-// shadows have room to render without clipping.
-const PIN_SHADOW_PADDING = 14;
+// shadows have room to render without being clipped by the window edge.
+const PIN_SHADOW_PADDING = 24;
 const PIN_GLOW = [
-  // Tight rim: subtle definition right at the image edge.
-  `0 0 1px ${SELECTION_COLOR}80`,
-  // Mid halo: most of the visible color.
-  `0 0 8px ${SELECTION_COLOR}55`,
-  // Outer bloom: feathered fall-off into the transparent padding.
-  `0 0 18px ${SELECTION_COLOR}33`,
+  // Tight rim — barely-there definition right at the image edge.
+  `0 0 1px ${SELECTION_COLOR}99`,
+  // Inner halo — most of the visible color.
+  `0 0 6px ${SELECTION_COLOR}80`,
+  // Mid bloom.
+  `0 0 14px ${SELECTION_COLOR}55`,
+  // Outer feathered fall-off.
+  `0 0 22px ${SELECTION_COLOR}33`,
 ].join(", ");
 
 function parsePinId(): string | null {
@@ -32,6 +34,13 @@ export function PinRoute() {
   const [id] = useState<string | null>(() => parsePinId());
   const [scale, setScale] = useState(1.0);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    document.body.classList.add("pin");
+    return () => {
+      document.body.classList.remove("pin");
+    };
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -107,10 +116,10 @@ export function PinRoute() {
   const containerStyle: CSSProperties = {
     width: "100%",
     height: "100%",
-    overflow: "hidden",
     cursor: "move",
     boxSizing: "border-box",
     padding: PIN_SHADOW_PADDING,
+    background: "transparent",
   };
 
   const imgStyle: CSSProperties = {
