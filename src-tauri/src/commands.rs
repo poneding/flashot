@@ -1,10 +1,15 @@
 use crate::{
-    clipboard, overlay_window, saver, settings_store, settings_store::Settings, types::Rect,
+    clipboard, overlay_window,
+    pin_mgr::{PinEntry, PinManager},
+    saver, settings_store,
+    settings_store::Settings,
+    types::Rect,
     window_mgr::WindowMgr,
 };
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tauri_plugin_autostart::ManagerExt as _;
+use uuid::Uuid;
 
 const ABOUT_WINDOW_WIDTH: f64 = 360.0;
 const ABOUT_WINDOW_HEIGHT: f64 = 300.0;
@@ -221,6 +226,72 @@ pub fn list_system_fonts() -> Vec<String> {
     families.sort_unstable();
     families.dedup();
     families
+}
+
+#[tauri::command]
+pub async fn pin_image(
+    monitor_id: u32,
+    rect: Rect,
+    app: AppHandle,
+    mgr: State<'_, Arc<WindowMgr>>,
+    pin_mgr: State<'_, Arc<PinManager>>,
+) -> Result<String, String> {
+    let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let cropped = crop_rgba(
+        &frame.rgba,
+        frame.width,
+        frame.height,
+        rect,
+        frame.scale_factor,
+    )
+    .ok_or("crop failed")?;
+
+    let pin_id = Uuid::new_v4().to_string();
+    let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    let pins_dir = cache_dir.join("pins");
+    std::fs::create_dir_all(&pins_dir).map_err(|e| e.to_string())?;
+
+    let image_path = pins_dir.join(format!("pin-{}.png", pin_id));
+    save_pin_png(&cropped.rgba, cropped.width, cropped.height, &image_path)?;
+
+    let window_label = format!("pin-{}", pin_id);
+    let url = tauri::WebviewUrl::App(format!("index.html#/pin/{}", pin_id).into());
+
+    tauri::WebviewWindowBuilder::new(&app, &window_label, url)
+        .title("")
+        .inner_size(rect.width as f64, rect.height as f64)
+        .decorations(false)
+        .always_on_top(true)
+        .transparent(true)
+        .resizable(false)
+        .skip_taskbar(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    pin_mgr.add_pin(PinEntry {
+        id: pin_id.clone(),
+        image_path,
+        window_label,
+        original_width: rect.width,
+        original_height: rect.height,
+        current_scale: 1.0,
+    });
+
+    mgr.end_session(&app);
+    Ok(pin_id)
+}
+
+fn save_pin_png(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    path: &std::path::Path,
+) -> Result<(), String> {
+    use image::{ImageBuffer, RgbaImage};
+    let img: RgbaImage = ImageBuffer::from_raw(width, height, rgba.to_vec())
+        .ok_or("Failed to create image buffer")?;
+    img.save(path)
+        .map_err(|e| format!("Failed to save PNG: {}", e))
 }
 
 pub(crate) struct CroppedImage {
