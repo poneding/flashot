@@ -4,6 +4,9 @@ import { appCacheDir } from "@tauri-apps/api/path";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useEffect, useState, type CSSProperties } from "react";
 
+const PIN_SHADOW_COLOR = "#4ED1FF";
+const PIN_SHADOW_PADDING = 14;
+
 function parsePinId(): string | null {
   const h = window.location.hash || "";
   const prefix = "#/pin/";
@@ -95,6 +98,8 @@ export function PinRoute() {
     height: "100%",
     overflow: "hidden",
     cursor: "move",
+    boxSizing: "border-box",
+    padding: PIN_SHADOW_PADDING,
   };
 
   const imgStyle: CSSProperties = {
@@ -103,6 +108,7 @@ export function PinRoute() {
     objectFit: "contain",
     userSelect: "none",
     pointerEvents: "none",
+    boxShadow: `0 0 ${PIN_SHADOW_PADDING}px ${PIN_SHADOW_COLOR}66`,
   };
 
   if (!id || !imageUrl) return null;

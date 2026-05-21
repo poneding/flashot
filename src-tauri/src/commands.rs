@@ -18,6 +18,11 @@ const SETTINGS_WINDOW_HEIGHT: f64 = 560.0;
 const UPDATER_WINDOW_WIDTH: f64 = 360.0;
 const UPDATER_WINDOW_HEIGHT: f64 = 280.0;
 
+/// Extra padding (logical px per side) added to pin windows so the CSS
+/// boxShadow rendered by the frontend has room outside the image.
+/// Must match `PIN_SHADOW_PADDING` in src/routes/Pin.tsx.
+const PIN_SHADOW_PADDING: f64 = 14.0;
+
 #[tauri::command]
 pub async fn crop_and_copy(
     monitor_id: u32,
@@ -257,9 +262,12 @@ pub async fn pin_image(
     let window_label = format!("pin-{}", pin_id);
     let url = tauri::WebviewUrl::App(format!("index.html#/pin/{}", pin_id).into());
 
+    let outer_width = rect.width as f64 + 2.0 * PIN_SHADOW_PADDING;
+    let outer_height = rect.height as f64 + 2.0 * PIN_SHADOW_PADDING;
+
     tauri::WebviewWindowBuilder::new(&app, &window_label, url)
         .title("")
-        .inner_size(rect.width as f64, rect.height as f64)
+        .inner_size(outer_width, outer_height)
         .decorations(false)
         .always_on_top(true)
         .transparent(true)
@@ -307,8 +315,8 @@ pub async fn set_pin_scale(
     let mut entry = pin_mgr.get_pin(&pin_id).ok_or("pin not found")?;
     let clamped_scale = scale.clamp(0.5, 3.0);
 
-    let new_width = entry.original_width as f64 * clamped_scale;
-    let new_height = entry.original_height as f64 * clamped_scale;
+    let new_width = entry.original_width as f64 * clamped_scale + 2.0 * PIN_SHADOW_PADDING;
+    let new_height = entry.original_height as f64 * clamped_scale + 2.0 * PIN_SHADOW_PADDING;
 
     if let Some(window) = app.get_webview_window(&entry.window_label) {
         window
