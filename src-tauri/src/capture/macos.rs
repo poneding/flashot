@@ -45,6 +45,7 @@ pub fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
             width: frame_width,
             height: frame_height,
             scale_factor: info.scale_factor,
+            icc_profile: display_icc_profile(info.id),
         });
         infos.push(info);
     }
@@ -91,6 +92,35 @@ fn captured_frame_dimensions(
     _logical_height: u32,
 ) -> (u32, u32) {
     (image_width, image_height)
+}
+
+fn display_icc_profile(display_id: u32) -> Option<Vec<u8>> {
+    use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
+    use core_foundation::data::{CFData, CFDataRef};
+    use core_graphics::display::CGDirectDisplayID;
+    use core_graphics::sys::CGColorSpaceRef;
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGDisplayCopyColorSpace(display: CGDirectDisplayID) -> CGColorSpaceRef;
+        fn CGColorSpaceCopyICCData(space: CGColorSpaceRef) -> CFDataRef;
+    }
+
+    unsafe {
+        let color_space = CGDisplayCopyColorSpace(display_id);
+        if color_space.is_null() {
+            return None;
+        }
+
+        let icc_data = CGColorSpaceCopyICCData(color_space);
+        CFRelease(color_space as CFTypeRef);
+        if icc_data.is_null() {
+            return None;
+        }
+
+        let data = CFData::wrap_under_create_rule(icc_data);
+        Some(data.bytes().to_vec()).filter(|profile| !profile.is_empty())
+    }
 }
 
 #[cfg(test)]

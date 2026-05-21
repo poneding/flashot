@@ -11,6 +11,7 @@ Flashot is a fast, cross-platform screenshot tool built with Tauri 2 + React + T
 ## Development Commands
 
 ### Frontend
+
 ```bash
 pnpm dev              # Run Vite dev server (frontend only)
 pnpm build            # Build frontend for production
@@ -20,6 +21,7 @@ pnpm lint             # TypeScript type checking
 ```
 
 ### Rust Backend
+
 ```bash
 cd src-tauri
 cargo check           # Fast compile check
@@ -31,6 +33,7 @@ cargo build --release # Production build
 ```
 
 ### Full App
+
 ```bash
 pnpm tauri dev        # Run full app in dev mode
 pnpm tauri build      # Build production bundle (.dmg, .msi, .AppImage)
@@ -75,6 +78,7 @@ pnpm tauri build      # Build production bundle (.dmg, .msi, .AppImage)
 ### Multi-Monitor Handling
 
 Each monitor gets its own overlay window (label: `overlay-{monitor_id}`). The overlay route listens for `capture:start` events, which include:
+
 - `monitorId`: Which monitor this overlay belongs to
 - `frameUrl`: `asset://` URL to the frozen screenshot PNG
 - `windows`: Array of window rects translated to monitor-local coordinates
@@ -84,6 +88,7 @@ When the user selects a region, the frontend sends the monitor ID + rect to Rust
 ### Settings Persistence
 
 Settings are stored via `tauri-plugin-store` in JSON format. When settings change:
+
 1. Frontend calls `setSettings` command
 2. Rust saves to disk and emits `settings:changed` event
 3. Hotkey service listens for this event and re-registers the hotkey
@@ -93,16 +98,19 @@ This allows live hotkey updates without app restart.
 ## Testing
 
 ### Frontend Tests
+
 - Located in `src/__tests__/`
 - Use Vitest + React Testing Library
 - Focus on pure logic (geometry, hit-testing)
 - Run with `pnpm test`
 
 ### Rust Tests
+
 - Unit tests inline with modules (e.g., `window_mgr.rs` has `#[cfg(test)] mod tests`)
 - Run with `cd src-tauri && cargo test`
 
 ### Benchmarks
+
 - Located in `src-tauri/benches/`
 - `crop_bench`: Pure CPU cropping (runs in CI)
 - `capture_bench`, `window_enum_bench`, `clipboard_bench`: Require display server (skip in CI)
@@ -111,15 +119,18 @@ This allows live hotkey updates without app restart.
 ## Platform-Specific Notes
 
 ### macOS
+
 - Requires screen recording permission (checked at startup in `permission.rs`)
 - Uses `macOSPrivateApi: true` in `tauri.conf.json` for overlay rendering
 - Window enumeration uses Core Graphics (`CGWindowListCopyWindowInfo`)
 
 ### Windows
+
 - Window enumeration uses Win32 APIs (`EnumWindows`, `GetWindowRect`)
 - No special permissions required
 
 ### Linux
+
 - X11 recommended (Wayland support experimental)
 - Window enumeration uses X11 APIs
 - Tray icon may not work on all desktop environments
@@ -127,18 +138,21 @@ This allows live hotkey updates without app restart.
 ## Common Patterns
 
 ### Adding a new Tauri command
+
 1. Add function to `src-tauri/src/commands.rs` with `#[tauri::command]`
 2. Register in `tauri::generate_handler![]` in `src-tauri/src/lib.rs`
 3. Add typed wrapper to `src/lib/ipc.ts`
 4. Call from frontend via the wrapper
 
 ### Adding a new overlay component
+
 1. Create component in `src/overlay/`
 2. Read state from `useOverlay` hook (from `src/overlay/state.ts`)
 3. Add to `src/routes/Overlay.tsx` render tree
 4. Component should be absolutely positioned and pointer-events-aware
 
 ### Modifying capture flow
+
 - **Never** manually hide overlays or clear frames — always use `SessionGuard`
 - Frozen frames are cloned on retrieval (see `WindowMgr::frame`) to prevent mutation
 - Scale factor must be applied when cropping (see `commands.rs:crop_rgba`)
@@ -146,6 +160,7 @@ This allows live hotkey updates without app restart.
 ## CI/CD
 
 GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push/PR:
+
 - `cargo check`, `cargo clippy -D warnings`, `cargo test`
 - `cargo bench --bench crop_bench` (only bench that works without display)
 - Runs on macOS, Windows, Linux (Ubuntu)
@@ -155,7 +170,8 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push/PR:
 Follow [Conventional Commits](https://www.conventionalcommits.org/) specification for all commit messages:
 
 ### Format
-```
+
+```txt
 <type>: <description>
 
 [optional body]
@@ -164,6 +180,7 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/) specificatio
 ```
 
 ### Types
+
 - **feat**: New feature for the user
 - **fix**: Bug fix for the user
 - **docs**: Documentation changes
@@ -175,6 +192,7 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/) specificatio
 - **ci**: CI/CD configuration changes
 
 ### Examples
+
 ```bash
 feat: add color picker to crosshair cursor
 fix: resolve memory leak in session cleanup
@@ -185,6 +203,7 @@ docs: update AGENTS.md with commit conventions
 ```
 
 ### Guidelines
+
 - Use lowercase for type and description
 - Keep the first line under 72 characters
 - Use imperative mood ("add" not "added" or "adds")

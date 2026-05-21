@@ -41,4 +41,5 @@ pub struct FrozenFrame {
     pub width: u32,
     pub height: u32,
     pub scale_factor: f32,
+    pub icc_profile: Option<Vec<u8>>,
 }
