@@ -47,6 +47,35 @@ describe("release workflow", () => {
     expect(workflow).toContain("tauri-apps/tauri-action@v0");
   });
 
+  it("keeps tauri-action release inputs attached to the build step", () => {
+    const workflow = readFileSync(releaseWorkflowPath, "utf8");
+
+    expect(workflow).toContain(
+      [
+        "      - name: Build and publish GitHub Release assets",
+        "        uses: tauri-apps/tauri-action@v0",
+        "        env:",
+        "          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+        "          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}",
+        "          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}",
+        "        with:",
+        "          tagName: ${{ env.RELEASE_TAG }}",
+      ].join("\n"),
+    );
+  });
+
+  it("updates the Homebrew tap after release assets are published", () => {
+    const workflow = readFileSync(releaseWorkflowPath, "utf8");
+
+    expect(workflow).toContain("update-homebrew:");
+    expect(workflow).toContain("name: Update Homebrew Cask");
+    expect(workflow).toContain("needs: release");
+    expect(workflow).toContain("repository: poneding/homebrew-flashot");
+    expect(workflow).toContain("token: ${{ secrets.HOMEBREW_TAP_TOKEN }}");
+    expect(workflow).toContain('AARCH64_ASSET="Flashot_${VERSION}_aarch64.dmg"');
+    expect(workflow).toContain('X64_ASSET="Flashot_${VERSION}_x64.dmg"');
+  });
+
   it("generates structured release notes with git-cliff", () => {
     const workflow = readFileSync(releaseWorkflowPath, "utf8");
 

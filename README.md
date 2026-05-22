@@ -158,9 +158,9 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The `.github/workflows/release.yml` workflow builds macOS (ARM + Intel), Windows, and Linux installers, then publishes a GitHub Release. Flashot's Rust crate is only used internally by the Tauri app and is not published to crates.io.
+The `.github/workflows/release.yml` workflow builds macOS (ARM + Intel), Windows, and Linux installers, publishes a GitHub Release, then updates `poneding/homebrew-flashot` for non-prerelease releases. Flashot's Rust crate is only used internally by the Tauri app and is not published to crates.io.
 
-After a non-prerelease GitHub Release is published, `.github/workflows/homebrew.yml` downloads `Flashot_<version>_aarch64.dmg` and `Flashot_<version>_x64.dmg`, computes their SHA256 hashes, and commits the updated cask to `poneding/homebrew-flashot`.
+The Homebrew update step downloads `Flashot_<version>_aarch64.dmg` and `Flashot_<version>_x64.dmg`, computes their SHA256 hashes, and commits the updated cask to `poneding/homebrew-flashot`. `.github/workflows/homebrew.yml` remains available as a manual recovery workflow.
 
 ## Contributing
 
