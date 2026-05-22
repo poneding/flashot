@@ -1,10 +1,26 @@
+<h1 align="center">Flashot</h1>
+
 <p align="center">
-  <img src="public/app-logo.svg" alt="Flashot logo" width="96" height="96" />
+  <img src="public/app-logo.svg" alt="Flashot logo" width="128" height="128" />
 </p>
 
-# Flashot
+<p align="center">
+  <strong>Fast, lightweight screenshot tool built with Tauri + React.</strong>
+</p>
 
-Fast, lightweight screenshot tool built with Tauri + React.
+<p align="center">
+  <a href="https://github.com/poneding/flashot/releases/latest"><img src="https://img.shields.io/github/v/release/poneding/flashot?style=flat-square&color=blue" alt="Release" /></a>
+  <a href="https://github.com/poneding/flashot/actions"><img src="https://img.shields.io/github/actions/workflow/status/poneding/flashot/ci.yml?style=flat-square" alt="CI" /></a>
+  <a href="https://github.com/poneding/flashot/blob/main/LICENSE"><img src="https://img.shields.io/github/license/poneding/flashot?style=flat-square" alt="License" /></a>
+  <a href="https://github.com/poneding/flashot/releases"><img src="https://img.shields.io/github/downloads/poneding/flashot/total?style=flat-square&color=green" alt="Downloads" /></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platform" />
+</p>
+
+<p align="center">
+  <img src="docs/images/demo-01.png" alt="Flashot Demo" width="720" />
+</p>
+
+---
 
 ## Features
 
@@ -12,8 +28,8 @@ Fast, lightweight screenshot tool built with Tauri + React.
 - **Multi-monitor support** — Capture from any connected display
 - **Smart window detection** — Click to auto-select window bounds
 - **Flexible selection** — Click-drag to select region, resize with handles
-- **Quick shots** — Copy the active screen with Cmd/Ctrl+Shift+F or the active window with Cmd/Ctrl+Shift+W
-- **Copy or save** — Send to clipboard with Cmd/Ctrl+C or the toolbar, or save as PNG with Save As
+- **Quick shots** — Copy the active screen or window instantly
+- **Copy or save** — Send to clipboard or save as PNG
 - **Customizable shortcuts** — Change capture and quick-shot keys in settings
 - **Native performance** — Rust backend for speed, React frontend for polish
 
@@ -30,9 +46,8 @@ brew install --cask flashot
 
 1. Download the latest `.dmg` from [Releases](https://github.com/poneding/flashot/releases)
 2. Open the `.dmg` and drag Flashot to Applications
-3. Launch Flashot
-4. Grant screen recording permission when prompted (System Settings → Privacy & Security → Screen Recording)
-5. Restart Flashot after granting permission
+3. Grant screen recording permission when prompted (System Settings → Privacy & Security → Screen Recording)
+4. Restart Flashot after granting permission
 
 ### Windows
 
@@ -46,7 +61,8 @@ brew install --cask flashot
 2. Make it executable: `chmod +x Flashot-*.AppImage`
 3. Run the AppImage
 
-### Unsigned App on macOS
+<details>
+<summary><strong>Unsigned App on macOS</strong></summary>
 
 Flashot is not yet code-signed with an Apple Developer certificate. macOS Gatekeeper will block the app on first launch. To resolve this:
 
@@ -62,30 +78,35 @@ xattr -cr /Applications/Flashot.app
 2. Select "Open" from the context menu
 3. Click "Open" in the dialog that appears
 
-This only needs to be done once. Subsequent launches will work normally.
+This only needs to be done once.
+
+</details>
+
+## Usage
+
+| Action | macOS | Windows / Linux |
+|--------|-------|-----------------|
+| Region capture | `Cmd+Shift+A` | `Ctrl+Shift+A` |
+| Active screen | `Cmd+Shift+F` | `Ctrl+Shift+F` |
+| Active window | `Cmd+Shift+W` | `Ctrl+Shift+W` |
+
+1. Press the region capture shortcut
+2. Screen freezes and overlay appears
+3. Click and drag to select region, or click a window to auto-select
+4. Use the toolbar to copy or Save As, or press **Cmd/Ctrl+C**
+5. Press **ESC** to cancel
+
+Quick shots skip the overlay and copy immediately.
 
 ## Auto Update
 
-Flashot includes a built-in updater. When a new version is available, you'll be notified through the tray menu "Check for updates" option. The update is downloaded, verified, and installed automatically — then the app restarts.
+Flashot includes a built-in updater. When a new version is available, you'll be notified through the tray menu "Check for updates" option. The update is downloaded, verified, and installed automatically.
 
-If you installed via Homebrew, you can also update with:
+If you installed via Homebrew:
 
 ```bash
 brew upgrade --cask flashot
 ```
-
-## Usage
-
-1. Press the region capture shortcut (default: Cmd+Shift+A on macOS, Ctrl+Shift+A on Windows)
-2. Screen freezes and overlay appears
-3. Click and drag to select region, or click a window to auto-select
-4. Use the toolbar to copy or Save As, or press **Cmd/Ctrl+C** after committing a selection
-5. Press **ESC** to cancel
-
-Quick shots skip the overlay and copy immediately:
-
-- Active screen: Cmd+Shift+F on macOS, Ctrl+Shift+F on Windows/Linux
-- Active window: Cmd+Shift+W on macOS, Ctrl+Shift+W on Windows/Linux
 
 ## Development
 
@@ -93,106 +114,53 @@ Quick shots skip the overlay and copy immediately:
 
 - **Node.js** 20 LTS and pnpm
 - **Rust** 1.83+
-- **Platform-specific dependencies**:
-  - macOS: Xcode Command Line Tools
-  - Windows: Visual Studio Build Tools
+- **Platform deps**: Xcode CLI Tools (macOS) / VS Build Tools (Windows)
 
-### Setup
+### Quick Start
 
 ```bash
-# Clone the repository
 git clone https://github.com/poneding/flashot.git
 cd flashot
-
-# Install dependencies
 pnpm install
-
-# Run in development mode
 pnpm tauri dev
 ```
 
-### Build
+### Commands
 
 ```bash
-# Build for production
-pnpm tauri build
+pnpm tauri dev        # Dev mode (full app)
+pnpm tauri build      # Production build
+pnpm test             # Frontend tests
+pnpm lint             # TypeScript type checking
+cd src-tauri && cargo clippy   # Rust linting
+cd src-tauri && cargo test     # Rust tests
+cd src-tauri && cargo bench    # Benchmarks
 ```
 
-Output will be in `src-tauri/target/release/bundle/`.
+### Architecture
 
-### Testing
-
-```bash
-# Run frontend tests
-pnpm test
-
-# Run Rust tests
-cd src-tauri && cargo test
-
-# Run benchmarks
-cd src-tauri && cargo bench
-```
-
-### Code Quality
-
-```bash
-# TypeScript type checking
-pnpm lint
-
-# Rust linting
-cd src-tauri && cargo clippy
-```
+| Layer | Stack |
+|-------|-------|
+| Frontend | React + TypeScript + Vite + Tailwind CSS |
+| Backend | Rust + Tauri 2 |
+| Capture | `xcap` (cross-platform) |
+| Hotkey | `global-hotkey` |
+| Clipboard | `arboard` |
+| Window detection | Core Graphics (macOS) / Win32 (Windows) |
 
 ### Release
 
-Flashot is released as desktop installers through GitHub Releases. The Rust
-crate is internal to the Tauri app and is not published to crates.io.
-
-To cut a release:
-
-1. Update the version in all three files:
-   - `package.json`
-   - `src-tauri/Cargo.toml`
-   - `src-tauri/tauri.conf.json`
-2. Commit the version bump.
-3. Tag the commit with a semantic version:
+1. Bump version in `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`
+2. Commit and tag:
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Pushing a `v*.*.*` tag triggers `.github/workflows/release.yml`. The workflow
-validates that the tag matches all project versions, then builds macOS
-Apple Silicon, macOS Intel, Windows, and Linux installers. It creates the
-GitHub Release, uploads the installers, and generates release notes.
-
-Maintainers can also rerun the release flow from GitHub Actions with
-`workflow_dispatch` by entering an existing tag such as `v0.1.0`.
+The `.github/workflows/release.yml` workflow builds macOS (ARM + Intel), Windows, and Linux installers, then publishes a GitHub Release. Flashot's Rust crate is only used internally by the Tauri app and is not published to crates.io.
 
 After a non-prerelease GitHub Release is published, `.github/workflows/homebrew.yml` downloads `Flashot_<version>_aarch64.dmg` and `Flashot_<version>_x64.dmg`, computes their SHA256 hashes, and commits the updated cask to `poneding/homebrew-flashot`.
-
-## Architecture
-
-- **Frontend**: React + TypeScript + Vite + Tailwind CSS
-- **Backend**: Rust + Tauri
-- **Screen capture**: `xcap` (cross-platform)
-- **Hotkey**: `global-hotkey`
-- **Clipboard**: `arboard`
-- **Window detection**: Platform-specific APIs (Core Graphics on macOS, Win32 on Windows)
-
-## Platform Notes
-
-### macOS
-
-- Requires screen recording permission (granted on first launch)
-- Uses private APIs for overlay rendering (`macOSPrivateApi: true`)
-- Default shortcuts: Cmd+Shift+A for region capture, Cmd+Shift+F for active screen, Cmd+Shift+W for active window
-
-### Windows
-
-- No special permissions required
-- Default shortcuts: Ctrl+Shift+A for region capture, Ctrl+Shift+F for active screen, Ctrl+Shift+W for active window
 
 ## Contributing
 
@@ -206,13 +174,8 @@ Contributions welcome! Please:
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+[MIT](LICENSE)
 
 ## Acknowledgments
 
-Built with:
-
-- [Tauri](https://tauri.app/) — Desktop app framework
-- [React](https://react.dev/) — UI library
-- [xcap](https://github.com/nashaofu/xcap) — Screen capture
-- [global-hotkey](https://github.com/tauri-apps/global-hotkey) — Hotkey registration
+Built with [Tauri](https://tauri.app/) · [React](https://react.dev/) · [xcap](https://github.com/nashaofu/xcap) · [global-hotkey](https://github.com/tauri-apps/global-hotkey)
