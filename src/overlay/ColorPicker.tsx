@@ -215,7 +215,7 @@ export function formatColorText(c: { r: number; g: number; b: number }, format: 
   if (format === "hex") {
     return `#${c.r.toString(16).padStart(2, "0").toUpperCase()}${c.g.toString(16).padStart(2, "0").toUpperCase()}${c.b.toString(16).padStart(2, "0").toUpperCase()}`;
   }
-  return `rgb(${c.r},${c.g},${c.b})`;
+  return `rgb(${c.r}, ${c.g}, ${c.b})`;
 }
 
 const containerStyle: CSSProperties = {
