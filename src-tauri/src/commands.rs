@@ -23,6 +23,65 @@ const UPDATER_WINDOW_HEIGHT: f64 = 280.0;
 /// Must match `PIN_SHADOW_PADDING` in src/routes/Pin.tsx.
 const PIN_SHADOW_PADDING: f64 = 24.0;
 
+fn show_pin_window(window: &WebviewWindow) -> Result<(), String> {
+    configure_pin_window_before_show(window)?;
+    window
+        .show()
+        .map_err(|e| format!("Failed to show pin window: {e}"))
+}
+
+#[cfg(target_os = "macos")]
+fn configure_pin_window_before_show(window: &WebviewWindow) -> Result<(), String> {
+    let task_window = window.clone();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+
+    window
+        .run_on_main_thread(move || {
+            let result = configure_macos_pin_window_before_show(&task_window);
+            let _ = tx.send(result);
+        })
+        .map_err(|e| e.to_string())?;
+
+    rx.recv()
+        .map_err(|_| "configure pin window did not return from the main thread".to_string())?
+}
+
+#[cfg(target_os = "macos")]
+fn configure_macos_pin_window_before_show(window: &WebviewWindow) -> Result<(), String> {
+    use objc::{
+        runtime::{Object, Sel, NO},
+        Message,
+    };
+
+    // NSWindowAnimationBehaviorNone. Keep the raw value local so the
+    // Cocoa dependency stays lightweight and this remains easy to audit.
+    const NS_WINDOW_ANIMATION_BEHAVIOR_NONE: usize = 2;
+
+    let ns_window = window.ns_window().map_err(|e| e.to_string())? as *mut Object;
+    unsafe {
+        let ns_window = &*ns_window;
+        ns_window
+            .send_message::<_, ()>(
+                Sel::register("setAnimationBehavior:"),
+                (NS_WINDOW_ANIMATION_BEHAVIOR_NONE,),
+            )
+            .map_err(|e| e.to_string())?;
+        ns_window
+            .send_message::<_, ()>(Sel::register("setHasShadow:"), (NO,))
+            .map_err(|e| e.to_string())?;
+        ns_window
+            .send_message::<_, ()>(Sel::register("setOpaque:"), (NO,))
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn configure_pin_window_before_show(_window: &WebviewWindow) -> Result<(), String> {
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn crop_and_copy(
     monitor_id: u32,
@@ -295,7 +354,7 @@ pub async fn pin_image(
     let pin_x = monitor_origin.0 + rect.x as f64 - PIN_SHADOW_PADDING;
     let pin_y = monitor_origin.1 + rect.y as f64 - PIN_SHADOW_PADDING;
 
-    tauri::WebviewWindowBuilder::new(&app, &window_label, url)
+    let window = tauri::WebviewWindowBuilder::new(&app, &window_label, url)
         .title("")
         .inner_size(outer_width, outer_height)
         .position(pin_x, pin_y)
@@ -305,8 +364,11 @@ pub async fn pin_image(
         .resizable(false)
         .skip_taskbar(true)
         .shadow(false)
+        .visible(false)
         .build()
         .map_err(|e| e.to_string())?;
+
+    show_pin_window(&window)?;
 
     pin_mgr.add_pin(PinEntry {
         id: pin_id.clone(),
@@ -618,7 +680,7 @@ mod tests {
     }
 
     #[test]
-    fn pin_window_keeps_webview_visible_for_image_loading() {
+    fn pin_window_starts_hidden_without_native_shadow() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let start = source.find("pub async fn pin_image").unwrap();
         let end = source[start..]
@@ -632,8 +694,12 @@ mod tests {
             "pin windows should not use native window shadows on top of the CSS glow",
         );
         assert!(
-            !body.contains(".visible(false)"),
-            "pin windows must stay visible so the webview can load image layers",
+            body.contains(".visible(false)"),
+            "pin windows should not paint the native first frame before the route is ready",
+        );
+        assert!(
+            body.contains("show_pin_window(&window)"),
+            "the backend must show hidden pin windows instead of relying on frontend JS",
         );
     }
 

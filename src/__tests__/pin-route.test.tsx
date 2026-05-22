@@ -74,6 +74,16 @@ describe("PinRoute", () => {
     });
   });
 
+  it("does not own native window visibility from the hidden webview", async () => {
+    window.location.hash = "#/pin/test-id";
+
+    render(<PinRoute />);
+
+    await screen.findByAltText("Pinned screenshot");
+
+    expect(webviewWindowMock.show).not.toHaveBeenCalled();
+  });
+
   it("waits for the annotation layer before revealing the visual layer", async () => {
     window.location.hash = "#/pin/test-id?annotation=1";
 
