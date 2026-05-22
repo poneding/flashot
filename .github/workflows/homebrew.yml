@@ -20,39 +20,50 @@ jobs:
   update-cask:
     name: Update Homebrew Cask
     runs-on: macos-latest
-    if: ${{ !github.event.release.prerelease }}
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
     steps:
       - name: Wait for release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${RELEASE_TAG#v}"
+          AARCH64_ASSET="Flashot_${VERSION}_aarch64.dmg"
+          X64_ASSET="Flashot_${VERSION}_x64.dmg"
+
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "AARCH64_ASSET=$AARCH64_ASSET" >> "$GITHUB_ENV"
+          echo "X64_ASSET=$X64_ASSET" >> "$GITHUB_ENV"
 
           for i in $(seq 1 30); do
             ASSETS=$(gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" --json assets -q '.assets[].name')
-            if echo "$ASSETS" | grep -q "macos-aarch64.dmg" && echo "$ASSETS" | grep -q "macos-x64.dmg"; then
+            if echo "$ASSETS" | grep -Fxq "$AARCH64_ASSET" && echo "$ASSETS" | grep -Fxq "$X64_ASSET"; then
               echo "Both macOS DMGs found"
               exit 0
             fi
-            echo "Waiting for macOS DMG assets... (attempt $i/30)"
+            echo "Waiting for $AARCH64_ASSET and $X64_ASSET... (attempt $i/30)"
             sleep 30
           done
-          echo "::error::Timed out waiting for macOS DMG assets"
+          echo "::error::Timed out waiting for $AARCH64_ASSET and $X64_ASSET"
           exit 1
 
       - name: Download DMGs and compute SHA256
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          rm -rf ./tmp
+          mkdir -p ./tmp
+
           gh release download "$RELEASE_TAG" \
             --repo "${{ github.repository }}" \
-            --pattern "*macos-aarch64.dmg" \
-            --pattern "*macos-x64.dmg" \
+            --pattern "$AARCH64_ASSET" \
+            --pattern "$X64_ASSET" \
             --dir ./tmp
 
-          AARCH64_DMG=$(ls ./tmp/*macos-aarch64.dmg)
-          X64_DMG=$(ls ./tmp/*macos-x64.dmg)
+          AARCH64_DMG="./tmp/$AARCH64_ASSET"
+          X64_DMG="./tmp/$X64_ASSET"
+
+          test -f "$AARCH64_DMG"
+          test -f "$X64_DMG"
 
           AARCH64_SHA=$(shasum -a 256 "$AARCH64_DMG" | awk '{print $1}')
           X64_SHA=$(shasum -a 256 "$X64_DMG" | awk '{print $1}')
@@ -65,6 +76,7 @@ jobs:
         with:
           repository: poneding/homebrew-flashot
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          ref: master
           path: tap
 
       - name: Update cask file
@@ -85,5 +97,5 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Casks/flashot.rb
           git diff --cached --quiet && echo "No changes to commit" && exit 0
-          git commit -m "Update flashot to $VERSION"
+          git commit -m "chore: update flashot to $VERSION"
           git push

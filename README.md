@@ -170,6 +170,8 @@ GitHub Release, uploads the installers, and generates release notes.
 Maintainers can also rerun the release flow from GitHub Actions with
 `workflow_dispatch` by entering an existing tag such as `v0.1.0`.
 
+After a non-prerelease GitHub Release is published, `.github/workflows/homebrew.yml` downloads `Flashot_<version>_aarch64.dmg` and `Flashot_<version>_x64.dmg`, computes their SHA256 hashes, and commits the updated cask to `poneding/homebrew-flashot`.
+
 ## Architecture
 
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS
