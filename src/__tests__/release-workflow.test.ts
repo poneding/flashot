@@ -70,6 +70,10 @@ describe("release workflow", () => {
     expect(workflow).toContain("update-homebrew:");
     expect(workflow).toContain("name: Update Homebrew Cask");
     expect(workflow).toContain("needs: release");
+    expect(workflow).not.toContain("if: ${{ !fromJSON(env.RELEASE_DRAFT)");
+    expect(workflow).toContain(
+      "if: ${{ !inputs.draft && !inputs.prerelease && !contains(github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, '-') }}",
+    );
     expect(workflow).toContain("repository: poneding/homebrew-flashot");
     expect(workflow).toContain("token: ${{ secrets.HOMEBREW_TAP_TOKEN }}");
     expect(workflow).toContain('AARCH64_ASSET="Flashot_${VERSION}_aarch64.dmg"');

@@ -169,7 +169,7 @@ jobs:
     name: Update Homebrew Cask
     runs-on: macos-latest
     needs: release
-    if: ${{ !fromJSON(env.RELEASE_DRAFT) && !fromJSON(env.RELEASE_PRERELEASE) }}
+    if: ${{ !inputs.draft && !inputs.prerelease && !contains(github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, '-') }}
     steps:
       - name: Wait for release assets
         env:
