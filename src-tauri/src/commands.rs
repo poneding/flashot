@@ -304,6 +304,7 @@ pub async fn pin_image(
         .transparent(true)
         .resizable(false)
         .skip_taskbar(true)
+        .shadow(false)
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -613,6 +614,26 @@ mod tests {
         assert!(
             !body.contains("composite_annotation(&cropped"),
             "pin_image should avoid synchronous annotation compositing before creating the pin window",
+        );
+    }
+
+    #[test]
+    fn pin_window_keeps_webview_visible_for_image_loading() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let start = source.find("pub async fn pin_image").unwrap();
+        let end = source[start..]
+            .find("#[tauri::command]\npub async fn close_pin")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        assert!(
+            body.contains(".shadow(false)"),
+            "pin windows should not use native window shadows on top of the CSS glow",
+        );
+        assert!(
+            !body.contains(".visible(false)"),
+            "pin windows must stay visible so the webview can load image layers",
         );
     }
 

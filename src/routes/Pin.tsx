@@ -43,6 +43,9 @@ export function PinRoute() {
   const [scale, setScale] = useState(1.0);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [annotationUrl, setAnnotationUrl] = useState<string | null>(null);
+  const [imageReady, setImageReady] = useState(false);
+  const [annotationReady, setAnnotationReady] = useState(!hasAnnotation);
+  const contentReady = imageReady && annotationReady;
 
   useEffect(() => {
     document.body.classList.add("pin");
@@ -153,14 +156,26 @@ export function PinRoute() {
 
   return (
     <div style={containerStyle} onMouseDown={handleMouseDown}>
-      <div style={imageStackStyle}>
-        <img src={imageUrl} alt="Pinned screenshot" style={imgStyle} draggable={false} />
+      <div
+        data-testid="pin-image-stack"
+        style={{ ...imageStackStyle, opacity: contentReady ? 1 : 0 }}
+      >
+        <img
+          src={imageUrl}
+          alt="Pinned screenshot"
+          style={imgStyle}
+          draggable={false}
+          onLoad={() => setImageReady(true)}
+          onError={() => setImageReady(true)}
+        />
         {annotationUrl && (
           <img
             src={annotationUrl}
             alt="Pinned annotations"
             style={annotationStyle}
             draggable={false}
+            onLoad={() => setAnnotationReady(true)}
+            onError={() => setAnnotationReady(true)}
           />
         )}
       </div>
