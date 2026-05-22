@@ -86,17 +86,14 @@ export function Toolbar({ selection, monitorRect }: Props) {
   function handleToolClick(tool: ToolType) {
     hideColorPicker();
 
-    if (tool === "eraser") {
-      setActiveTool(tool);
+    if (tool === activeTool) {
+      setActiveTool("select");
       setShowPanel(false);
       return;
     }
-    if (tool === activeTool) {
-      setShowPanel((v) => !v);
-    } else {
-      setActiveTool(tool);
-      setShowPanel(true);
-    }
+
+    setActiveTool(tool);
+    setShowPanel(tool !== "eraser");
   }
 
   const startToolbarDrag = (e: React.MouseEvent) => {

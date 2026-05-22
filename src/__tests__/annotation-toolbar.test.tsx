@@ -152,6 +152,21 @@ describe("Annotation toolbar", () => {
     expect(useOverlay.getState().colorPickerVisible).toBe(false);
   });
 
+  it("toggles an active annotation tool back to move mode on the second click", () => {
+    renderToolbar();
+    const rectangle = screen.getByTitle("Rectangle");
+
+    fireEvent.click(rectangle);
+
+    expect(useAnnotation.getState().activeTool).toBe("rect");
+    expect(rectangle.querySelector("span")).not.toBeNull();
+
+    fireEvent.click(rectangle);
+
+    expect(useAnnotation.getState().activeTool).toBe("select");
+    expect(rectangle.querySelector("span")).toBeNull();
+  });
+
   it("does not render screenshot output actions", () => {
     renderToolbar();
 

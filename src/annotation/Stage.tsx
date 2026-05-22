@@ -225,7 +225,7 @@ function setStageCursor(cursor: string) {
 
 function toolCursor(tool = useAnnotation.getState().activeTool): string {
   switch (tool) {
-    case "select": return "default";
+    case "select": return "move";
     case "text": return "text";
     case "eraser": return "grab";
     default: return "crosshair";
@@ -574,22 +574,26 @@ export function AnnotationStage({ selection, scaleFactor, interacting }: Props) 
     // Let resize handle clicks pass through to overlay
     if (hitTestHandle({ x: e.clientX, y: e.clientY }, selection, 10)) return;
 
-    // Prevent overlay from interpreting annotation clicks as move/drag
-    e.stopPropagation();
-
     const { activeTool: tool, objects, selectedObjectId, setSelectedObject, setDrawingState } = useAnnotation.getState();
     const rect = containerRef.current!.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const stageInst = getStage();
     const hitTarget = stageInst?.getIntersection({ x, y }) ?? null;
-    if (isEditOverlayNode(hitTarget)) return;
-    if (isTransformerNode(hitTarget)) return;
+    if (isEditOverlayNode(hitTarget)) {
+      e.stopPropagation();
+      return;
+    }
+    if (isTransformerNode(hitTarget)) {
+      e.stopPropagation();
+      return;
+    }
     const hitNode = getObjectNodeFromHit(hitTarget);
     const hitObject = hitNode ? objects.find((o) => o.id === hitNode.id()) : undefined;
 
     // Keep single-click available for selecting/dragging text. Double-click reopens editing.
     if (tool === "text" && hitObject?.type === "text" && hitNode && e.detail >= 2) {
+      e.stopPropagation();
       hitNode.destroy();
       getLayer()?.batchDraw();
       useAnnotation.getState().deleteObject(hitObject.id);
@@ -600,22 +604,25 @@ export function AnnotationStage({ selection, scaleFactor, interacting }: Props) 
 
     // Smart click-to-select: check if clicking on existing object
     if (tool !== "eraser" && hitObject && hitNode) {
+      e.stopPropagation();
       setSelectedObject(hitObject.id);
       return;
     }
 
-    if (shouldDeselectOnEmptyClick(selectedObjectId, tool)) {
-      setSelectedObject(null);
-      return;
-    }
-
-    // Deselect if select tool and clicking empty
     if (tool === "select") {
       setSelectedObject(null);
       if (transformer) {
         transformer.nodes([]);
         getLayer()?.batchDraw();
       }
+      return;
+    }
+
+    // Prevent overlay from interpreting annotation tool clicks as move/drag.
+    e.stopPropagation();
+
+    if (shouldDeselectOnEmptyClick(selectedObjectId, tool)) {
+      setSelectedObject(null);
       return;
     }
 
@@ -687,12 +694,7 @@ export function AnnotationStage({ selection, scaleFactor, interacting }: Props) 
   };
 
   const cursor = (() => {
-    switch (activeTool) {
-      case "select": return "default";
-      case "text": return "text";
-      case "eraser": return "grab";
-      default: return "crosshair";
-    }
+    return toolCursor(activeTool);
   })();
 
   return (
@@ -711,7 +713,7 @@ export function AnnotationStage({ selection, scaleFactor, interacting }: Props) 
           height: selection.height,
           cursor,
           pointerEvents: interacting ? "none" : "auto",
-          visibility: interacting ? "hidden" : "visible",
+          visibility: "visible",
         }}
       />
       {textEditing && (
