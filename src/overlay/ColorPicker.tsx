@@ -7,7 +7,7 @@ const MAGNIFIER_SIZE = 120;
 const PIXEL_GRID_SIZE = 15;
 const PIXEL_BLOCK_SIZE = MAGNIFIER_SIZE / PIXEL_GRID_SIZE; // 8px per pixel
 
-const PANEL_WIDTH = 152;
+const PANEL_WIDTH = 186;
 const PANEL_HEIGHT = 200;
 const OFFSET = 20;
 
@@ -241,6 +241,7 @@ const containerStyle: CSSProperties = {
 const canvasStyle: CSSProperties = {
   display: "block",
   borderRadius: 4,
+  border: "1px solid rgba(255,255,255,0.12)",
 };
 
 const colorInfoStyle: CSSProperties = {

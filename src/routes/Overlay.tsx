@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useOverlay } from "@/overlay/state";
 import {
   cancelCapture,
@@ -48,6 +49,9 @@ export function OverlayRoute() {
   const monitorRect = useOverlay((s) => s.monitorRect);
   const [flashRect, setFlashRect] = useState<Rect | null>(null);
   const flashTimerRef = useRef<number | null>(null);
+  // Tracks whether we've already pulled keyboard focus into the overlay
+  // window for this capture session. Reset on capture:end.
+  const ensuredFocusRef = useRef(false);
 
   useEffect(() => {
     document.body.classList.add("overlay");
@@ -57,6 +61,7 @@ export function OverlayRoute() {
     onCaptureStart(start).then((u) => (unsubStart = u));
     onCaptureEnd(() => {
       useAnnotation.getState().reset();
+      ensuredFocusRef.current = false;
       end();
     }).then((u) => (unsubEnd = u));
     onQuickShotFlash((p) => {
@@ -233,7 +238,23 @@ export function OverlayRoute() {
   };
 
   // Mouse handling
+  const ensureOverlayFocus = () => {
+    // On macOS the overlay window is intentionally not focused at
+    // capture start (so we don't steal the menu bar from the user's
+    // app). That blocks keydown events for Tab/C until the user
+    // clicks. Once the cursor enters the overlay, the user is clearly
+    // engaged with us — claim keyboard focus so color picker
+    // shortcuts work in hover mode too.
+    if (ensuredFocusRef.current) return;
+    ensuredFocusRef.current = true;
+    getCurrentWebviewWindow()
+      .setFocus()
+      .catch(() => {
+        ensuredFocusRef.current = false;
+      });
+  };
   const onMouseMove = (e: React.MouseEvent) => {
+    ensureOverlayFocus();
     const p = { x: e.clientX, y: e.clientY };
     updateHoverAt(p);
     const state = useOverlay.getState();
