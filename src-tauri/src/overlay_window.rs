@@ -31,7 +31,15 @@ pub fn capture_overlay_accepts_first_mouse() -> bool {
 }
 
 pub fn capture_overlay_should_take_focus() -> bool {
-    !cfg!(target_os = "macos")
+    // We always want the overlay to own keyboard focus while it's
+    // visible: otherwise shortcuts like Tab (toggle color format) and
+    // C (copy color) get delivered to whatever app the user had
+    // active, which is both a UX bug (shortcuts don't work) and a
+    // safety bug (Tab indents code, C overwrites the clipboard, etc).
+    // On macOS, `bring_platform_overlay_to_front` activates our app
+    // and calls `makeKeyAndOrderFront:`; the subsequent `set_focus()`
+    // from lib.rs is a defense-in-depth no-op once we're already key.
+    true
 }
 
 #[cfg(all(target_os = "macos", test))]
@@ -115,14 +123,40 @@ fn configure_platform_overlay(window: &WebviewWindow, monitor_id: u32) -> Result
 #[cfg(target_os = "macos")]
 fn bring_platform_overlay_to_front(window: &WebviewWindow) -> Result<()> {
     use objc::{
-        runtime::{Object, Sel},
+        runtime::{Class, Object, Sel, YES},
         Message,
     };
 
     let ns_window = window.ns_window()? as *mut Object;
     unsafe {
+        // Bring the window to the front visually first. This works
+        // even when our app isn't the active app — but it doesn't
+        // grant key-window status, so keyboard events would still go
+        // to whatever app the user came from.
         let ns_window = &*ns_window;
         ns_window.send_message::<_, ()>(Sel::register("orderFrontRegardless"), ())?;
+
+        // Activate the application so the system will let our window
+        // become key. Without this, `makeKeyAndOrderFront:` is a
+        // silent no-op when we're not already the foreground app —
+        // the exact failure mode the user hit when Tab/C kept hitting
+        // their editor under the overlay.
+        if let Some(app_class) = Class::get("NSApplication") {
+            let app: *mut Object =
+                app_class.send_message(Sel::register("sharedApplication"), ())?;
+            if !app.is_null() {
+                (*app)
+                    .send_message::<_, ()>(Sel::register("activateIgnoringOtherApps:"), (YES,))?;
+            }
+        }
+
+        // Now claim key-window status so the overlay receives all
+        // subsequent keyDown events instead of the previously-active
+        // app.
+        ns_window.send_message::<_, ()>(
+            Sel::register("makeKeyAndOrderFront:"),
+            (std::ptr::null_mut::<Object>(),),
+        )?;
     }
 
     Ok(())
@@ -350,8 +384,11 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_capture_overlay_does_not_take_focus() {
-        assert!(!super::capture_overlay_should_take_focus());
+    fn macos_capture_overlay_takes_focus_so_keyboard_shortcuts_work() {
+        // Without this, Tab/C while the overlay is visible would be
+        // delivered to whatever app the user had focused before
+        // capture started, instead of activating the color picker.
+        assert!(super::capture_overlay_should_take_focus());
     }
 
     #[cfg(not(target_os = "macos"))]

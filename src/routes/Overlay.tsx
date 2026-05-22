@@ -49,19 +49,27 @@ export function OverlayRoute() {
   const monitorRect = useOverlay((s) => s.monitorRect);
   const [flashRect, setFlashRect] = useState<Rect | null>(null);
   const flashTimerRef = useRef<number | null>(null);
-  // Tracks whether we've already pulled keyboard focus into the overlay
-  // window for this capture session. Reset on capture:end.
-  const ensuredFocusRef = useRef(false);
 
   useEffect(() => {
     document.body.classList.add("overlay");
     let unsubStart: undefined | (() => void);
     let unsubEnd: undefined | (() => void);
     let unsubFlash: undefined | (() => void);
-    onCaptureStart(start).then((u) => (unsubStart = u));
+    // Wrap `start` so we also pull keyboard focus into the overlay
+    // window the moment it appears. On macOS, the Rust side
+    // intentionally does not call `set_focus` for the overlay, so
+    // without this the user's previously-active app keeps keyboard
+    // focus and Tab/C end up in that app instead of the color picker.
+    onCaptureStart((payload) => {
+      start(payload);
+      getCurrentWebviewWindow()
+        .setFocus()
+        .catch(() => {
+          /* best effort — onMouseMove will retry */
+        });
+    }).then((u) => (unsubStart = u));
     onCaptureEnd(() => {
       useAnnotation.getState().reset();
-      ensuredFocusRef.current = false;
       end();
     }).then((u) => (unsubEnd = u));
     onQuickShotFlash((p) => {
@@ -110,18 +118,32 @@ export function OverlayRoute() {
 
       if (e.key === "Escape") { e.preventDefault(); cancelCapture(); return; }
 
-      // Color picker: Tab toggles format, C copies color (active in hover or committed)
-      if (e.key === "Tab" && (mode === "hover" || mode === "committed")) {
+      // Read mode from the store directly — NOT from the closure.
+      // The closure's `mode` can be stale: capture:start updates the
+      // store synchronously but React re-renders (and re-registers
+      // this handler) asynchronously. If the user presses Tab/C
+      // between the store update and the re-render, the closure still
+      // holds "idle" and the condition would fail.
+      const currentMode = useOverlay.getState().mode;
+
+      // Color picker: Tab toggles format, C copies color. Active during
+      // hover (before any selection) and committed (after). Always
+      // stopPropagation so the keystroke can't leak to the underlying
+      // app if the overlay window happens to lose focus mid-session.
+      if (e.key === "Tab" && (currentMode === "hover" || currentMode === "committed")) {
         e.preventDefault();
+        e.stopPropagation();
         useOverlay.getState().toggleColorFormat();
         return;
       }
       if (
-        e.key === "c" &&
-        (mode === "hover" || mode === "committed") &&
+        (e.key === "c" || e.key === "C") &&
+        (currentMode === "hover" || currentMode === "committed") &&
         !e.metaKey &&
         !e.ctrlKey
       ) {
+        e.preventDefault();
+        e.stopPropagation();
         const { colorFormat: fmt, currentColor, setColorCopied } = useOverlay.getState();
         if (!currentColor) return;
         const colorText =
@@ -138,7 +160,7 @@ export function OverlayRoute() {
         return;
       }
 
-      if (mode === "committed") {
+      if (currentMode === "committed") {
         const { undo, redo, deleteObject, selectedObjectId } = useAnnotation.getState();
 
         if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
@@ -241,16 +263,16 @@ export function OverlayRoute() {
   const ensureOverlayFocus = () => {
     // On macOS the overlay window is intentionally not focused at
     // capture start (so we don't steal the menu bar from the user's
-    // app). That blocks keydown events for Tab/C until the user
-    // clicks. Once the cursor enters the overlay, the user is clearly
-    // engaged with us — claim keyboard focus so color picker
-    // shortcuts work in hover mode too.
-    if (ensuredFocusRef.current) return;
-    ensuredFocusRef.current = true;
+    // app). That means the user's previously-active app may still own
+    // keyboard focus when our overlay first appears, and Tab/C would
+    // be delivered there. Re-claim focus whenever we notice we don't
+    // have it — running on every mousemove is cheap and self-healing
+    // if a single setFocus() call doesn't take.
+    if (typeof document !== "undefined" && document.hasFocus()) return;
     getCurrentWebviewWindow()
       .setFocus()
       .catch(() => {
-        ensuredFocusRef.current = false;
+        /* best effort */
       });
   };
   const onMouseMove = (e: React.MouseEvent) => {
