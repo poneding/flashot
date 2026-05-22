@@ -32,10 +32,10 @@ pub fn capture_overlay_accepts_first_mouse() -> bool {
 
 pub fn capture_overlay_should_take_focus() -> bool {
     // We always want the overlay to own keyboard focus while it's
-    // visible: otherwise shortcuts like Tab (toggle color format) and
+    // visible: otherwise shortcuts like X (toggle color format) and
     // C (copy color) get delivered to whatever app the user had
     // active, which is both a UX bug (shortcuts don't work) and a
-    // safety bug (Tab indents code, C overwrites the clipboard, etc).
+    // safety bug (X indents code, C overwrites the clipboard, etc).
     // On macOS, `bring_platform_overlay_to_front` activates our app
     // and calls `makeKeyAndOrderFront:`; the subsequent `set_focus()`
     // from lib.rs is a defense-in-depth no-op once we're already key.
@@ -139,7 +139,7 @@ fn bring_platform_overlay_to_front(window: &WebviewWindow) -> Result<()> {
         // Activate the application so the system will let our window
         // become key. Without this, `makeKeyAndOrderFront:` is a
         // silent no-op when we're not already the foreground app —
-        // the exact failure mode the user hit when Tab/C kept hitting
+        // the exact failure mode the user hit when X/C kept hitting
         // their editor under the overlay.
         if let Some(app_class) = Class::get("NSApplication") {
             let app: *mut Object =
@@ -385,7 +385,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_capture_overlay_takes_focus_so_keyboard_shortcuts_work() {
-        // Without this, Tab/C while the overlay is visible would be
+        // Without this, X/C while the overlay is visible would be
         // delivered to whatever app the user had focused before
         // capture started, instead of activating the color picker.
         assert!(super::capture_overlay_should_take_focus());

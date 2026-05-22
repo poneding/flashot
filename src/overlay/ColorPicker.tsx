@@ -7,7 +7,7 @@ const MAGNIFIER_SIZE = 120;
 const PIXEL_GRID_SIZE = 15;
 const PIXEL_BLOCK_SIZE = MAGNIFIER_SIZE / PIXEL_GRID_SIZE; // 8px per pixel
 
-const PANEL_WIDTH = 186;
+const PANEL_WIDTH = 158;
 const PANEL_HEIGHT = 200;
 const OFFSET = 20;
 
@@ -106,7 +106,7 @@ export function ColorPicker() {
         const g = pixels[idx + 1];
         const b = pixels[idx + 2];
 
-        magnifierCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+        magnifierCtx.fillStyle = `rgb(${r},${g},${b})`;
         magnifierCtx.fillRect(
           col * PIXEL_BLOCK_SIZE,
           row * PIXEL_BLOCK_SIZE,
@@ -188,13 +188,12 @@ export function ColorPicker() {
         ) : null}
       </div>
       <div style={hintStyle}>
-        <div>Tips:</div>
         <div>
-          · Press <kbd style={kbdStyle}>Tab</kbd> to switch HEX / RGB
+          <kbd style={kbdStyle}>X</kbd> switch HEX / RGB
         </div>
         <div style={tipRowStyle}>
           <span>
-            · Press <kbd style={kbdStyle}>C</kbd> to copy color
+            <kbd style={kbdStyle}>C</kbd> copy color
           </span>
           {colorCopied && (
             <span style={copiedInlineStyle}>
@@ -209,14 +208,14 @@ export function ColorPicker() {
 }
 
 function formatColorCss(c: { r: number; g: number; b: number }): string {
-  return `rgb(${c.r}, ${c.g}, ${c.b})`;
+  return `rgb(${c.r},${c.g},${c.b})`;
 }
 
 export function formatColorText(c: { r: number; g: number; b: number }, format: "hex" | "rgb"): string {
   if (format === "hex") {
     return `#${c.r.toString(16).padStart(2, "0").toUpperCase()}${c.g.toString(16).padStart(2, "0").toUpperCase()}${c.b.toString(16).padStart(2, "0").toUpperCase()}`;
   }
-  return `rgb(${c.r}, ${c.g}, ${c.b})`;
+  return `rgb(${c.r},${c.g},${c.b})`;
 }
 
 const containerStyle: CSSProperties = {

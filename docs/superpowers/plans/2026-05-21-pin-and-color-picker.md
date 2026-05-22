@@ -823,7 +823,7 @@ export function ColorPicker() {
           </>
         ) : null}
       </div>
-      <div style={hintStyle}>Tab: switch format</div>
+      <div style={hintStyle}>X: switch format</div>
     </div>
   );
 }
@@ -1067,7 +1067,7 @@ Add to imports at top:
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 ```
 
-- [ ] **Step 2: Add keyboard handler for Tab and C keys**
+- [ ] **Step 2: Add keyboard handler for X and C keys**
 
 Add to the existing `handleKeyDown` function in Overlay.tsx (find the function that handles Escape key):
 
@@ -1081,8 +1081,8 @@ const handleKeyDown = useCallback(
       // ... existing code
     }
     
-    // Color picker: Tab to toggle format
-    if (e.key === "Tab" && (mode === "hover" || mode === "committed")) {
+    // Color picker: X to toggle format
+    if (e.key === "x" && (mode === "hover" || mode === "committed")) {
       e.preventDefault();
       toggleColorFormat();
     }
@@ -1174,7 +1174,7 @@ Expected: No errors
 
 ```bash
 git add src/routes/Overlay.tsx src/overlay/state.ts src/overlay/ColorPicker.tsx
-git commit -m "feat: add keyboard handlers for color picker (Tab/C keys)"
+git commit -m "feat: add keyboard handlers for color picker (X/C keys)"
 ```
 
 ---
@@ -1216,7 +1216,7 @@ Expected:
 - Color picker panel appears near crosshair cursor
 - Panel shows magnified pixels with grid lines
 - Panel follows cursor movement
-- Tab key switches between HEX and RGB format
+- X key switches between HEX and RGB format
 - C key copies color to clipboard and shows "Copied!" feedback
 
 - [ ] **Step 5: Commit**
@@ -1315,7 +1315,7 @@ Manual test checklist:
 - [ ] Grid lines visible between pixels
 - [ ] Center pixel highlighted
 - [ ] Color value updates in real-time
-- [ ] Tab key switches HEX ↔ RGB format
+- [ ] X key switches HEX ↔ RGB format
 - [ ] C key copies color to clipboard
 - [ ] "Copied!" feedback appears for 1.5s
 - [ ] Panel hides during dragging

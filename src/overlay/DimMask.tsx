@@ -19,20 +19,7 @@ export function DimMask() {
   const monitor = useOverlay((s) => s.monitorRect);
   const sel = useOverlay((s) => s.selection ?? s.hoverRect);
   if (!monitor) return null;
-
-  // Whole-screen dim if no selection
-  if (!sel) {
-    return (
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: DIM,
-          pointerEvents: "none",
-        }}
-      />
-    );
-  }
+  if (!sel) return null;
 
   // Four rects around the selection
   const top: Rect = { x: 0, y: 0, width: monitor.width, height: sel.y };
@@ -49,12 +36,14 @@ export function DimMask() {
     width: monitor.width - (sel.x + sel.width),
     height: sel.height,
   };
+  const rects = [top, bottom, left, right].filter((r) => r.width > 0 && r.height > 0);
+  if (rects.length === 0) return null;
+
   return (
     <>
-      <div style={rectStyle(top)} />
-      <div style={rectStyle(bottom)} />
-      <div style={rectStyle(left)} />
-      <div style={rectStyle(right)} />
+      {rects.map((r, index) => (
+        <div key={index} style={rectStyle(r)} />
+      ))}
     </>
   );
 }

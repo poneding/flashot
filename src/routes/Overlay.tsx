@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { useOverlay } from "@/overlay/state";
+import { exportAnnotationLayer } from "@/annotation/export";
+import { AnnotationStage } from "@/annotation/Stage";
+import { useAnnotation } from "@/annotation/store";
+import { Toolbar as AnnotationToolbar } from "@/annotation/Toolbar";
+import { currentCursorPointInWindow } from "@/lib/cursor";
+import { cursorForHandle, hitTestHandle, rectContainsPoint } from "@/lib/geometry";
 import {
   cancelCapture,
   claimSelection,
@@ -16,18 +18,16 @@ import {
   releaseSelection,
 } from "@/lib/ipc";
 import type { Rect } from "@/lib/types";
-import { currentCursorPointInWindow } from "@/lib/cursor";
-import { cursorForHandle, hitTestHandle, rectContainsPoint } from "@/lib/geometry";
-import { FrozenLayer } from "@/overlay/FrozenLayer";
-import { DimMask } from "@/overlay/DimMask";
+import { ColorPicker } from "@/overlay/ColorPicker";
 import { DetectHighlight } from "@/overlay/DetectHighlight";
+import { DimMask } from "@/overlay/DimMask";
+import { FrozenLayer } from "@/overlay/FrozenLayer";
 import { SelectionBox } from "@/overlay/SelectionBox";
 import { Toolbar as ScreenshotToolbar } from "@/overlay/Toolbar";
-import { AnnotationStage } from "@/annotation/Stage";
-import { Toolbar as AnnotationToolbar } from "@/annotation/Toolbar";
-import { ColorPicker } from "@/overlay/ColorPicker";
-import { useAnnotation } from "@/annotation/store";
-import { exportAnnotationLayer } from "@/annotation/export";
+import { useOverlay } from "@/overlay/state";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { useEffect, useRef, useState } from "react";
 
 export function OverlayRoute() {
   const start = useOverlay((s) => s.start);
@@ -60,7 +60,7 @@ export function OverlayRoute() {
     // window the moment it appears. On macOS, the Rust side
     // intentionally does not call `set_focus` for the overlay, so
     // without this the user's previously-active app keeps keyboard
-    // focus and Tab/C end up in that app instead of the color picker.
+    // focus and X/C end up in that app instead of the color picker.
     onCaptureStart((payload) => {
       start(payload);
       getCurrentWebviewWindow()
@@ -122,16 +122,16 @@ export function OverlayRoute() {
       // Read mode from the store directly — NOT from the closure.
       // The closure's `mode` can be stale: capture:start updates the
       // store synchronously but React re-renders (and re-registers
-      // this handler) asynchronously. If the user presses Tab/C
+      // this handler) asynchronously. If the user presses X/C
       // between the store update and the re-render, the closure still
       // holds "idle" and the condition would fail.
       const currentMode = useOverlay.getState().mode;
 
-      // Color picker: Tab toggles format, C copies color. Active during
+      // Color picker: X toggles format, C copies color. Active during
       // hover (before any selection) and committed (after). Always
       // stopPropagation so the keystroke can't leak to the underlying
       // app if the overlay window happens to lose focus mid-session.
-      if (e.key === "Tab" && (currentMode === "hover" || currentMode === "committed")) {
+      if (e.key === "x" && (currentMode === "hover" || currentMode === "committed")) {
         e.preventDefault();
         e.stopPropagation();
         useOverlay.getState().toggleColorFormat();
@@ -150,9 +150,9 @@ export function OverlayRoute() {
         const colorText =
           fmt === "hex"
             ? `#${currentColor.r.toString(16).padStart(2, "0").toUpperCase()}${currentColor.g
-                .toString(16)
-                .padStart(2, "0")
-                .toUpperCase()}${currentColor.b.toString(16).padStart(2, "0").toUpperCase()}`
+              .toString(16)
+              .padStart(2, "0")
+              .toUpperCase()}${currentColor.b.toString(16).padStart(2, "0").toUpperCase()}`
             : `rgb(${currentColor.r}, ${currentColor.g}, ${currentColor.b})`;
         void writeText(colorText).then(() => {
           setColorCopied(true);
@@ -207,7 +207,7 @@ export function OverlayRoute() {
           const state = useOverlay.getState();
           if (state.mode !== "hover") return;
           if (p) state.updateHoverAt(p);
-          else state.clearHover();
+          else state.setDefaultHoverTarget();
         })
         .catch((error) => {
           if (!warned) {
@@ -240,7 +240,8 @@ export function OverlayRoute() {
 
   const handlePin = async () => {
     if (monitorId == null || !selection) return;
-    await pinImage(monitorId, selection);
+    const annotationPng = await exportAnnotationLayer(scaleFactor);
+    await pinImage(monitorId, selection, annotationPng ?? undefined);
   };
 
   const handleClose = () => {
@@ -265,7 +266,7 @@ export function OverlayRoute() {
     // On macOS the overlay window is intentionally not focused at
     // capture start (so we don't steal the menu bar from the user's
     // app). That means the user's previously-active app may still own
-    // keyboard focus when our overlay first appears, and Tab/C would
+    // keyboard focus when our overlay first appears, and X/C would
     // be delivered there. Re-claim focus whenever we notice we don't
     // have it — running on every mousemove is cheap and self-healing
     // if a single setFocus() call doesn't take.
@@ -357,7 +358,7 @@ export function OverlayRoute() {
         width: "100vw",
         height: "100vh",
         overflow: "hidden",
-        background: "#000",
+        background: "transparent",
         cursor: overlayCursor,
       }}
     >

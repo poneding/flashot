@@ -79,7 +79,7 @@ pnpm tauri build      # Build production bundle (.dmg, .msi, .AppImage)
 - **`src/lib/hit-test.ts`**: Z-order window hit-testing. Returns topmost window at cursor position.
 - **`src/lib/ipc.ts`**: Typed wrappers around Tauri IPC (commands + events). Use these instead of raw `invoke()`.
 - **`src/routes/Pin.tsx`**: Pin window route. Displays a pinned screenshot in an always-on-top borderless window. Mouse drag moves the window via `startDragging()`, scroll wheel scales (50%–300%), double-click and Escape close the pin.
-- **`src/overlay/ColorPicker.tsx`**: Snipaste-style color picker overlay. Loads the frozen frame into an offscreen canvas, reads a 15×15 pixel block around the cursor on each move, renders a 120×120 magnifier with grid lines and center highlight. Tab toggles HEX/RGB format; C copies the color value.
+- **`src/overlay/ColorPicker.tsx`**: Snipaste-style color picker overlay. Loads the frozen frame into an offscreen canvas, reads a 15×15 pixel block around the cursor on each move, renders a 120×120 magnifier with grid lines and center highlight. X toggles HEX/RGB format; C copies the color value.
 
 ### Multi-Monitor Handling
 

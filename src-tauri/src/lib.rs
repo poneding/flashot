@@ -53,6 +53,14 @@ pub fn run() {
                                     entry.image_path
                                 );
                             }
+                            if let Some(annotation_path) = entry.annotation_path {
+                                if let Err(e) = std::fs::remove_file(&annotation_path) {
+                                    tracing::warn!(
+                                        "failed to remove pin annotation PNG {:?}: {e}",
+                                        annotation_path
+                                    );
+                                }
+                            }
                         }
                     }
                 }

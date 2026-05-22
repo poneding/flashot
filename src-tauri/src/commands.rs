@@ -237,6 +237,7 @@ pub fn list_system_fonts() -> Vec<String> {
 pub async fn pin_image(
     monitor_id: u32,
     rect: Rect,
+    annotation_png: Option<Vec<u8>>,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
     pin_mgr: State<'_, Arc<PinManager>>,
@@ -259,8 +260,23 @@ pub async fn pin_image(
     let image_path = pins_dir.join(format!("pin-{}.png", pin_id));
     save_pin_png(&cropped.rgba, cropped.width, cropped.height, &image_path)?;
 
+    let annotation_path = match annotation_png {
+        Some(png_data) if !png_data.is_empty() => {
+            let annotation_path = pins_dir.join(format!("pin-{}-annotation.png", pin_id));
+            std::fs::write(&annotation_path, png_data)
+                .map_err(|e| format!("Failed to save annotation PNG: {}", e))?;
+            Some(annotation_path)
+        }
+        _ => None,
+    };
+
     let window_label = format!("pin-{}", pin_id);
-    let url = tauri::WebviewUrl::App(format!("index.html#/pin/{}", pin_id).into());
+    let route = if annotation_path.is_some() {
+        format!("index.html#/pin/{}?annotation=1", pin_id)
+    } else {
+        format!("index.html#/pin/{}", pin_id)
+    };
+    let url = tauri::WebviewUrl::App(route.into());
 
     let outer_width = rect.width as f64 + 2.0 * PIN_SHADOW_PADDING;
     let outer_height = rect.height as f64 + 2.0 * PIN_SHADOW_PADDING;
@@ -294,6 +310,7 @@ pub async fn pin_image(
     pin_mgr.add_pin(PinEntry {
         id: pin_id.clone(),
         image_path,
+        annotation_path,
         window_label,
         original_width: rect.width,
         original_height: rect.height,
@@ -317,6 +334,9 @@ pub async fn close_pin(
     }
 
     let _ = std::fs::remove_file(&entry.image_path);
+    if let Some(annotation_path) = entry.annotation_path {
+        let _ = std::fs::remove_file(annotation_path);
+    }
     Ok(())
 }
 
@@ -353,11 +373,25 @@ fn save_pin_png(
     height: u32,
     path: &std::path::Path,
 ) -> Result<(), String> {
-    use image::{ImageBuffer, RgbaImage};
-    let img: RgbaImage = ImageBuffer::from_raw(width, height, rgba.to_vec())
-        .ok_or("Failed to create image buffer")?;
-    img.save(path)
-        .map_err(|e| format!("Failed to save PNG: {}", e))
+    let png = encode_pin_png(rgba, width, height)?;
+    std::fs::write(path, png).map_err(|e| format!("Failed to save PNG: {}", e))
+}
+
+fn encode_pin_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
+    use image::{
+        codecs::png::{CompressionType, FilterType, PngEncoder},
+        ExtendedColorType, ImageEncoder,
+    };
+
+    let mut png = Vec::with_capacity(rgba.len() + height as usize);
+    PngEncoder::new_with_quality(
+        &mut png,
+        CompressionType::Uncompressed,
+        FilterType::NoFilter,
+    )
+    .write_image(rgba, width, height, ExtendedColorType::Rgba8)
+    .map_err(|e| format!("Failed to encode PNG: {}", e))?;
+    Ok(png)
 }
 
 pub(crate) struct CroppedImage {
@@ -532,6 +566,96 @@ mod tests {
             end_session_idx < save_dialog_idx,
             "native save dialogs must open after overlay windows are hidden",
         );
+    }
+
+    #[test]
+    fn pin_image_accepts_annotation_png_for_pin_route() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let start = source.find("pub async fn pin_image").unwrap();
+        let end = source[start..]
+            .find("#[tauri::command]\npub async fn close_pin")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        assert!(
+            body.contains("annotation_png: Option<Vec<u8>>"),
+            "pin_image must accept exported annotation PNG data",
+        );
+        assert!(
+            body.contains("annotation_path"),
+            "pin_image must persist annotation PNG data for the pin window",
+        );
+    }
+
+    #[test]
+    fn pin_image_stores_annotation_as_separate_layer_for_latency() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let start = source.find("pub async fn pin_image").unwrap();
+        let end = source[start..]
+            .find("#[tauri::command]\npub async fn close_pin")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        assert!(
+            body.contains("annotation_path"),
+            "pin_image should keep annotation PNGs as a separate pin-window layer",
+        );
+        assert!(
+            body.contains("std::fs::write(&annotation_path, png_data)"),
+            "pin_image should write the exported annotation PNG directly instead of decoding it",
+        );
+        assert!(
+            body.contains("index.html#/pin/{}?annotation=1"),
+            "pin route should know when to load an annotation layer",
+        );
+        assert!(
+            !body.contains("composite_annotation(&cropped"),
+            "pin_image should avoid synchronous annotation compositing before creating the pin window",
+        );
+    }
+
+    #[test]
+    fn pin_png_encoder_uses_low_latency_settings() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let start = source.find("fn save_pin_png").unwrap();
+        let end = source[start..]
+            .find("pub(crate) struct CroppedImage")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        assert!(
+            body.contains("PngEncoder::new_with_quality"),
+            "pin PNGs are temporary UI assets and should use explicit encoder settings",
+        );
+        assert!(
+            body.contains("CompressionType::Uncompressed"),
+            "pin PNG encoding should favor low click-to-pin latency over small cache files",
+        );
+        assert!(
+            body.contains("FilterType::NoFilter"),
+            "pin PNG encoding should skip PNG filtering work",
+        );
+        assert!(
+            body.contains(".write_image(rgba, width, height"),
+            "pin PNG encoding should avoid copying RGBA into an ImageBuffer first",
+        );
+    }
+
+    #[test]
+    fn fast_pin_png_encoder_writes_decodable_rgba() {
+        let rgba = vec![255, 0, 0, 255, 0, 128, 255, 255];
+
+        let png = encode_pin_png(&rgba, 2, 1).expect("pin png should encode");
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+
+        let decoded = image::load_from_memory(&png)
+            .expect("pin png should decode")
+            .to_rgba8();
+        assert_eq!(decoded.dimensions(), (2, 1));
+        assert_eq!(decoded.into_raw(), rgba);
     }
 
     #[test]

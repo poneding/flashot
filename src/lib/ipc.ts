@@ -42,8 +42,12 @@ export async function endTextInputSession(): Promise<void> {
 export async function listSystemFonts(): Promise<string[]> {
   return await invoke<string[]>("list_system_fonts");
 }
-export async function pinImage(monitorId: number, rect: Rect): Promise<string> {
-  return await invoke<string>("pin_image", { monitorId, rect });
+export async function pinImage(monitorId: number, rect: Rect, annotationPng?: ArrayBuffer): Promise<string> {
+  return await invoke<string>("pin_image", {
+    monitorId,
+    rect,
+    annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
+  });
 }
 export async function closePin(pinId: string): Promise<void> {
   await invoke("close_pin", { pinId });

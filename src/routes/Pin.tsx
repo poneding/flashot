@@ -20,20 +20,29 @@ const PIN_GLOW = [
   `0 0 22px ${SELECTION_COLOR}33`,
 ].join(", ");
 
-function parsePinId(): string | null {
+function parsePinRoute(): { id: string; hasAnnotation: boolean } | null {
   const h = window.location.hash || "";
   const prefix = "#/pin/";
   if (!h.startsWith(prefix)) return null;
   const rest = h.slice(prefix.length);
-  // Strip any trailing query/hash fragments just in case.
-  const id = rest.split(/[/?#]/)[0];
-  return id || null;
+  const [idPart, queryPart = ""] = rest.split("?");
+  // Strip any trailing path/hash fragments just in case.
+  const id = idPart.split(/[/?#]/)[0];
+  if (!id) return null;
+  const query = queryPart.split("#")[0];
+  return {
+    id,
+    hasAnnotation: new URLSearchParams(query).get("annotation") === "1",
+  };
 }
 
 export function PinRoute() {
-  const [id] = useState<string | null>(() => parsePinId());
+  const [pinRoute] = useState(() => parsePinRoute());
+  const id = pinRoute?.id ?? null;
+  const hasAnnotation = pinRoute?.hasAnnotation ?? false;
   const [scale, setScale] = useState(1.0);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [annotationUrl, setAnnotationUrl] = useState<string | null>(null);
 
   useEffect(() => {
     document.body.classList.add("pin");
@@ -50,15 +59,22 @@ export function PinRoute() {
         const cacheDir = await appCacheDir();
         const sep = cacheDir.endsWith("/") || cacheDir.endsWith("\\") ? "" : "/";
         const imagePath = `${cacheDir}${sep}pins/pin-${id}.png`;
-        if (!cancelled) setImageUrl(convertFileSrc(imagePath));
+        const annotationPath = `${cacheDir}${sep}pins/pin-${id}-annotation.png`;
+        if (!cancelled) {
+          setImageUrl(convertFileSrc(imagePath));
+          setAnnotationUrl(hasAnnotation ? convertFileSrc(annotationPath) : null);
+        }
       } catch {
-        if (!cancelled) setImageUrl(null);
+        if (!cancelled) {
+          setImageUrl(null);
+          setAnnotationUrl(null);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, hasAnnotation]);
 
   useEffect(() => {
     if (!id) return;
@@ -123,6 +139,8 @@ export function PinRoute() {
   };
 
   const imgStyle: CSSProperties = {
+    position: "absolute",
+    inset: 0,
     width: "100%",
     height: "100%",
     objectFit: "contain",
@@ -135,7 +153,33 @@ export function PinRoute() {
 
   return (
     <div style={containerStyle} onMouseDown={handleMouseDown}>
-      <img src={imageUrl} alt="Pinned screenshot" style={imgStyle} draggable={false} />
+      <div style={imageStackStyle}>
+        <img src={imageUrl} alt="Pinned screenshot" style={imgStyle} draggable={false} />
+        {annotationUrl && (
+          <img
+            src={annotationUrl}
+            alt="Pinned annotations"
+            style={annotationStyle}
+            draggable={false}
+          />
+        )}
+      </div>
     </div>
   );
 }
+
+const imageStackStyle: CSSProperties = {
+  position: "relative",
+  width: "100%",
+  height: "100%",
+};
+
+const annotationStyle: CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  width: "100%",
+  height: "100%",
+  objectFit: "contain",
+  userSelect: "none",
+  pointerEvents: "none",
+};

@@ -7,6 +7,7 @@ use std::sync::Arc;
 pub struct PinEntry {
     pub id: String,
     pub image_path: PathBuf,
+    pub annotation_path: Option<PathBuf>,
     pub window_label: String,
     pub original_width: u32,
     pub original_height: u32,
@@ -63,6 +64,7 @@ mod tests {
         let entry = PinEntry {
             id: "test-id".to_string(),
             image_path: PathBuf::from("/tmp/test.png"),
+            annotation_path: Some(PathBuf::from("/tmp/test-annotation.png")),
             window_label: "pin-test-id".to_string(),
             original_width: 100,
             original_height: 100,
@@ -73,6 +75,10 @@ mod tests {
 
         let retrieved = mgr.get_pin("test-id").unwrap();
         assert_eq!(retrieved.id, "test-id");
+        assert_eq!(
+            retrieved.annotation_path.as_deref(),
+            Some(std::path::Path::new("/tmp/test-annotation.png")),
+        );
         assert_eq!(retrieved.original_width, 100);
     }
 }

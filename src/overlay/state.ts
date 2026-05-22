@@ -34,6 +34,7 @@ type Actions = {
   start: (p: CaptureStartPayload) => void;
   setCursor: (p: Point) => void;
   setHover: (r: Rect | null) => void;
+  setDefaultHoverTarget: () => void;
   clearHover: () => void;
   updateHoverAt: (p: Point) => void;
   lockToPeer: (monitorId: number) => void;
@@ -105,6 +106,10 @@ export const useOverlay = create<State & Actions>((set, get) => ({
 
   setCursor: (p) => set({ cursor: p }),
   setHover: (r) => set({ hoverRect: r }),
+  setDefaultHoverTarget: () => {
+    const { monitorRect } = get();
+    set({ cursor: null, hoverRect: localMonitorBounds(monitorRect) });
+  },
   clearHover: () => set({ cursor: null, hoverRect: null }),
   updateHoverAt: (p) => {
     const { mode, windows, monitorRect } = get();
