@@ -126,12 +126,16 @@ export function OverlayRoute() {
       // between the store update and the re-render, the closure still
       // holds "idle" and the condition would fail.
       const currentMode = useOverlay.getState().mode;
+      const colorPickerShortcutsActive =
+        currentMode === "hover" ||
+        (currentMode === "committed" && useOverlay.getState().colorPickerVisible);
 
       // Color picker: X toggles format, C copies color. Active during
-      // hover (before any selection) and committed (after). Always
-      // stopPropagation so the keystroke can't leak to the underlying
-      // app if the overlay window happens to lose focus mid-session.
-      if (e.key === "x" && (currentMode === "hover" || currentMode === "committed")) {
+      // hover, or after selection when the picker is explicitly open.
+      // Always stopPropagation so the keystroke can't leak to the
+      // underlying app if the overlay window happens to lose focus
+      // mid-session.
+      if (e.key === "x" && colorPickerShortcutsActive) {
         e.preventDefault();
         e.stopPropagation();
         useOverlay.getState().toggleColorFormat();
@@ -139,7 +143,7 @@ export function OverlayRoute() {
       }
       if (
         (e.key === "c" || e.key === "C") &&
-        (currentMode === "hover" || currentMode === "committed") &&
+        colorPickerShortcutsActive &&
         !e.metaKey &&
         !e.ctrlKey
       ) {

@@ -1,6 +1,7 @@
 import { PropertyPanel } from "@/annotation/PropertyPanel";
 import { useAnnotation } from "@/annotation/store";
 import { TooltipBubble } from "@/annotation/Tooltip";
+import { useOverlay } from "@/overlay/state";
 import type { ToolType } from "@/annotation/types";
 import { clampToolbarPosition, computeToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
@@ -11,6 +12,7 @@ import {
   GripVertical,
   Highlighter,
   MoveUpRight,
+  Pipette,
   Pencil,
   Redo2,
   Square,
@@ -53,6 +55,9 @@ type Props = {
 
 export function Toolbar({ selection, monitorRect }: Props) {
   const { activeTool, setActiveTool, canUndo, canRedo, undo, redo } = useAnnotation();
+  const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
+  const toggleColorPicker = useOverlay((s) => s.toggleColorPicker);
+  const hideColorPicker = useOverlay((s) => s.hideColorPicker);
   const objects = useAnnotation((s) => s.objects);
   const selectedObjectId = useAnnotation((s) => s.selectedObjectId);
   const [showPanel, setShowPanel] = useState(false);
@@ -79,6 +84,8 @@ export function Toolbar({ selection, monitorRect }: Props) {
   const pos = customPos ? clampToolbarPosition(customPos, toolbarSize, monitorRect) : computedPos;
 
   function handleToolClick(tool: ToolType) {
+    hideColorPicker();
+
     if (tool === "eraser") {
       setActiveTool(tool);
       setShowPanel(false);
@@ -198,6 +205,12 @@ export function Toolbar({ selection, monitorRect }: Props) {
             onClick={() => handleToolClick(tool.id)}
           />
         ))}
+        <ToolButton
+          icon={<Pipette size={18} />}
+          label="Color Picker"
+          active={colorPickerVisible}
+          onClick={toggleColorPicker}
+        />
 
         <Separator />
 

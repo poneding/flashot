@@ -1,13 +1,21 @@
 /** @vitest-environment jsdom */
 import { Toolbar } from "@/annotation/Toolbar";
 import { useAnnotation } from "@/annotation/store";
+import { useOverlay } from "@/overlay/state";
 import type { AnnotationObject } from "@/annotation/types";
-import type { Rect } from "@/lib/types";
+import type { CaptureStartPayload, Rect } from "@/lib/types";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const selection: Rect = { x: 100, y: 120, width: 300, height: 180 };
 const monitorRect: Rect = { x: 0, y: 0, width: 900, height: 700 };
+const capture: CaptureStartPayload = {
+  monitorId: 1,
+  frameUrl: "asset://localhost/frame.png",
+  monitorRect,
+  scaleFactor: 2,
+  windows: [],
+};
 
 const selectedRect: AnnotationObject = {
   id: "rect-1",
@@ -46,11 +54,15 @@ describe("Annotation toolbar", () => {
     setNavigatorPlatform("MacIntel");
     useAnnotation.getState().reset();
     useAnnotation.getState().setActiveStyle({ color: "#ff0000", strokeWidth: 4 });
+    useOverlay.getState().end();
+    useOverlay.getState().start(capture);
+    useOverlay.getState().commit(selection);
   });
 
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    useOverlay.getState().end();
   });
 
   it("automatically shows the selected object's property panel and edits that object", () => {
@@ -107,11 +119,37 @@ describe("Annotation toolbar", () => {
       "Blur",
       "Highlight",
       "Eraser",
+      "Color Picker",
       "Undo (Cmd+Z)",
       "Redo (Cmd+Shift+Z)",
     ].forEach((title) => {
       expect(screen.getByTitle(title)).not.toBeNull();
     });
+  });
+
+  it("toggles the committed color picker from the horizontal toolbar", () => {
+    renderToolbar();
+
+    expect(useOverlay.getState().colorPickerVisible).toBe(false);
+
+    fireEvent.click(screen.getByTitle("Color Picker"));
+
+    expect(useOverlay.getState().colorPickerVisible).toBe(true);
+
+    fireEvent.click(screen.getByTitle("Color Picker"));
+
+    expect(useOverlay.getState().colorPickerVisible).toBe(false);
+  });
+
+  it("closes the color picker when another annotation tool is selected", () => {
+    renderToolbar();
+
+    fireEvent.click(screen.getByTitle("Color Picker"));
+    expect(useOverlay.getState().colorPickerVisible).toBe(true);
+
+    fireEvent.click(screen.getByTitle("Rectangle"));
+
+    expect(useOverlay.getState().colorPickerVisible).toBe(false);
   });
 
   it("does not render screenshot output actions", () => {

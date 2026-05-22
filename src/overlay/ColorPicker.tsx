@@ -34,6 +34,7 @@ export function ColorPicker() {
   const scaleFactor = useOverlay((s) => s.scaleFactor);
   const monitorRect = useOverlay((s) => s.monitorRect);
   const colorFormat = useOverlay((s) => s.colorFormat);
+  const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
   const colorCopied = useOverlay((s) => s.colorCopied);
   const currentColor = useOverlay((s) => s.currentColor);
   const setCurrentColor = useOverlay((s) => s.setCurrentColor);
@@ -168,7 +169,7 @@ export function ColorPicker() {
     setPosition({ x, y });
   }, [cursor, monitorRect]);
 
-  const visible = (mode === "hover" || mode === "committed") && cursor && frameUrl;
+  const visible = (mode === "hover" || (mode === "committed" && colorPickerVisible)) && cursor && frameUrl;
   if (!visible) return null;
 
   return (
@@ -233,6 +234,7 @@ const containerStyle: CSSProperties = {
   color: "#f0f0f5",
   fontSize: 12,
   pointerEvents: "none",
+  zIndex: 10003,
   width: PANEL_WIDTH,
   boxSizing: "border-box",
 };

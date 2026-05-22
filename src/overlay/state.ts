@@ -26,6 +26,7 @@ type State = {
   dragStart: Point | null;
   selectionInteraction: SelectionInteraction | null;
   colorFormat: "hex" | "rgb";
+  colorPickerVisible: boolean;
   colorCopied: boolean;
   currentColor: { r: number; g: number; b: number } | null;
 };
@@ -50,6 +51,8 @@ type Actions = {
   finishSelectionInteraction: () => void;
   end: () => void;
   toggleColorFormat: () => void;
+  toggleColorPicker: () => void;
+  hideColorPicker: () => void;
   setColorCopied: (v: boolean) => void;
   setCurrentColor: (c: { r: number; g: number; b: number } | null) => void;
 };
@@ -84,6 +87,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   dragStart: null,
   selectionInteraction: null,
   colorFormat: "hex",
+  colorPickerVisible: false,
   colorCopied: false,
   currentColor: null,
 
@@ -100,6 +104,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       selection: null,
       dragStart: null,
       selectionInteraction: null,
+      colorPickerVisible: false,
       colorCopied: false,
       currentColor: null,
     }),
@@ -126,6 +131,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       selection: null,
       dragStart: null,
       selectionInteraction: null,
+      colorPickerVisible: false,
     });
   },
   unlockFromPeer: (ownerMonitorId) => {
@@ -138,6 +144,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       selection: null,
       dragStart: null,
       selectionInteraction: null,
+      colorPickerVisible: false,
     });
   },
 
@@ -150,6 +157,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       dragStart: p,
       selection: null,
       selectionInteraction: null,
+      colorPickerVisible: false,
       hoverRect: keepHover ? hoverRect ?? targetRectAtPoint(p, windows, monitorRect) : null,
     });
   },
@@ -163,13 +171,13 @@ export const useOverlay = create<State & Actions>((set, get) => ({
     if (!sel || sel.width < 4 || sel.height < 4) {
       // tiny drag → take hovered window if any, else stay in hover
       const r = get().hoverRect;
-      if (r) set({ selection: r, mode: "committed", dragStart: null });
-      else set({ mode: "hover", selection: null, dragStart: null });
+      if (r) set({ selection: r, mode: "committed", dragStart: null, colorPickerVisible: false });
+      else set({ mode: "hover", selection: null, dragStart: null, colorPickerVisible: false });
       return;
     }
-    set({ mode: "committed", dragStart: null });
+    set({ mode: "committed", dragStart: null, colorPickerVisible: false });
   },
-  commit: (r) => set({ mode: "committed", selection: r, selectionInteraction: null }),
+  commit: (r) => set({ mode: "committed", selection: r, selectionInteraction: null, colorPickerVisible: false }),
   setSelection: (r) => set({ selection: r }),
   beginMove: (p) => {
     const { mode, selection } = get();
@@ -215,6 +223,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       selection: null,
       dragStart: null,
       selectionInteraction: null,
+      colorPickerVisible: false,
       colorCopied: false,
       currentColor: null,
     }),
@@ -222,6 +231,12 @@ export const useOverlay = create<State & Actions>((set, get) => ({
     const current = get().colorFormat;
     set({ colorFormat: current === "hex" ? "rgb" : "hex" });
   },
+  toggleColorPicker: () => {
+    const { mode, colorPickerVisible } = get();
+    if (mode !== "committed") return;
+    set({ colorPickerVisible: !colorPickerVisible, colorCopied: false });
+  },
+  hideColorPicker: () => set({ colorPickerVisible: false, colorCopied: false }),
   setColorCopied: (v) => set({ colorCopied: v }),
   setCurrentColor: (c) => set({ currentColor: c }),
 }));
