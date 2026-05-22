@@ -9,6 +9,8 @@ import {
   claimSelection,
   cropAndCopy,
   cropAndSave,
+  onColorCopyRequested,
+  onColorFormatToggleRequested,
   onCaptureEnd,
   onCaptureStart,
   onQuickShotFlash,
@@ -16,6 +18,8 @@ import {
   onSelectionReleased,
   pinImage,
   releaseSelection,
+  requestColorCopy,
+  requestColorFormatToggle,
 } from "@/lib/ipc";
 import type { Rect } from "@/lib/types";
 import { ColorPicker, formatColorText } from "@/overlay/ColorPicker";
@@ -26,8 +30,54 @@ import { SelectionBox } from "@/overlay/SelectionBox";
 import { Toolbar as ScreenshotToolbar } from "@/overlay/Toolbar";
 import { useOverlay } from "@/overlay/state";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import type { CursorIcon } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useEffect, useRef, useState } from "react";
+
+function focusCurrentOverlay() {
+  getCurrentWebviewWindow()
+    .setFocus()
+    .catch(() => {
+      /* best effort */
+    });
+}
+
+function ensureCurrentOverlayFocus() {
+  if (typeof document !== "undefined" && document.hasFocus()) return;
+  focusCurrentOverlay();
+}
+
+function colorPickerShortcutsActive() {
+  const { mode, colorPickerVisible } = useOverlay.getState();
+  return mode === "hover" || (mode === "committed" && colorPickerVisible);
+}
+
+function nativeCursorIcon(cursor: string): CursorIcon {
+  switch (cursor) {
+    case "crosshair":
+      return "crosshair";
+    case "move":
+      return "move";
+    case "nwse-resize":
+      return "nwseResize";
+    case "nesw-resize":
+      return "neswResize";
+    case "ns-resize":
+      return "nsResize";
+    case "ew-resize":
+      return "ewResize";
+    default:
+      return "default";
+  }
+}
+
+function setNativeOverlayCursor(cursor: string) {
+  getCurrentWebviewWindow()
+    .setCursorIcon(nativeCursorIcon(cursor))
+    .catch(() => {
+      /* best effort; CSS cursor remains as fallback */
+    });
+}
 
 export function OverlayRoute() {
   const start = useOverlay((s) => s.start);
@@ -56,18 +106,12 @@ export function OverlayRoute() {
     let unsubStart: undefined | (() => void);
     let unsubEnd: undefined | (() => void);
     let unsubFlash: undefined | (() => void);
-    // Wrap `start` so we also pull keyboard focus into the overlay
-    // window the moment it appears. On macOS, the Rust side
-    // intentionally does not call `set_focus` for the overlay, so
-    // without this the user's previously-active app keeps keyboard
-    // focus and X/C end up in that app instead of the color picker.
+    // Wrap `start` so overlays try to own keyboard focus as soon as
+    // they appear. The cursor-owner polling below keeps the focused
+    // overlay aligned with the monitor under the pointer.
     onCaptureStart((payload) => {
       start(payload);
-      getCurrentWebviewWindow()
-        .setFocus()
-        .catch(() => {
-          /* best effort — onMouseMove will retry */
-        });
+      focusCurrentOverlay();
     }).then((u) => (unsubStart = u));
     onCaptureEnd(() => {
       useAnnotation.getState().reset();
@@ -110,6 +154,50 @@ export function OverlayRoute() {
     };
   }, []);
 
+  useEffect(() => {
+    let unsubColorFormat: undefined | (() => void);
+    let unsubColorCopy: undefined | (() => void);
+    let cancelled = false;
+
+    const runForCursorOwner = (action: () => void) => {
+      if (!colorPickerShortcutsActive()) return;
+      currentCursorPointInWindow()
+        .then((p) => {
+          if (cancelled || !p || !colorPickerShortcutsActive()) return;
+          useOverlay.getState().updateHoverAt(p);
+          ensureCurrentOverlayFocus();
+          action();
+        })
+        .catch(() => {
+          /* Hover polling already reports cursor read failures. */
+        });
+    };
+
+    onColorFormatToggleRequested(() => {
+      runForCursorOwner(() => {
+        useOverlay.getState().toggleColorFormat();
+      });
+    }).then((u) => (unsubColorFormat = u));
+
+    onColorCopyRequested(() => {
+      runForCursorOwner(() => {
+        const { colorFormat: fmt, currentColor, setColorCopied } = useOverlay.getState();
+        if (!currentColor) return;
+        const colorText = formatColorText(currentColor, fmt);
+        void writeText(colorText).then(() => {
+          setColorCopied(true);
+          window.setTimeout(() => setColorCopied(false), 1500);
+        });
+      });
+    }).then((u) => (unsubColorCopy = u));
+
+    return () => {
+      cancelled = true;
+      unsubColorFormat?.();
+      unsubColorCopy?.();
+    };
+  }, []);
+
   // Keyboard: Esc cancels; Cmd/Ctrl+C copies when committed
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -126,36 +214,26 @@ export function OverlayRoute() {
       // between the store update and the re-render, the closure still
       // holds "idle" and the condition would fail.
       const currentMode = useOverlay.getState().mode;
-      const colorPickerShortcutsActive =
-        currentMode === "hover" ||
-        (currentMode === "committed" && useOverlay.getState().colorPickerVisible);
+      const captureSessionActive = currentMode !== "idle";
 
-      // Color picker: X toggles format, C copies color. Active during
-      // hover, or after selection when the picker is explicitly open.
-      // Always stopPropagation so the keystroke can't leak to the
-      // underlying app if the overlay window happens to lose focus
-      // mid-session.
-      if (e.key === "x" && colorPickerShortcutsActive) {
+      // Color picker shortcuts are broadcast because macOS can leave
+      // keyboard focus on a different monitor's overlay. The overlay
+      // under the cursor decides whether the picker is active.
+      if (e.key.toLowerCase() === "x" && captureSessionActive) {
         e.preventDefault();
         e.stopPropagation();
-        useOverlay.getState().toggleColorFormat();
+        void requestColorFormatToggle();
         return;
       }
       if (
         (e.key === "c" || e.key === "C") &&
-        colorPickerShortcutsActive &&
+        captureSessionActive &&
         !e.metaKey &&
         !e.ctrlKey
       ) {
         e.preventDefault();
         e.stopPropagation();
-        const { colorFormat: fmt, currentColor, setColorCopied } = useOverlay.getState();
-        if (!currentColor) return;
-        const colorText = formatColorText(currentColor, fmt);
-        void writeText(colorText).then(() => {
-          setColorCopied(true);
-          window.setTimeout(() => setColorCopied(false), 1500);
-        });
+        void requestColorCopy();
         return;
       }
 
@@ -204,8 +282,12 @@ export function OverlayRoute() {
           if (cancelled) return;
           const state = useOverlay.getState();
           if (state.mode !== "hover") return;
-          if (p) state.updateHoverAt(p);
-          else state.setDefaultHoverTarget();
+          if (p) {
+            ensureCurrentOverlayFocus();
+            state.updateHoverAt(p);
+          } else {
+            state.clearHover();
+          }
         })
         .catch((error) => {
           if (!warned) {
@@ -261,19 +343,10 @@ export function OverlayRoute() {
 
   // Mouse handling
   const ensureOverlayFocus = () => {
-    // On macOS the overlay window is intentionally not focused at
-    // capture start (so we don't steal the menu bar from the user's
-    // app). That means the user's previously-active app may still own
-    // keyboard focus when our overlay first appears, and X/C would
-    // be delivered there. Re-claim focus whenever we notice we don't
-    // have it — running on every mousemove is cheap and self-healing
-    // if a single setFocus() call doesn't take.
-    if (typeof document !== "undefined" && document.hasFocus()) return;
-    getCurrentWebviewWindow()
-      .setFocus()
-      .catch(() => {
-        /* best effort */
-      });
+    // Multi-monitor capture has one overlay window per monitor. Keep
+    // the key window aligned with the overlay currently under the
+    // pointer so shortcuts and visual feedback update the same panel.
+    ensureCurrentOverlayFocus();
   };
   const onMouseMove = (e: React.MouseEvent) => {
     ensureOverlayFocus();
@@ -339,6 +412,13 @@ export function OverlayRoute() {
     }
     return "default";
   })();
+
+  useEffect(() => {
+    setNativeOverlayCursor(overlayCursor);
+    return () => {
+      setNativeOverlayCursor("default");
+    };
+  }, [overlayCursor]);
 
   if (mode === "idle") return flashRect ? <QuickShotFlash rect={flashRect} /> : null;
 

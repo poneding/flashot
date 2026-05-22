@@ -17,9 +17,13 @@ function rectStyle(r: Rect): React.CSSProperties {
 
 export function DimMask() {
   const monitor = useOverlay((s) => s.monitorRect);
+  const mode = useOverlay((s) => s.mode);
   const sel = useOverlay((s) => s.selection ?? s.hoverRect);
   if (!monitor) return null;
-  if (!sel) return null;
+  if (!sel) {
+    if (mode !== "hover" && mode !== "dragging" && mode !== "locked") return null;
+    return <div data-dim-mask="full" style={rectStyle({ x: 0, y: 0, width: monitor.width, height: monitor.height })} />;
+  }
 
   // Four rects around the selection
   const top: Rect = { x: 0, y: 0, width: monitor.width, height: sel.y };
@@ -42,7 +46,7 @@ export function DimMask() {
   return (
     <>
       {rects.map((r, index) => (
-        <div key={index} style={rectStyle(r)} />
+        <div key={index} data-dim-mask="partial" style={rectStyle(r)} />
       ))}
     </>
   );

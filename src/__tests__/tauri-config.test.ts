@@ -12,11 +12,15 @@ describe("Tauri capabilities", () => {
 
   it("grants IPC permissions to overlay and settings windows", () => {
     const capabilityPath = resolve(__dirname, "../../src-tauri/capabilities/default.json");
-    const capability = JSON.parse(readFileSync(capabilityPath, "utf8")) as { windows: string[] };
+    const capability = JSON.parse(readFileSync(capabilityPath, "utf8")) as {
+      windows: string[];
+      permissions: string[];
+    };
 
     expect(capability.windows).toContain("overlay-*");
     expect(capability.windows).toContain("settings");
     expect(capability.windows).toContain("about");
+    expect(capability.permissions).toContain("core:window:allow-set-cursor-icon");
   });
 });
 

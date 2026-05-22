@@ -7,6 +7,9 @@ export type SelectionClaimPayload = {
   monitorId: number;
 };
 
+const COLOR_FORMAT_TOGGLE_REQUESTED = "capture:color-format-toggle-requested";
+const COLOR_COPY_REQUESTED = "capture:color-copy-requested";
+
 export async function cropAndCopy(monitorId: number, rect: Rect, annotationPng?: ArrayBuffer): Promise<void> {
   await invoke("crop_and_copy", {
     monitorId,
@@ -82,4 +85,20 @@ export async function releaseSelection(monitorId: number): Promise<void> {
 }
 export function onSelectionReleased(cb: (p: SelectionClaimPayload) => void): Promise<UnlistenFn> {
   return listen<SelectionClaimPayload>("capture:selection-released", (e) => cb(e.payload));
+}
+
+export async function requestColorFormatToggle(): Promise<void> {
+  await emit(COLOR_FORMAT_TOGGLE_REQUESTED, {});
+}
+
+export function onColorFormatToggleRequested(cb: () => void): Promise<UnlistenFn> {
+  return listen(COLOR_FORMAT_TOGGLE_REQUESTED, () => cb());
+}
+
+export async function requestColorCopy(): Promise<void> {
+  await emit(COLOR_COPY_REQUESTED, {});
+}
+
+export function onColorCopyRequested(cb: () => void): Promise<UnlistenFn> {
+  return listen(COLOR_COPY_REQUESTED, () => cb());
 }
