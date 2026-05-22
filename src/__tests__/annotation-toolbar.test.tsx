@@ -19,15 +19,7 @@ const selectedRect: AnnotationObject = {
 };
 
 function renderToolbar() {
-  return render(
-    <Toolbar
-      selection={selection}
-      monitorRect={monitorRect}
-      onCopy={vi.fn()}
-      onSave={vi.fn()}
-      onClose={vi.fn()}
-    />
-  );
+  return render(<Toolbar selection={selection} monitorRect={monitorRect} />);
 }
 
 function propertyPanelElement(container: HTMLElement): HTMLElement {
@@ -117,32 +109,30 @@ describe("Annotation toolbar", () => {
       "Eraser",
       "Undo (Cmd+Z)",
       "Redo (Cmd+Shift+Z)",
-      "Copy (Cmd+C)",
-      "Save (Cmd+S)",
-      "Cancel (ESC)",
     ].forEach((title) => {
       expect(screen.getByTitle(title)).not.toBeNull();
     });
   });
 
-  it("shows an immediate custom tooltip and keeps copy visually consistent", () => {
+  it("does not render screenshot output actions", () => {
     renderToolbar();
-    const copy = screen.getByTitle("Copy (Cmd+C)");
 
-    fireEvent.mouseEnter(copy);
-
-    const tooltip = screen.getByRole("tooltip");
-    expect(tooltip.textContent).toBe("Copy (Cmd+C)");
-    expect(tooltip.getAttribute("style")).toContain("background: rgba(18, 18, 18, 0.72)");
-    expect(copy.style.background).toBe("transparent");
+    expect(screen.queryByTitle("Pin")).toBeNull();
+    expect(screen.queryByTitle("Copy (Cmd+C)")).toBeNull();
+    expect(screen.queryByTitle("Save (Cmd+S)")).toBeNull();
+    expect(screen.queryByTitle("Cancel (ESC)")).toBeNull();
   });
 
-  it("uses semantic colors for cancel, save, and copy actions", () => {
+  it("shows an immediate custom tooltip for undo", () => {
     renderToolbar();
+    const undo = screen.getByTitle("Undo (Cmd+Z)");
 
-    expect(screen.getByTitle("Cancel (ESC)").style.color).toBe("rgb(248, 113, 113)");
-    expect(screen.getByTitle("Save (Cmd+S)").style.color).toBe("rgb(96, 165, 250)");
-    expect(screen.getByTitle("Copy (Cmd+C)").style.color).toBe("rgb(74, 222, 128)");
+    fireEvent.mouseEnter(undo);
+
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip.textContent).toBe("Undo (Cmd+Z)");
+    expect(tooltip.getAttribute("style")).toContain("background: rgba(18, 18, 18, 0.72)");
+    expect(undo.style.background).toBe("transparent");
   });
 
   it("positions toolbar tooltips from the toolbar edge", () => {
@@ -151,15 +141,15 @@ describe("Annotation toolbar", () => {
       if (el.hasAttribute("data-annotation-toolbar")) {
         return domRect({ top: 120, left: 80, width: 420, height: 40 });
       }
-      if (el.getAttribute("title") === "Copy (Cmd+C)") {
+      if (el.getAttribute("title") === "Redo (Cmd+Shift+Z)") {
         return domRect({ top: 124, left: 390, width: 32, height: 32 });
       }
       return domRect();
     });
     renderToolbar();
-    const copy = screen.getByTitle("Copy (Cmd+C)");
+    const redo = screen.getByTitle("Redo (Cmd+Shift+Z)");
 
-    fireEvent.mouseEnter(copy);
+    fireEvent.mouseEnter(redo);
 
     const tooltip = screen.getByRole("tooltip");
     expect(tooltip.style.top).toBe("116px");
@@ -168,9 +158,9 @@ describe("Annotation toolbar", () => {
 
   it("renders toolbar tooltips outside the filtered toolbar surface", () => {
     renderToolbar();
-    const copy = screen.getByTitle("Copy (Cmd+C)");
+    const undo = screen.getByTitle("Undo (Cmd+Z)");
 
-    fireEvent.mouseEnter(copy);
+    fireEvent.mouseEnter(undo);
 
     expect(screen.getByRole("tooltip").parentElement).toBe(document.body);
   });
@@ -182,8 +172,6 @@ describe("Annotation toolbar", () => {
 
     expect(screen.getByTitle("Undo (Ctrl+Z)")).not.toBeNull();
     expect(screen.getByTitle("Redo (Ctrl+Shift+Z)")).not.toBeNull();
-    expect(screen.getByTitle("Copy (Ctrl+C)")).not.toBeNull();
-    expect(screen.getByTitle("Save (Ctrl+S)")).not.toBeNull();
   });
 
   it("shows undo and redo tooltips even when unavailable", () => {

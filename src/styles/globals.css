@@ -61,6 +61,10 @@
   /* Overlay window: must be transparent + click-pass-when-needed */
   body.overlay { background: transparent !important; overflow: hidden; }
   body.overlay .overlay-crosshair, body.overlay .overlay-crosshair img { cursor: crosshair !important; }
+  /* Pin window: transparent so the boxShadow halo around the image
+     reads as a glow, not a white slab. overflow:visible lets the
+     shadow extend into the padding ring reserved by the Rust side. */
+  body.pin, body.pin #root { background: transparent !important; overflow: visible !important; }
   .flashot-dark-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.32) rgba(255, 255, 255, 0.08);

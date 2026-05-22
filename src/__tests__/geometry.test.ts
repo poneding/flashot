@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   computeToolbarPosition,
+  computeVerticalToolbarPosition,
   clampToolbarPosition,
   TOOLBAR_GAP,
   hitTestHandle,
@@ -54,6 +55,46 @@ describe("computeToolbarPosition", () => {
       kind: "inside",
       x: TOOLBAR_GAP,
       y: monitor.height - TB.height - TOOLBAR_GAP,
+    });
+  });
+});
+
+describe("computeVerticalToolbarPosition", () => {
+  const verticalTB = { width: 40, height: 190 };
+
+  it("places to the right when there is room", () => {
+    const sel: Rect = { x: 100, y: 100, width: 400, height: 200 };
+    const p = computeVerticalToolbarPosition(sel, verticalTB, monitor);
+
+    expect(p.kind).toBe("right");
+    expect(p.x).toBe(sel.x + sel.width + TOOLBAR_GAP);
+    expect(p.y).toBe(sel.y);
+  });
+
+  it("flips left when selection is at the right edge", () => {
+    const sel: Rect = { x: 1880, y: 100, width: 35, height: 200 };
+    const p = computeVerticalToolbarPosition(sel, verticalTB, monitor);
+
+    expect(p.kind).toBe("left");
+    expect(p.x).toBe(sel.x - verticalTB.width - TOOLBAR_GAP);
+  });
+
+  it("nudges up when the vertical toolbar would overflow the bottom edge", () => {
+    const sel: Rect = { x: 100, y: 1000, width: 200, height: 60 };
+    const p = computeVerticalToolbarPosition(sel, verticalTB, monitor);
+
+    expect(p.kind).toBe("right");
+    expect(p.y).toBe(monitor.height - verticalTB.height - TOOLBAR_GAP);
+  });
+
+  it("falls back inside the selection when neither side has room", () => {
+    const sel: Rect = { x: 0, y: 0, width: 1920, height: 1080 };
+    const p = computeVerticalToolbarPosition(sel, verticalTB, monitor);
+
+    expect(p).toMatchObject({
+      kind: "inside",
+      x: monitor.width - verticalTB.width - TOOLBAR_GAP,
+      y: TOOLBAR_GAP,
     });
   });
 });
