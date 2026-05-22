@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 const releaseWorkflowPath = resolve(__dirname, "../../.github/workflows/release.yml");
 const ciWorkflowPath = resolve(__dirname, "../../.github/workflows/ci.yml");
 const readmePath = resolve(__dirname, "../../README.md");
+const tauriConfigPath = resolve(__dirname, "../../src-tauri/tauri.conf.json");
 
 describe("release workflow", () => {
   it("keeps branch CI focused on checks instead of packaging installers", () => {
@@ -104,6 +105,13 @@ describe("release workflow", () => {
     expect(workflow).not.toContain("cargo publish");
     expect(workflow).not.toContain("CARGO_REGISTRY_TOKEN");
     expect(readme).toContain("is not published to crates.io");
+  });
+
+  it("uses the production updater public key that signs releases", () => {
+    const config = JSON.parse(readFileSync(tauriConfigPath, "utf8"));
+    const pubkey = Buffer.from(config.plugins.updater.pubkey, "base64").toString("utf8");
+
+    expect(pubkey).toContain("minisign public key: DDE832B267303E0E");
   });
 
   it("documents the maintainer release trigger", () => {
