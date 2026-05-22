@@ -31,6 +31,35 @@ export function computeToolbarPosition(
   return { kind: "inside", x: insideX, y: insideY };
 }
 
+export function computeVerticalToolbarPosition(
+  sel: Rect,
+  toolbar: { width: number; height: number },
+  monitor: Rect,
+): ToolbarPosition {
+  // Preferred: to the right of the selection, top-aligned with selection.
+  const rightX = sel.x + sel.width + TOOLBAR_GAP;
+  const leftX = sel.x - toolbar.width - TOOLBAR_GAP;
+  const minY = monitor.y + TOOLBAR_GAP;
+  const maxY = monitor.y + monitor.height - toolbar.height - TOOLBAR_GAP;
+  const y = clamp(sel.y, minY, maxY);
+
+  if (rightX + toolbar.width + TOOLBAR_GAP <= monitor.x + monitor.width) {
+    return { kind: "right", x: rightX, y };
+  }
+  if (leftX >= monitor.x + TOOLBAR_GAP) {
+    return { kind: "left", x: leftX, y };
+  }
+
+  // Inside selection (top-right), mirroring the horizontal toolbar's inside fallback.
+  const insideX = clamp(
+    sel.x + sel.width - toolbar.width - TOOLBAR_GAP,
+    monitor.x + TOOLBAR_GAP,
+    monitor.x + monitor.width - toolbar.width - TOOLBAR_GAP,
+  );
+  const insideY = clamp(sel.y + TOOLBAR_GAP, minY, maxY);
+  return { kind: "inside", x: insideX, y: insideY };
+}
+
 export function clampToolbarPosition(
   pos: { x: number; y: number },
   toolbar: { width: number; height: number },

@@ -25,12 +25,16 @@ type State = {
   selection: Rect | null;
   dragStart: Point | null;
   selectionInteraction: SelectionInteraction | null;
+  colorFormat: "hex" | "rgb";
+  colorCopied: boolean;
+  currentColor: { r: number; g: number; b: number } | null;
 };
 
 type Actions = {
   start: (p: CaptureStartPayload) => void;
   setCursor: (p: Point) => void;
   setHover: (r: Rect | null) => void;
+  setDefaultHoverTarget: () => void;
   clearHover: () => void;
   updateHoverAt: (p: Point) => void;
   lockToPeer: (monitorId: number) => void;
@@ -45,6 +49,9 @@ type Actions = {
   updateSelectionInteraction: (p: Point) => void;
   finishSelectionInteraction: () => void;
   end: () => void;
+  toggleColorFormat: () => void;
+  setColorCopied: (v: boolean) => void;
+  setCurrentColor: (c: { r: number; g: number; b: number } | null) => void;
 };
 
 function localMonitorBounds(monitor: Rect | null): Rect {
@@ -76,6 +83,9 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   selection: null,
   dragStart: null,
   selectionInteraction: null,
+  colorFormat: "hex",
+  colorCopied: false,
+  currentColor: null,
 
   start: (p) =>
     set({
@@ -90,10 +100,16 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       selection: null,
       dragStart: null,
       selectionInteraction: null,
+      colorCopied: false,
+      currentColor: null,
     }),
 
   setCursor: (p) => set({ cursor: p }),
   setHover: (r) => set({ hoverRect: r }),
+  setDefaultHoverTarget: () => {
+    const { monitorRect } = get();
+    set({ cursor: null, hoverRect: localMonitorBounds(monitorRect) });
+  },
   clearHover: () => set({ cursor: null, hoverRect: null }),
   updateHoverAt: (p) => {
     const { mode, windows, monitorRect } = get();
@@ -199,5 +215,13 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       selection: null,
       dragStart: null,
       selectionInteraction: null,
+      colorCopied: false,
+      currentColor: null,
     }),
+  toggleColorFormat: () => {
+    const current = get().colorFormat;
+    set({ colorFormat: current === "hex" ? "rgb" : "hex" });
+  },
+  setColorCopied: (v) => set({ colorCopied: v }),
+  setCurrentColor: (c) => set({ currentColor: c }),
 }));

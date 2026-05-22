@@ -1,6 +1,7 @@
 import { useOverlay } from "@/overlay/state";
+import { SELECTION_COLOR } from "@/lib/colors";
 
-const COLOR = "#4ED1FF";
+const COLOR = SELECTION_COLOR;
 
 export function DetectHighlight() {
   const r = useOverlay((s) => s.hoverRect);
