@@ -1,171 +1,228 @@
-import { computeToolbarPosition } from "@/lib/geometry";
-import { cancelCapture, cropAndCopy, cropAndSave, pinImage } from "@/lib/ipc";
-import { useOverlay } from "@/overlay/state";
-import { CopyIcon, SaveIcon, XIcon, PinIcon, type LucideIcon } from "lucide-react";
-import { useState, type CSSProperties } from "react";
+import { TooltipBubble } from "@/annotation/Tooltip";
+import { clampToolbarPosition, computeVerticalToolbarPosition } from "@/lib/geometry";
+import type { Rect } from "@/lib/types";
+import { CopyIcon, GripHorizontal, PinIcon, SaveIcon, XIcon, type LucideIcon } from "lucide-react";
+import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 
-const TB = { width: 148, height: 40 };
+const TOOLBAR_SIZE = { width: 40, height: 190 };
+
+type ToolbarAction = () => void | Promise<void>;
+
+type Props = {
+  selection: Rect;
+  monitorRect: Rect;
+  onCopy: ToolbarAction;
+  onSave: ToolbarAction;
+  onPin: ToolbarAction;
+  onClose: ToolbarAction;
+};
 
 type ToolbarButtonProps = {
   label: string;
   icon: LucideIcon;
-  onClick: () => void | Promise<void>;
+  onClick: ToolbarAction;
   disabled?: boolean;
-  variant?: "primary" | "default";
+  tone?: "default" | "danger" | "primary" | "success";
 };
+
+const ACTION_COLORS: Record<NonNullable<ToolbarButtonProps["tone"]>, string> = {
+  default: "rgba(255,255,255,0.78)",
+  danger: "#f87171",
+  primary: "#60a5fa",
+  success: "#4ade80",
+};
+
+export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose }: Props) {
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [measuredHeight, setMeasuredHeight] = useState(TOOLBAR_SIZE.height);
+  const [busy, setBusy] = useState(false);
+  const [customPos, setCustomPos] = useState<{ x: number; y: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const toolbarSize = { width: TOOLBAR_SIZE.width, height: measuredHeight };
+  const computedPos = computeVerticalToolbarPosition(selection, toolbarSize, monitorRect);
+  const pos = customPos ? clampToolbarPosition(customPos, toolbarSize, monitorRect) : computedPos;
+
+  useLayoutEffect(() => {
+    const nextHeight = toolbarRef.current?.offsetHeight ?? 0;
+    if (nextHeight > 0) setMeasuredHeight(nextHeight);
+  });
+
+  const runAction = async (action: ToolbarAction) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await action();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startToolbarDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y };
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      setCustomPos(
+        clampToolbarPosition(
+          { x: dragRef.current.origX + dx, y: dragRef.current.origY + dy },
+          toolbarSize,
+          monitorRect,
+        ),
+      );
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
+  return (
+    <div
+      ref={toolbarRef}
+      data-screenshot-toolbar
+      onMouseDown={(e) => e.stopPropagation()}
+      style={{
+        position: "fixed",
+        left: pos.x,
+        top: pos.y,
+        width: TOOLBAR_SIZE.width,
+        height: TOOLBAR_SIZE.height,
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 2,
+        padding: "4px 0",
+        borderRadius: 10,
+        background: "rgba(30, 30, 30, 0.85)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        color: "#f0f0f5",
+        pointerEvents: "auto",
+        userSelect: "none",
+        zIndex: 10000,
+      }}
+    >
+      <div
+        data-screenshot-toolbar-drag-handle
+        title="Move toolbar"
+        onMouseDown={startToolbarDrag}
+        style={{
+          position: "relative",
+          width: 32,
+          height: 24,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "rgba(255,255,255,0.45)",
+          cursor: "move",
+          flexShrink: 0,
+        }}
+      >
+        <GripHorizontal size={14} />
+      </div>
+
+      <Separator />
+
+      <ToolbarButton
+        label="Close"
+        icon={XIcon}
+        tone="danger"
+        onClick={onClose}
+      />
+      <ToolbarButton
+        label="Pin"
+        icon={PinIcon}
+        onClick={() => runAction(onPin)}
+        disabled={busy}
+      />
+      <ToolbarButton
+        label="Save As"
+        icon={SaveIcon}
+        tone="primary"
+        onClick={() => runAction(onSave)}
+        disabled={busy}
+      />
+      <ToolbarButton
+        label="Copy"
+        icon={CopyIcon}
+        tone="success"
+        onClick={() => runAction(onCopy)}
+        disabled={busy}
+      />
+    </div>
+  );
+}
 
 function ToolbarButton({
   label,
   icon: Icon,
   onClick,
   disabled,
-  variant = "default",
+  tone = "default",
 }: ToolbarButtonProps) {
-  const [showTitle, setShowTitle] = useState(false);
-  const style = variant === "primary" ? primaryBtn : btn;
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const color = disabled ? "rgba(255,255,255,0.45)" : ACTION_COLORS[tone];
 
   return (
     <button
+      ref={buttonRef}
       type="button"
       aria-label={label}
       title={label}
-      style={style}
-      onClick={onClick}
-      disabled={disabled}
-      onMouseEnter={() => setShowTitle(true)}
-      onMouseLeave={() => setShowTitle(false)}
-      onFocus={() => setShowTitle(true)}
-      onBlur={() => setShowTitle(false)}
+      aria-disabled={disabled ? "true" : undefined}
+      onClick={(e) => {
+        if (disabled) {
+          e.preventDefault();
+          return;
+        }
+        onClick();
+      }}
+      onMouseEnter={() => setTooltipVisible(true)}
+      onMouseLeave={() => setTooltipVisible(false)}
+      onFocus={() => setTooltipVisible(true)}
+      onBlur={() => setTooltipVisible(false)}
+      style={{
+        position: "relative",
+        width: 32,
+        height: 32,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 0,
+        borderRadius: 6,
+        border: "none",
+        cursor: disabled ? "default" : "pointer",
+        background: "transparent",
+        color,
+        flexShrink: 0,
+        transition: "background 0.1s, color 0.1s",
+      }}
     >
-      <Icon size={16} strokeWidth={2.2} aria-hidden="true" />
-      {showTitle && (
-        <span role="tooltip" style={tooltip}>
-          {label}
-        </span>
-      )}
+      <Icon size={18} strokeWidth={2.2} aria-hidden="true" />
+      {tooltipVisible && <TooltipBubble label={label} anchorRef={buttonRef} placement="right" />}
     </button>
   );
 }
 
-export function Toolbar() {
-  const mode = useOverlay((s) => s.mode);
-  const sel = useOverlay((s) => s.selection);
-  const monitor = useOverlay((s) => s.monitorRect);
-  const monitorId = useOverlay((s) => s.monitorId);
-  const [busy, setBusy] = useState(false);
-
-  if (mode !== "committed" || !sel || !monitor || monitorId == null) return null;
-
-  const pos = computeToolbarPosition(sel, TB, {
-    x: 0,
-    y: 0,
-    width: monitor.width,
-    height: monitor.height,
-  });
-
-  const onCopy = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await cropAndCopy(monitorId, sel);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const onSave = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await cropAndSave(monitorId, sel);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const onPin = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await pinImage(monitorId, sel);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const onClose = async () => {
-    await cancelCapture();
-  };
-
-  // Glass style — kept inline to avoid SSR/Tailwind backdrop issues with transparent windows
-  const glass: CSSProperties = {
-    position: "absolute",
-    left: pos.x,
-    top: pos.y,
-    width: TB.width,
-    height: TB.height,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    padding: "5px 8px",
-    borderRadius: 8,
-    background: "rgba(28,28,30,0.55)",
-    backdropFilter: "blur(18px) saturate(160%)",
-    WebkitBackdropFilter: "blur(18px) saturate(160%)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    boxShadow: "0 8px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08)",
-    color: "#f0f0f5",
-    fontSize: 12,
-    pointerEvents: "auto",
-  };
-
-  return (
-    <div style={glass} onMouseDown={(e) => e.stopPropagation()}>
-      <ToolbarButton
-        label="Copy"
-        icon={CopyIcon}
-        onClick={onCopy}
-        disabled={busy}
-        variant="primary"
-      />
-      <ToolbarButton label="Save As" icon={SaveIcon} onClick={onSave} disabled={busy} />
-      <ToolbarButton label="Pin" icon={PinIcon} onClick={onPin} disabled={busy} />
-      <ToolbarButton label="Close" icon={XIcon} onClick={onClose} />
-    </div>
-  );
+function Separator() {
+  return <div style={separatorStyle} />;
 }
 
-const btn: CSSProperties = {
-  position: "relative",
-  width: 28,
-  height: 28,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 0,
-  borderRadius: 6,
-  background: "rgba(255,255,255,0.06)",
-  border: "none",
-  color: "#f0f0f5",
-  cursor: "pointer",
-};
-
-const primaryBtn: CSSProperties = {
-  ...btn,
-  background: "linear-gradient(180deg,#5fb1ff,#3a8de8)",
-  color: "white",
-};
-
-const tooltip: CSSProperties = {
-  position: "absolute",
-  left: "50%",
-  bottom: "calc(100% + 8px)",
-  transform: "translateX(-50%)",
-  padding: "4px 7px",
-  borderRadius: 5,
-  background: "rgba(12,12,14,0.92)",
-  color: "#f7f7fb",
-  fontSize: 11,
-  lineHeight: 1,
-  whiteSpace: "nowrap",
-  boxShadow: "0 6px 18px rgba(0,0,0,0.32)",
-  pointerEvents: "none",
+const separatorStyle: CSSProperties = {
+  width: 20,
+  height: 1,
+  background: "rgba(255,255,255,0.15)",
+  margin: "4px 0",
+  flexShrink: 0,
 };

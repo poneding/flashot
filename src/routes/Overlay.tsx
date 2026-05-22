@@ -22,6 +22,7 @@ import { FrozenLayer } from "@/overlay/FrozenLayer";
 import { DimMask } from "@/overlay/DimMask";
 import { DetectHighlight } from "@/overlay/DetectHighlight";
 import { SelectionBox } from "@/overlay/SelectionBox";
+import { Toolbar as ScreenshotToolbar } from "@/overlay/Toolbar";
 import { AnnotationStage } from "@/annotation/Stage";
 import { Toolbar as AnnotationToolbar } from "@/annotation/Toolbar";
 import { ColorPicker } from "@/overlay/ColorPicker";
@@ -369,6 +370,10 @@ export function OverlayRoute() {
         <>
           <AnnotationStage selection={selection} scaleFactor={scaleFactor} interacting={!!selectionInteraction} />
           <AnnotationToolbar
+            selection={selection}
+            monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
+          />
+          <ScreenshotToolbar
             selection={selection}
             monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
             onCopy={handleCopy}

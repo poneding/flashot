@@ -6,20 +6,16 @@ import { clampToolbarPosition, computeToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
 import {
   Circle,
-  Copy,
   Droplets,
   Eraser,
   GripVertical,
   Highlighter,
   MoveUpRight,
   Pencil,
-  Pin,
   Redo2,
-  Save,
   Square,
   Type,
   Undo2,
-  X
 } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 
@@ -53,13 +49,9 @@ function shortcutTitle(action: string, key: string, options: { shift?: boolean }
 type Props = {
   selection: Rect;
   monitorRect: Rect;
-  onCopy: () => void;
-  onSave: () => void;
-  onPin: () => void;
-  onClose: () => void;
 };
 
-export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose }: Props) {
+export function Toolbar({ selection, monitorRect }: Props) {
   const { activeTool, setActiveTool, canUndo, canRedo, undo, redo } = useAnnotation();
   const objects = useAnnotation((s) => s.objects);
   const selectedObjectId = useAnnotation((s) => s.selectedObjectId);
@@ -128,8 +120,6 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
   const shouldShowPanel = Boolean(selectedObject) || (showPanel && activeTool !== "select" && activeTool !== "eraser");
   const undoTitle = shortcutTitle("Undo", "Z");
   const redoTitle = shortcutTitle("Redo", "Z", { shift: true });
-  const copyTitle = shortcutTitle("Copy", "C");
-  const saveTitle = shortcutTitle("Save", "S");
   const panelTop = (() => {
     const belowY = pos.y + TOOLBAR_SIZE.height + PROPERTY_PANEL_GAP;
     if (belowY + propertyPanelHeight > window.innerHeight) {
@@ -223,19 +213,6 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
           label={redoTitle}
           disabled={!canRedo}
           onClick={redo}
-        />
-
-        <Separator />
-
-        {/* Group 3: Output */}
-        <ActionButton icon={<X size={18} />} label="Cancel (ESC)" tone="danger" onClick={onClose} />
-        <ActionButton icon={<Pin size={18} />} label="Pin" onClick={onPin} />
-        <ActionButton icon={<Save size={18} />} label={saveTitle} tone="primary" onClick={onSave} />
-        <ActionButton
-          icon={<Copy size={18} />}
-          label={copyTitle}
-          tone="success"
-          onClick={onCopy}
         />
       </div>
     </>
