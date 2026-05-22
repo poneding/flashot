@@ -62,9 +62,9 @@ brew install --cask flashot
 3. Run the AppImage
 
 <details>
-<summary><strong>Unsigned App on macOS</strong></summary>
+<summary><strong>Self-signed App on macOS</strong></summary>
 
-Flashot is not yet code-signed with an Apple Developer certificate. macOS Gatekeeper will block the app on first launch. To resolve this:
+Flashot's macOS release builds use a fixed self-signed code-signing certificate. This keeps the app identity more stable across updates than ad-hoc signing, but it is not an Apple Developer ID certificate and is not notarized. macOS Gatekeeper may still block the app on first launch. To resolve this:
 
 **Option A** — Remove the quarantine attribute (recommended):
 
@@ -77,8 +77,6 @@ xattr -cr /Applications/Flashot.app
 1. Right-click (or Control-click) Flashot.app in Applications
 2. Select "Open" from the context menu
 3. Click "Open" in the dialog that appears
-
-This only needs to be done once.
 
 </details>
 
@@ -163,6 +161,21 @@ The `.github/workflows/release.yml` workflow builds macOS (ARM + Intel), Windows
 The Homebrew update step downloads `Flashot_<version>_aarch64.dmg` and `Flashot_<version>_x64.dmg`, computes their SHA256 hashes, and commits the updated cask to `poneding/homebrew-flashot`. `.github/workflows/homebrew.yml` remains available as a manual recovery workflow.
 
 The release and manual Homebrew workflows require a repository secret named `HOMEBREW_TAP_TOKEN`. Use a fine-grained personal access token with Contents read/write access to `poneding/homebrew-flashot`; the default `GITHUB_TOKEN` cannot push to the separate tap repository.
+
+macOS release builds also require fixed self-signed code-signing secrets. Generate the certificate once and keep the `.p12` file and password backed up so future releases use the same signing identity.
+
+```bash
+CERT_PASSWORD="choose-a-long-password" \
+  scripts/macos/create-self-signed-codesign-cert.sh /tmp/flashot-codesign.p12
+```
+
+Add these GitHub repository secrets from the script output:
+
+- `MACOS_CODESIGN_CERTIFICATE`
+- `MACOS_CODESIGN_CERTIFICATE_PASSWORD`
+- `MACOS_CODESIGN_IDENTITY`
+
+These secrets are separate from `TAURI_SIGNING_PRIVATE_KEY`, which signs updater artifacts rather than the macOS app bundle.
 
 ## Contributing
 

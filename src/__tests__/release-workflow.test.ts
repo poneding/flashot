@@ -59,10 +59,24 @@ describe("release workflow", () => {
         "          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
         "          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}",
         "          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}",
+        "          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}",
         "        with:",
         "          tagName: ${{ env.RELEASE_TAG }}",
       ].join("\n"),
     );
+  });
+
+  it("installs a fixed macOS self-signed signing identity before Tauri builds", () => {
+    const workflow = readFileSync(releaseWorkflowPath, "utf8");
+
+    expect(workflow).toContain("name: Install macOS signing certificate");
+    expect(workflow).toContain("if: runner.os == 'macOS'");
+    expect(workflow).toContain("MACOS_CODESIGN_CERTIFICATE: ${{ secrets.MACOS_CODESIGN_CERTIFICATE }}");
+    expect(workflow).toContain("MACOS_CODESIGN_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CODESIGN_CERTIFICATE_PASSWORD }}");
+    expect(workflow).toContain("MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}");
+    expect(workflow).toContain("-legacy");
+    expect(workflow).toContain("security add-trusted-cert -r trustRoot -p codeSign");
+    expect(workflow).toContain("APPLE_SIGNING_IDENTITY=$MACOS_CODESIGN_IDENTITY");
   });
 
   it("updates the Homebrew tap after release assets are published", () => {
@@ -121,5 +135,7 @@ describe("release workflow", () => {
     expect(readme).toContain("git push origin v0.1.0");
     expect(readme).toContain(".github/workflows/release.yml");
     expect(readme).toContain("HOMEBREW_TAP_TOKEN");
+    expect(readme).toContain("MACOS_CODESIGN_CERTIFICATE");
+    expect(readme).toContain("scripts/macos/create-self-signed-codesign-cert.sh");
   });
 });
