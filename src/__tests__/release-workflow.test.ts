@@ -112,5 +112,6 @@ describe("release workflow", () => {
     expect(readme).toContain("git tag v0.1.0");
     expect(readme).toContain("git push origin v0.1.0");
     expect(readme).toContain(".github/workflows/release.yml");
+    expect(readme).toContain("HOMEBREW_TAP_TOKEN");
   });
 });

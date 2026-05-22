@@ -162,6 +162,8 @@ The `.github/workflows/release.yml` workflow builds macOS (ARM + Intel), Windows
 
 The Homebrew update step downloads `Flashot_<version>_aarch64.dmg` and `Flashot_<version>_x64.dmg`, computes their SHA256 hashes, and commits the updated cask to `poneding/homebrew-flashot`. `.github/workflows/homebrew.yml` remains available as a manual recovery workflow.
 
+The release and manual Homebrew workflows require a repository secret named `HOMEBREW_TAP_TOKEN`. Use a fine-grained personal access token with Contents read/write access to `poneding/homebrew-flashot`; the default `GITHUB_TOKEN` cannot push to the separate tap repository.
+
 ## Contributing
 
 Contributions welcome! Please:

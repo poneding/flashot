@@ -26,6 +26,19 @@ describe("Homebrew tap workflow", () => {
     expect(workflow).toContain("path: tap");
   });
 
+  it("validates the tap write token before checkout", () => {
+    for (const workflowPath of [homebrewWorkflowPath, releaseWorkflowPath]) {
+      const workflow = readFileSync(workflowPath, "utf8");
+
+      expect(workflow).toContain("- name: Validate Homebrew tap token");
+      expect(workflow).toContain("HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}");
+      expect(workflow).toContain("::error::Missing HOMEBREW_TAP_TOKEN");
+      expect(workflow.indexOf("Validate Homebrew tap token")).toBeLessThan(
+        workflow.indexOf("Checkout Homebrew tap"),
+      );
+    }
+  });
+
   it("keeps release asset names aligned with the cask URL template", () => {
     const workflow = readFileSync(releaseWorkflowPath, "utf8");
 
