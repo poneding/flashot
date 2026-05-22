@@ -158,9 +158,9 @@ fn add_pin_stores_entry() {
         original_height: 100,
         current_scale: 1.0,
     };
-    
+
     mgr.add_pin(entry.clone());
-    
+
     let retrieved = mgr.get_pin("test-id").unwrap();
     assert_eq!(retrieved.id, "test-id");
     assert_eq!(retrieved.original_width, 100);
@@ -295,14 +295,14 @@ pub async fn pin_image(
     let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
     let pins_dir = cache_dir.join("pins");
     std::fs::create_dir_all(&pins_dir).map_err(|e| e.to_string())?;
-    
+
     let image_path = pins_dir.join(format!("pin-{}.png", pin_id));
     save_png(&cropped.rgba, cropped.width, cropped.height, &image_path)
         .map_err(|e| e.to_string())?;
 
     let window_label = format!("pin-{}", pin_id);
     let url = tauri::WebviewUrl::App(format!("index.html#/pin/{}", pin_id).into());
-    
+
     tauri::WebviewWindowBuilder::new(&app, &window_label, url)
         .title("")
         .inner_size(rect.width as f64, rect.height as f64)
@@ -390,11 +390,11 @@ pub async fn close_pin(
     pin_mgr: State<'_, Arc<PinManager>>,
 ) -> Result<(), String> {
     let entry = pin_mgr.remove_pin(&pin_id).ok_or("pin not found")?;
-    
+
     if let Some(window) = app.get_webview_window(&entry.window_label) {
         window.close().map_err(|e| e.to_string())?;
     }
-    
+
     let _ = std::fs::remove_file(&entry.image_path);
     Ok(())
 }
@@ -414,17 +414,17 @@ pub async fn set_pin_scale(
 ) -> Result<(), String> {
     let mut entry = pin_mgr.get_pin(&pin_id).ok_or("pin not found")?;
     let clamped_scale = scale.clamp(0.5, 3.0);
-    
+
     let new_width = (entry.original_width as f64 * clamped_scale) as f64;
     let new_height = (entry.original_height as f64 * clamped_scale) as f64;
-    
+
     if let Some(window) = app.get_webview_window(&entry.window_label) {
         window.set_size(tauri::Size::Logical(tauri::LogicalSize {
             width: new_width,
             height: new_height,
         })).map_err(|e| e.to_string())?;
     }
-    
+
     entry.current_scale = clamped_scale;
     pin_mgr.add_pin(entry);
     Ok(())
@@ -549,13 +549,13 @@ export function Pin() {
 
   useEffect(() => {
     if (!id) return;
-    
+
     const loadImage = async () => {
       const cacheDir = await import("@tauri-apps/api/path").then(m => m.appCacheDir());
       const imagePath = `${cacheDir}/pins/pin-${id}.png`;
       setImageUrl(convertFileSrc(imagePath));
     };
-    
+
     loadImage();
   }, [id]);
 
@@ -914,7 +914,7 @@ Add after the `useState` declarations (around line 21):
 ```typescript
 useEffect(() => {
   if (!frameUrl) return;
-  
+
   const img = new Image();
   img.onload = () => {
     const canvas = document.createElement("canvas");
@@ -937,30 +937,30 @@ Add after the previous effect:
 ```typescript
 useEffect(() => {
   if (!cursor || !offscreenCanvasRef.current || !magnifierCanvasRef.current) return;
-  
+
   const offscreenCtx = offscreenCanvasRef.current.getContext("2d", { willReadFrequently: true });
   const magnifierCtx = magnifierCanvasRef.current.getContext("2d");
   if (!offscreenCtx || !magnifierCtx) return;
 
   const physX = Math.floor(cursor.x * scaleFactor);
   const physY = Math.floor(cursor.y * scaleFactor);
-  
+
   const halfGrid = Math.floor(PIXEL_GRID_SIZE / 2);
   const startX = Math.max(0, physX - halfGrid);
   const startY = Math.max(0, physY - halfGrid);
-  
+
   const imageData = offscreenCtx.getImageData(startX, startY, PIXEL_GRID_SIZE, PIXEL_GRID_SIZE);
   const pixels = imageData.data;
-  
+
   magnifierCtx.clearRect(0, 0, MAGNIFIER_SIZE, MAGNIFIER_SIZE);
-  
+
   for (let row = 0; row < PIXEL_GRID_SIZE; row++) {
     for (let col = 0; col < PIXEL_GRID_SIZE; col++) {
       const idx = (row * PIXEL_GRID_SIZE + col) * 4;
       const r = pixels[idx];
       const g = pixels[idx + 1];
       const b = pixels[idx + 2];
-      
+
       magnifierCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
       magnifierCtx.fillRect(
         col * PIXEL_BLOCK_SIZE,
@@ -970,7 +970,7 @@ useEffect(() => {
       );
     }
   }
-  
+
   magnifierCtx.strokeStyle = "rgba(128, 128, 128, 0.3)";
   magnifierCtx.lineWidth = 1;
   for (let i = 1; i < PIXEL_GRID_SIZE; i++) {
@@ -978,13 +978,13 @@ useEffect(() => {
     magnifierCtx.moveTo(i * PIXEL_BLOCK_SIZE, 0);
     magnifierCtx.lineTo(i * PIXEL_BLOCK_SIZE, MAGNIFIER_SIZE);
     magnifierCtx.stroke();
-    
+
     magnifierCtx.beginPath();
     magnifierCtx.moveTo(0, i * PIXEL_BLOCK_SIZE);
     magnifierCtx.lineTo(MAGNIFIER_SIZE, i * PIXEL_BLOCK_SIZE);
     magnifierCtx.stroke();
   }
-  
+
   magnifierCtx.strokeStyle = "rgba(255, 255, 255, 0.8)";
   magnifierCtx.lineWidth = 2;
   magnifierCtx.strokeRect(
@@ -993,7 +993,7 @@ useEffect(() => {
     PIXEL_BLOCK_SIZE,
     PIXEL_BLOCK_SIZE
   );
-  
+
   const centerIdx = (halfGrid * PIXEL_GRID_SIZE + halfGrid) * 4;
   setCurrentColor({
     r: pixels[centerIdx],
@@ -1010,22 +1010,22 @@ Add after the pixel reading effect:
 ```typescript
 useEffect(() => {
   if (!cursor || !monitorRect) return;
-  
+
   const PANEL_WIDTH = 136;
   const PANEL_HEIGHT = 170;
   const OFFSET = 20;
-  
+
   let x = cursor.x + OFFSET;
   let y = cursor.y - PANEL_HEIGHT - OFFSET;
-  
+
   if (x + PANEL_WIDTH > monitorRect.width) {
     x = cursor.x - PANEL_WIDTH - OFFSET;
   }
-  
+
   if (y < 0) {
     y = cursor.y + OFFSET;
   }
-  
+
   setPosition({ x, y });
 }, [cursor, monitorRect]);
 ```
@@ -1075,23 +1075,23 @@ Add to the existing `handleKeyDown` function in Overlay.tsx (find the function t
 const handleKeyDown = useCallback(
   async (e: KeyboardEvent) => {
     const { mode, selection, toggleColorFormat, setColorCopied } = useOverlay.getState();
-    
+
     // Existing Escape handler...
     if (e.key === "Escape") {
       // ... existing code
     }
-    
+
     // Color picker: X to toggle format
     if (e.key === "x" && (mode === "hover" || mode === "committed")) {
       e.preventDefault();
       toggleColorFormat();
     }
-    
+
     // Color picker: C to copy color
     if (e.key === "c" && (mode === "hover" || mode === "committed")) {
       const { colorFormat, cursor } = useOverlay.getState();
       if (!cursor) return;
-      
+
       // Get current color from ColorPicker component state
       // We need to access the current color - will be passed via store
       const colorText = getCurrentColorText();
@@ -1154,11 +1154,11 @@ In `src/routes/Overlay.tsx`, update the C key handler:
 if (e.key === "c" && (mode === "hover" || mode === "committed")) {
   const { colorFormat, currentColor } = useOverlay.getState();
   if (!currentColor) return;
-  
+
   const colorText = colorFormat === "hex"
     ? `#${currentColor.r.toString(16).padStart(2, "0").toUpperCase()}${currentColor.g.toString(16).padStart(2, "0").toUpperCase()}${currentColor.b.toString(16).padStart(2, "0").toUpperCase()}`
     : `rgb(${currentColor.r}, ${currentColor.g}, ${currentColor.b})`;
-  
+
   await writeText(colorText);
   setColorCopied(true);
   setTimeout(() => setColorCopied(false), 1500);
