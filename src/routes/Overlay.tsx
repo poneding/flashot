@@ -18,7 +18,7 @@ import {
   releaseSelection,
 } from "@/lib/ipc";
 import type { Rect } from "@/lib/types";
-import { ColorPicker } from "@/overlay/ColorPicker";
+import { ColorPicker, formatColorText } from "@/overlay/ColorPicker";
 import { DetectHighlight } from "@/overlay/DetectHighlight";
 import { DimMask } from "@/overlay/DimMask";
 import { FrozenLayer } from "@/overlay/FrozenLayer";
@@ -147,13 +147,7 @@ export function OverlayRoute() {
         e.stopPropagation();
         const { colorFormat: fmt, currentColor, setColorCopied } = useOverlay.getState();
         if (!currentColor) return;
-        const colorText =
-          fmt === "hex"
-            ? `#${currentColor.r.toString(16).padStart(2, "0").toUpperCase()}${currentColor.g
-              .toString(16)
-              .padStart(2, "0")
-              .toUpperCase()}${currentColor.b.toString(16).padStart(2, "0").toUpperCase()}`
-            : `rgb(${currentColor.r}, ${currentColor.g}, ${currentColor.b})`;
+        const colorText = formatColorText(currentColor, fmt);
         void writeText(colorText).then(() => {
           setColorCopied(true);
           window.setTimeout(() => setColorCopied(false), 1500);
