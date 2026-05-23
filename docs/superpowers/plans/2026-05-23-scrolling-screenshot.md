@@ -329,42 +329,101 @@ git commit -m "feat(scroll): implement column-sampled NCC matcher"
 **Files:**
 - Modify: `src-tauri/src/scroll_stitch.rs`
 
-- [ ] **Step 1: Write the failing test**
+**Direction context:** the matcher implemented in Task 3 finds where its first arg's top ROI lives inside its second arg. The most common user motion is scroll-DOWN (reading further into a long document), under which the NEW frame's top is a subset of the OLD frame's content — so `ingest()` calls `column_match_ncc(new_frame, last_frame, ...)`.
+
+- [ ] **Step 1: Refactor the `gradient_frame` test fixture to scroll-DOWN-friendly semantics**
+
+The Task 3 fixture uses an `offset` parameter that shifts the pattern within the frame — fine for testing the matcher primitive, but awkward to reason about for scroll-DOWN. Replace it with a `content_start` parameter that names the document-row at the top of the frame, so the test scenario maps cleanly onto a real scroll.
+
+Edit the `gradient_frame` helper inside the `tests` module so it reads:
+
+```rust
+/// `width × height` RGBA frame whose row `y` carries a hash-derived luminance
+/// of "document row `content_start + y`". Scrolling DOWN by N pixels means
+/// `content_start` increases by N — the new frame's top ROI then appears
+/// `N` rows below the old frame's top.
+fn gradient_frame(width: u32, height: u32, content_start: u32) -> Vec<u8> {
+    let mut v = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        let content_row = (content_start + y) as u64;
+        let mut h = content_row.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        h ^= h >> 30;
+        h = h.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        h ^= h >> 27;
+        let l = (h & 0xff) as u8;
+        for _ in 0..width {
+            v.extend_from_slice(&[l, l, l, 255]);
+        }
+    }
+    v
+}
+```
+
+Update Task 3's existing test to use the new semantics (scroll-UP scenario, since the matcher takes `prev`'s top in `curr`):
+
+```rust
+#[test]
+fn column_match_recovers_known_offset() {
+    let width = 80;
+    let frame_height = 600;
+    // prev was at content row 37 (further down the document).
+    // curr is at content row 0 (user scrolled UP by 37 rows).
+    // prev's top ROI [0..50] = content rows [37..87].
+    // In curr (which starts at content row 0), these rows live at y=37..87.
+    let prev = gradient_frame(width, frame_height, 37);
+    let curr = gradient_frame(width, frame_height, 0);
+
+    let (best_y, score) = column_match_ncc(
+        &prev, &curr, width, frame_height,
+        0, 50, 9,
+    );
+
+    assert!(
+        (best_y as i32 - 37).abs() <= 1,
+        "expected dy ≈ 37, got {best_y}"
+    );
+    assert!(score > 0.95, "score too low: {score}");
+}
+```
+
+- [ ] **Step 2: Write the failing ingest test**
 
 Inside the existing `tests` module (above the closing `}`), add:
 
 ```rust
-    #[test]
-    fn ingest_appends_new_strip_for_known_scroll() {
-        let width = 80;
-        let frame_h = 600;
-        let initial = gradient_frame(width, frame_h, 0);
-        let mut stitcher = ScrollStitcher::new(width, frame_h, initial, StitchConfig::default());
+#[test]
+fn ingest_appends_new_strip_for_known_scroll() {
+    let width = 80;
+    let frame_h = 600;
+    // initial captures content rows [0..600].
+    let initial = gradient_frame(width, frame_h, 0);
+    let mut stitcher = ScrollStitcher::new(width, frame_h, initial, StitchConfig::default());
 
-        let next = gradient_frame(width, frame_h, 37); // scrolled 37 rows
-        let result = stitcher.ingest(&next);
+    // After scrolling DOWN by 37, next captures content rows [37..637].
+    let next = gradient_frame(width, frame_h, 37);
+    let result = stitcher.ingest(&next);
 
-        match result {
-            IngestResult::Appended { new_height, dy, score } => {
-                assert!((dy as i32 - 37).abs() <= 1, "dy={dy}");
-                assert_eq!(new_height, frame_h + dy);
-                assert_eq!(stitcher.height(), new_height);
-                assert!(score > 0.95);
-                assert_eq!(stitcher.canvas.len(), (width * new_height * 4) as usize);
-            }
-            other => panic!("expected Appended, got {other:?}"),
+    match result {
+        IngestResult::Appended { new_height, dy, score } => {
+            assert!((dy as i32 - 37).abs() <= 1, "dy={dy}");
+            assert_eq!(new_height, frame_h + dy);
+            assert_eq!(stitcher.height(), new_height);
+            assert!(score > 0.95);
+            assert_eq!(stitcher.canvas.len(), (width * new_height * 4) as usize);
         }
+        other => panic!("expected Appended, got {other:?}"),
     }
+}
 ```
 
-- [ ] **Step 2: Run it (will fail — `ingest` not defined)**
+- [ ] **Step 3: Run the new test (will fail — `ingest` not defined)**
 
 Run: `cd src-tauri && cargo test scroll_stitch::tests::ingest_appends_new_strip_for_known_scroll`
 Expected: compile error — no method `ingest`.
 
-- [ ] **Step 3: Implement `ingest()` (Appended branch only)**
+- [ ] **Step 4: Implement `ingest()`**
 
-Inside `impl ScrollStitcher`, add:
+Remove the `#[allow(dead_code)]` attribute on `ScrollStitcher` (the fields are now used). Then inside `impl ScrollStitcher`, add:
 
 ```rust
 pub fn ingest(&mut self, frame_rgba: &[u8]) -> IngestResult {
@@ -374,9 +433,15 @@ pub fn ingest(&mut self, frame_rgba: &[u8]) -> IngestResult {
         "ingest frame size mismatch"
     );
 
+    // Direction: we target scroll-DOWN (user scrolling forward through long
+    // content, new pixels appearing at the bottom of the viewport). Under
+    // scroll-DOWN the NEW frame's top ROI is what's still present in the
+    // OLD frame, shifted *downward* by dy rows. So we use `frame_rgba` as the
+    // template source and `last_frame` as the search image; the returned
+    // dy is the number of pixels by which the content scrolled.
     let (dy, score) = column_match_ncc(
-        &self.last_frame,
-        frame_rgba,
+        frame_rgba,            // template_source: take its top ROI
+        &self.last_frame,      // search_image: look for the ROI here
         self.width,
         self.frame_height,
         self.static_drop_offset,
@@ -400,7 +465,8 @@ pub fn ingest(&mut self, frame_rgba: &[u8]) -> IngestResult {
 
     self.consecutive_no_change = 0;
 
-    // Append rows [frame_height - dy .. frame_height] from the new frame.
+    // Append rows [frame_height - dy .. frame_height] from the new frame
+    // (the bottom `dy` rows — the freshly-revealed content).
     let strip_start = ((self.frame_height - dy) * self.width) as usize * 4;
     let strip_end = (self.frame_height * self.width) as usize * 4;
     let new_total_height = self.height + dy;
@@ -430,17 +496,22 @@ pub fn ingest(&mut self, frame_rgba: &[u8]) -> IngestResult {
 }
 ```
 
-- [ ] **Step 4: Run the test**
+- [ ] **Step 5: Run all tests**
 
-Run: `cd src-tauri && cargo test scroll_stitch::tests::ingest_appends`
-Expected: 1 passed.
+Run: `cd src-tauri && cargo test scroll_stitch::`
+Expected: both `column_match_recovers_known_offset` and `ingest_appends_new_strip_for_known_scroll` pass.
 
-- [ ] **Step 5: Commit**
+Run: `cd src-tauri && cargo clippy --all-targets -- -D warnings`
+Expected: clean.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src-tauri/src/scroll_stitch.rs
 git commit -m "feat(scroll): ingest appends new strip with score gating"
 ```
+
+---
 
 ---
 
