@@ -10,6 +10,7 @@ pub mod scroll_session;
 pub mod scroll_stitch;
 pub mod settings_store;
 pub mod tray;
+pub mod tray_template_icon;
 pub mod types;
 pub mod window_mgr;
 pub mod window_probe;
@@ -407,6 +408,7 @@ fn install_tray(
     fullscreen_hotkey: &str,
     active_window_hotkey: &str,
 ) {
+    tray_template_icon::install();
     #[cfg(target_os = "linux")]
     {
         let app = app.clone();

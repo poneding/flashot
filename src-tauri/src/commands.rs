@@ -552,8 +552,7 @@ pub async fn start_scroll_session(
     use std::sync::atomic::AtomicBool;
     use tokio::sync::Mutex as AsyncMutex;
 
-    // 1. Dismiss the frozen overlay so the user can see live content.
-    //    But keep the in_session flag — we still own the overlay window labels.
+    // 1. Derive scale and physical rect from the frozen frame we already have.
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
     let scale = frame.scale_factor.max(1.0);
     let phys_rect = Rect {
@@ -563,17 +562,26 @@ pub async fn start_scroll_session(
         height: (rect.height as f32 * scale).round() as u32,
     };
 
-    // 2. Capture the initial frame from the live screen (not the frozen one).
-    let initial = crate::capture::capture_monitor_region(monitor_id, phys_rect)
-        .map_err(|e| format!("initial capture failed: {e}"))?;
-
-    // 3. Spawn the chrome window (status bar + preview) anchored next to the
-    //    selection. The original overlay becomes mouse-transparent so the
-    //    user can scroll the underlying app while we capture.
+    // 2. Spawn the chrome window (status bar + preview) and hide the original
+    //    overlay BEFORE capturing the initial frame. On macOS, the overlay's
+    //    key-window status intercepts scroll-wheel events even with
+    //    set_ignore_cursor_events; hiding it lets events flow naturally to
+    //    the underlying app. Hiding it also means subsequent captures will
+    //    not include any overlay pixels — we must take the initial capture
+    //    in the same state so frame 1 and frame 2 are comparable.
     spawn_scroll_chrome(&app, monitor_id, phys_rect)?;
     if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
         let _ = w.set_ignore_cursor_events(true);
+        let _ = w.hide();
     }
+
+    // 3. Give macOS a moment to actually compose the screen without the
+    //    overlay before we grab pixels. Empirically 80ms is enough.
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+
+    // 4. Capture the initial frame from the live screen.
+    let initial = crate::capture::capture_monitor_region(monitor_id, phys_rect)
+        .map_err(|e| format!("initial capture failed: {e}"))?;
 
     let stitcher = Arc::new(AsyncMutex::new(ScrollStitcher::new(
         phys_rect.width,
