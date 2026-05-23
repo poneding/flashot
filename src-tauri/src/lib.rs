@@ -6,6 +6,7 @@ pub mod overlay_window;
 pub mod permission;
 pub mod pin_mgr;
 pub mod saver;
+pub mod scroll_stitch;
 pub mod settings_store;
 pub mod tray;
 pub mod types;
