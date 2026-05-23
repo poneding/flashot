@@ -1,7 +1,7 @@
 import { TooltipBubble } from "@/annotation/Tooltip";
 import { clampToolbarPosition, computeVerticalToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
-import { CopyIcon, GripHorizontal, PinIcon, SaveIcon, XIcon, type LucideIcon } from "lucide-react";
+import { CopyIcon, GripHorizontal, PinIcon, SaveIcon, ScrollText, XIcon, type LucideIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 
 const TOOLBAR_SIZE = { width: 40, height: 190 };
@@ -15,6 +15,8 @@ type Props = {
   onSave: ToolbarAction;
   onPin: ToolbarAction;
   onClose: ToolbarAction;
+  onScroll?: ToolbarAction;
+  selectionTooSmall?: boolean;
 };
 
 type ToolbarButtonProps = {
@@ -32,7 +34,7 @@ const ACTION_COLORS: Record<NonNullable<ToolbarButtonProps["tone"]>, string> = {
   success: "#4ade80",
 };
 
-export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose }: Props) {
+export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose, onScroll, selectionTooSmall }: Props) {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [measuredHeight, setMeasuredHeight] = useState(TOOLBAR_SIZE.height);
   const [busy, setBusy] = useState(false);
@@ -138,6 +140,12 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
         icon={XIcon}
         tone="danger"
         onClick={onClose}
+      />
+      <ToolbarButton
+        label={selectionTooSmall ? "Selection too small" : "Scrolling screenshot"}
+        icon={ScrollText}
+        onClick={() => runAction(onScroll ?? (() => {}))}
+        disabled={selectionTooSmall || !onScroll}
       />
       <ToolbarButton
         label="Pin"
