@@ -567,10 +567,7 @@ pub async fn start_scroll_session(
     let initial = crate::capture::capture_monitor_region(monitor_id, phys_rect)
         .map_err(|e| format!("initial capture failed: {e}"))?;
 
-    // 3. Hide frozen overlays' selection rect (interior shape-passthrough).
-    let _ = app.emit("scroll:overlay-passthrough", phys_rect);
-
-    // 4. Spawn the chrome window (status bar + preview) anchored next to the
+    // 3. Spawn the chrome window (status bar + preview) anchored next to the
     //    selection. The original overlay becomes mouse-transparent so the
     //    user can scroll the underlying app while we capture.
     spawn_scroll_chrome(&app, monitor_id, phys_rect)?;
@@ -732,22 +729,6 @@ pub async fn scroll_copy(
     }
     clipboard::copy_image(img.rgba, img.width, img.height).map_err(|e| e.to_string())?;
     mgr.end_session(&app);
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn set_overlay_scroll_passthrough(
-    monitor_id: u32,
-    enabled: bool,
-    app: AppHandle,
-) -> Result<(), String> {
-    let label = format!("overlay-{monitor_id}");
-    let window = app
-        .get_webview_window(&label)
-        .ok_or("overlay window missing")?;
-    window
-        .set_ignore_cursor_events(enabled)
-        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
