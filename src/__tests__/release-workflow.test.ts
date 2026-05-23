@@ -74,7 +74,10 @@ describe("release workflow", () => {
     expect(workflow).toContain("MACOS_CODESIGN_CERTIFICATE: ${{ secrets.MACOS_CODESIGN_CERTIFICATE }}");
     expect(workflow).toContain("MACOS_CODESIGN_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CODESIGN_CERTIFICATE_PASSWORD }}");
     expect(workflow).toContain("MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}");
-    expect(workflow).toContain("-legacy");
+    expect(workflow).toContain("PKCS12_LEGACY_ARGS=()");
+    expect(workflow).toContain('grep -q -- "-legacy"');
+    expect(workflow).toContain('"${PKCS12_LEGACY_ARGS[@]}"');
+    expect(workflow).not.toContain("            -legacy \\");
     expect(workflow).toContain("security add-trusted-cert -r trustRoot -p codeSign");
     expect(workflow).toContain("APPLE_SIGNING_IDENTITY=$MACOS_CODESIGN_IDENTITY");
   });

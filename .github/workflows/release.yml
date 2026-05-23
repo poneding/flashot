@@ -168,9 +168,13 @@ jobs:
           KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
 
           printf '%s' "$MACOS_CODESIGN_CERTIFICATE" | base64 -d > "$CERTIFICATE_PATH"
+          PKCS12_LEGACY_ARGS=()
+          if openssl pkcs12 -help 2>&1 | grep -q -- "-legacy"; then
+            PKCS12_LEGACY_ARGS=(-legacy)
+          fi
           openssl pkcs12 \
             -in "$CERTIFICATE_PATH" \
-            -legacy \
+            "${PKCS12_LEGACY_ARGS[@]}" \
             -clcerts \
             -nokeys \
             -out "$CERTIFICATE_PEM_PATH" \
