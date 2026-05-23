@@ -64,6 +64,10 @@ describe("release workflow", () => {
         "          tagName: ${{ env.RELEASE_TAG }}",
       ].join("\n"),
     );
+    expect(workflow).toContain('assetNamePattern: "[name]_[version]_[arch][ext]"');
+    expect(workflow).not.toContain("releaseAssetNamePattern");
+    expect(workflow).not.toContain("uploadWorkflowArtifacts");
+    expect(workflow).not.toContain("workflowArtifactNamePattern");
   });
 
   it("installs a fixed macOS self-signed signing identity before Tauri builds", () => {

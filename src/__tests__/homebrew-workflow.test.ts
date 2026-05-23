@@ -42,6 +42,6 @@ describe("Homebrew tap workflow", () => {
   it("keeps release asset names aligned with the cask URL template", () => {
     const workflow = readFileSync(releaseWorkflowPath, "utf8");
 
-    expect(workflow).toContain('releaseAssetNamePattern: "[name]_[version]_[arch][ext]"');
+    expect(workflow).toContain('assetNamePattern: "[name]_[version]_[arch][ext]"');
   });
 });
