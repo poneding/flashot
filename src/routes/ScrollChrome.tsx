@@ -1,6 +1,18 @@
-import { useEffect, useState } from "react";
-import type { ScrollProgress } from "@/lib/types";
-import { onScrollMatchFailed, onScrollProgress, scrollCopy, scrollSave, stopScrollSession } from "@/lib/ipc";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ScrollEndReason, ScrollProgress } from "@/lib/types";
+import {
+  onScrollEndDetected,
+  onScrollMatchFailed,
+  onScrollProgress,
+  scrollCopy,
+  scrollSave,
+  stopScrollSession,
+} from "@/lib/ipc";
+import {
+  SCREENSHOT_TOOLBAR_BACKGROUND,
+  SCREENSHOT_TOOLBAR_BORDER,
+  SCREENSHOT_TOOLBAR_RADIUS,
+} from "@/overlay/Toolbar";
 
 function parseScrollChromeRoute(): { monitorId: number } | null {
   const h = window.location.hash || "";
@@ -27,6 +39,22 @@ export function ScrollChromeRoute() {
   const [progress, setProgress] = useState<ScrollProgress | null>(null);
   const [finalized, setFinalized] = useState<{ width: number; height: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [endReason, setEndReason] = useState<ScrollEndReason | null>(null);
+  const [busy, setBusy] = useState<"done" | "copy" | "save" | null>(null);
+  const finalizingRef = useRef(false);
+
+  const finalize = useCallback(async () => {
+    if (finalizingRef.current || finalized) return;
+    finalizingRef.current = true;
+    setBusy("done");
+    try {
+      const r = await stopScrollSession(true);
+      if (r) setFinalized({ width: r.width, height: r.height });
+    } finally {
+      setBusy(null);
+      finalizingRef.current = false;
+    }
+  }, [finalized]);
 
   useEffect(() => {
     const sub = onScrollProgress((p) => setProgress(p));
@@ -47,19 +75,43 @@ export function ScrollChromeRoute() {
     };
   }, []);
 
-  const onDone = async () => {
-    const r = await stopScrollSession(true);
-    if (r) setFinalized({ width: r.width, height: r.height });
-  };
+  useEffect(() => {
+    const p = onScrollEndDetected((reason) => {
+      setEndReason(reason);
+    });
+    return () => {
+      p.then((u) => u()).catch(() => {});
+    };
+  }, []);
+
+  const onDone = finalize;
   const onCancel = async () => {
     await stopScrollSession(false);
   };
   const onCopy = async () => {
-    await scrollCopy();
+    if (busy) return;
+    setBusy("copy");
+    try {
+      await scrollCopy();
+    } finally {
+      setBusy(null);
+    }
   };
   const onSave = async () => {
-    await scrollSave();
+    if (busy) return;
+    setBusy("save");
+    try {
+      await scrollSave();
+    } finally {
+      setBusy(null);
+    }
   };
+
+  const statusText = endReason
+    ? endReason === "max-height"
+      ? "Maximum length reached"
+      : "Bottom reached"
+    : `${progress?.frames ?? 0} frames · ${progress?.height ?? 0}px`;
 
   if (!parsed) return null;
 
@@ -68,13 +120,17 @@ export function ScrollChromeRoute() {
       style={{
         width: "100vw",
         height: "100vh",
+        boxSizing: "border-box",
         display: "flex",
         flexDirection: "column",
         pointerEvents: "auto",
-        background: "rgba(20,20,20,0.94)",
+        background: SCREENSHOT_TOOLBAR_BACKGROUND,
         color: "white",
-        borderRadius: 10,
-        boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+        borderRadius: SCREENSHOT_TOOLBAR_RADIUS,
+        boxShadow: "none",
+        border: SCREENSHOT_TOOLBAR_BORDER,
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
         overflow: "hidden",
         position: "relative",
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
@@ -121,6 +177,9 @@ export function ScrollChromeRoute() {
               bottom: 0,
               left: 0,
               width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              objectPosition: "bottom center",
               userSelect: "none",
             }}
           />
@@ -152,31 +211,34 @@ export function ScrollChromeRoute() {
               <button
                 type="button"
                 onClick={onCopy}
+                disabled={!!busy}
                 style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
               >
-                Copy
+                {busy === "copy" ? "Copying..." : "Copy"}
               </button>
               <button
                 type="button"
                 onClick={onSave}
+                disabled={!!busy}
                 style={{ ...BTN_BASE, background: "#4ade80", color: "#0a2a17" }}
               >
-                Save
+                {busy === "save" ? "Saving..." : "Save"}
               </button>
             </div>
           </>
         ) : (
           <>
             <span style={{ opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
-              {progress?.frames ?? 0} frames · {progress?.height ?? 0}px
+              {statusText}
             </span>
             <div style={{ display: "flex", gap: 8 }}>
               <button
                 type="button"
                 onClick={onDone}
+                disabled={!!busy}
                 style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
               >
-                Done
+                {busy === "done" ? "Finishing..." : "Done"}
               </button>
               <button
                 type="button"

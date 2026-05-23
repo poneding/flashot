@@ -27,7 +27,7 @@ export function FrozenLayer() {
   // In scrolling mode the user needs to see the live underlying app so they
   // can scroll it. Hide the frozen screenshot — the SelectionBox outline still
   // marks where the capture region is.
-  if (mode === "scrolling") return null;
+  if (mode === "scrollStarting" || mode === "scrolling") return null;
   return (
     <img
       src={frameSourceFromUrl(url)}

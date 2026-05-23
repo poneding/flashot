@@ -29,10 +29,16 @@ impl Default for StitchConfig {
 
 #[derive(Debug, PartialEq)]
 pub enum IngestResult {
-    Appended { new_height: u32, dy: u32, score: f32 },
+    Appended {
+        new_height: u32,
+        dy: u32,
+        score: f32,
+    },
     NoChange,
     EndOfScroll,
-    MatchFailed { score: f32 },
+    MatchFailed {
+        score: f32,
+    },
     MaxHeightReached,
 }
 
@@ -49,12 +55,18 @@ pub struct ScrollStitcher {
     height: u32,
     last_frame: Vec<u8>,
     static_drop_offset: u32,
+    accepted_frames: u32,
     consecutive_no_change: u32,
     config: StitchConfig,
 }
 
 impl ScrollStitcher {
-    pub fn new(width: u32, frame_height: u32, initial_frame: Vec<u8>, config: StitchConfig) -> Self {
+    pub fn new(
+        width: u32,
+        frame_height: u32,
+        initial_frame: Vec<u8>,
+        config: StitchConfig,
+    ) -> Self {
         assert_eq!(
             initial_frame.len(),
             (width * frame_height * 4) as usize,
@@ -67,13 +79,21 @@ impl ScrollStitcher {
             height: frame_height,
             last_frame: initial_frame,
             static_drop_offset: 0,
+            accepted_frames: 0,
             consecutive_no_change: 0,
             config,
         }
     }
 
-    pub fn width(&self) -> u32 { self.width }
-    pub fn height(&self) -> u32 { self.height }
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+    pub fn frame_count(&self) -> u32 {
+        self.accepted_frames + 1
+    }
 
     pub fn canvas_bytes_clone(&self) -> Vec<u8> {
         self.canvas.clone()
@@ -92,21 +112,16 @@ impl ScrollStitcher {
         // OLD frame, shifted *downward* by dy rows. So we use `frame_rgba` as the
         // template source and `last_frame` as the search image; the returned
         // dy is the number of pixels by which the content scrolled.
-        let (dy, score) = column_match_ncc(
-            frame_rgba,            // template_source: take its top ROI
-            &self.last_frame,      // search_image: look for the ROI here
-            self.width,
-            self.frame_height,
-            self.static_drop_offset,
-            self.config.roi_rows,
-            self.config.sample_columns,
-        );
+        let (dy, score) = self.match_scroll_delta(frame_rgba);
 
         if score < self.config.min_match_score {
             return IngestResult::MatchFailed { score };
         }
 
         if dy == 0 {
+            if self.accepted_frames == 0 {
+                return IngestResult::NoChange;
+            }
             self.consecutive_no_change += 1;
             if self.consecutive_no_change >= self.config.end_of_scroll_frames {
                 return IngestResult::EndOfScroll;
@@ -126,11 +141,11 @@ impl ScrollStitcher {
 
         if new_total_height > self.config.max_height_px {
             let allowed_dy = self.config.max_height_px - self.height;
-            let truncated_start =
-                ((self.frame_height - allowed_dy) * self.width) as usize * 4;
+            let truncated_start = ((self.frame_height - allowed_dy) * self.width) as usize * 4;
             self.canvas
                 .extend_from_slice(&frame_rgba[truncated_start..strip_end]);
             self.height = self.config.max_height_px;
+            self.accepted_frames += 1;
             self.last_frame.copy_from_slice(frame_rgba);
             return IngestResult::MaxHeightReached;
         }
@@ -138,6 +153,7 @@ impl ScrollStitcher {
         self.canvas
             .extend_from_slice(&frame_rgba[strip_start..strip_end]);
         self.height = new_total_height;
+        self.accepted_frames += 1;
         self.last_frame.copy_from_slice(frame_rgba);
 
         IngestResult::Appended {
@@ -145,6 +161,59 @@ impl ScrollStitcher {
             dy,
             score,
         }
+    }
+
+    fn match_scroll_delta(&self, frame_rgba: &[u8]) -> (u32, f32) {
+        let roi_rows = self.config.roi_rows.clamp(1, self.frame_height);
+        let sample_columns = self.config.sample_columns.max(1);
+        let mut best_any = (0, f32::MIN);
+        let mut best_positive: Option<(u32, f32)> = None;
+
+        for offset in self.match_offsets(roi_rows) {
+            let candidate = column_match_ncc(
+                frame_rgba,       // template_source: take its ROI
+                &self.last_frame, // search_image: look for the ROI here
+                self.width,
+                self.frame_height,
+                offset,
+                roi_rows,
+                sample_columns,
+            );
+
+            if candidate.1 > best_any.1 {
+                best_any = candidate;
+            }
+            if candidate.0 > 0
+                && candidate.1 >= self.config.min_match_score
+                && best_positive.is_none_or(|(_, score)| candidate.1 > score)
+            {
+                best_positive = Some(candidate);
+            }
+        }
+
+        if let Some(positive) = best_positive {
+            if best_any.0 == 0 || positive.1 + 0.02 >= best_any.1 {
+                return positive;
+            }
+        }
+
+        best_any
+    }
+
+    fn match_offsets(&self, roi_rows: u32) -> Vec<u32> {
+        let max_offset = self.frame_height.saturating_sub(roi_rows);
+        let mut offsets = [
+            self.static_drop_offset,
+            self.config.roi_rows,
+            self.config.roi_rows.saturating_mul(2),
+            self.frame_height / 3,
+        ]
+        .into_iter()
+        .filter(|offset| *offset <= max_offset)
+        .collect::<Vec<_>>();
+        offsets.sort_unstable();
+        offsets.dedup();
+        offsets
     }
 
     pub fn finalize(self) -> StitchedImage {
@@ -155,23 +224,33 @@ impl ScrollStitcher {
         }
     }
 
-    pub fn preview_thumbnail(&self, target_height_px: u32) -> Vec<u8> {
-        use image::{
-            codecs::png::PngEncoder, imageops::FilterType, ExtendedColorType, ImageBuffer,
-            ImageEncoder, RgbaImage,
-        };
+    pub fn preview_thumbnail(&self, target_width_px: u32, target_height_px: u32) -> Vec<u8> {
+        use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder};
 
-        let src: RgbaImage =
-            ImageBuffer::from_raw(self.width, self.height, self.canvas.clone())
-                .expect("canvas dims match buffer");
-        let scale = (target_height_px as f32 / self.height as f32).min(1.0);
-        let target_w = ((self.width as f32) * scale).max(1.0) as u32;
-        let target_h = ((self.height as f32) * scale).max(1.0) as u32;
-        let scaled = image::imageops::resize(&src, target_w, target_h, FilterType::Triangle);
+        let target_width_px = target_width_px.max(1);
+        let target_height_px = target_height_px.max(1);
+        let target_w = target_width_px;
+        let target_h = target_height_px;
+        let crop_h = ((self.width as u64 * target_h as u64).div_ceil(target_w as u64))
+            .clamp(1, self.height as u64) as u32;
+        let crop_y = self.height - crop_h;
+        let mut scaled = Vec::with_capacity((target_w * target_h * 4) as usize);
+
+        for y in 0..target_h {
+            let src_y = crop_y
+                + ((y as u64 * crop_h as u64) / target_h as u64)
+                    .min(crop_h.saturating_sub(1) as u64) as u32;
+            for x in 0..target_w {
+                let src_x = ((x as u64 * self.width as u64) / target_w as u64)
+                    .min(self.width.saturating_sub(1) as u64) as u32;
+                let idx = ((src_y * self.width + src_x) as usize) * 4;
+                scaled.extend_from_slice(&self.canvas[idx..idx + 4]);
+            }
+        }
 
         let mut buf = Vec::new();
         PngEncoder::new(&mut buf)
-            .write_image(scaled.as_raw(), target_w, target_h, ExtendedColorType::Rgba8)
+            .write_image(&scaled, target_w, target_h, ExtendedColorType::Rgba8)
             .expect("PNG encode");
         buf
     }
@@ -292,10 +371,7 @@ mod tests {
         let prev = gradient_frame(width, frame_height, 37);
         let curr = gradient_frame(width, frame_height, 0);
 
-        let (best_y, score) = column_match_ncc(
-            &prev, &curr, width, frame_height,
-            0, 50, 9,
-        );
+        let (best_y, score) = column_match_ncc(&prev, &curr, width, frame_height, 0, 50, 9);
 
         assert!(
             (best_y as i32 - 37).abs() <= 1,
@@ -317,7 +393,11 @@ mod tests {
         let result = stitcher.ingest(&next);
 
         match result {
-            IngestResult::Appended { new_height, dy, score } => {
+            IngestResult::Appended {
+                new_height,
+                dy,
+                score,
+            } => {
                 assert!((dy as i32 - 37).abs() <= 1, "dy={dy}");
                 assert_eq!(new_height, frame_h + dy);
                 assert_eq!(stitcher.height(), new_height);
@@ -329,19 +409,82 @@ mod tests {
     }
 
     #[test]
-    fn repeated_identical_frames_trigger_end_of_scroll() {
+    fn identical_frames_before_first_scroll_do_not_trigger_end_of_scroll() {
         let width = 80;
         let frame_h = 600;
         let initial = gradient_frame(width, frame_h, 0);
-        let mut stitcher = ScrollStitcher::new(width, frame_h, initial.clone(), StitchConfig::default());
+        let mut stitcher =
+            ScrollStitcher::new(width, frame_h, initial.clone(), StitchConfig::default());
 
-        // 4 identical follow-ups should all be NoChange.
-        for i in 0..4 {
+        // The capture loop starts before the user has time to scroll. Identical
+        // frames before the first accepted movement must not auto-finish the
+        // session, otherwise scroll capture ends after ~300ms.
+        for i in 0..10 {
             let r = stitcher.ingest(&initial);
             assert_eq!(r, IngestResult::NoChange, "iteration {i}");
         }
-        // 5th identical follow-up trips EndOfScroll (default end_of_scroll_frames=5).
-        assert_eq!(stitcher.ingest(&initial), IngestResult::EndOfScroll);
+    }
+
+    #[test]
+    fn repeated_identical_frames_after_scroll_trigger_end_of_scroll() {
+        let width = 80;
+        let frame_h = 600;
+        let initial = gradient_frame(width, frame_h, 0);
+        let next = gradient_frame(width, frame_h, 37);
+        let mut stitcher = ScrollStitcher::new(width, frame_h, initial, StitchConfig::default());
+
+        assert!(matches!(
+            stitcher.ingest(&next),
+            IngestResult::Appended { .. }
+        ));
+
+        for i in 0..4 {
+            let r = stitcher.ingest(&next);
+            assert_eq!(r, IngestResult::NoChange, "iteration {i}");
+        }
+        assert_eq!(stitcher.ingest(&next), IngestResult::EndOfScroll);
+    }
+
+    fn frame_with_static_header(
+        width: u32,
+        height: u32,
+        header_rows: u32,
+        content_start: u32,
+    ) -> Vec<u8> {
+        let mut v = Vec::with_capacity((width * height * 4) as usize);
+        for y in 0..height {
+            let l = if y < header_rows {
+                42
+            } else {
+                let content_row = (content_start + y - header_rows) as u64;
+                let mut h = content_row.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+                h ^= h >> 30;
+                h = h.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                (h & 0xff) as u8
+            };
+            for _ in 0..width {
+                v.extend_from_slice(&[l, l, l, 255]);
+            }
+        }
+        v
+    }
+
+    #[test]
+    fn ingest_uses_lower_roi_when_top_rows_are_static() {
+        let width = 80;
+        let frame_h = 240;
+        let header_rows = 70;
+        let initial = frame_with_static_header(width, frame_h, header_rows, 0);
+        let next = frame_with_static_header(width, frame_h, header_rows, 37);
+        let mut stitcher = ScrollStitcher::new(width, frame_h, initial, StitchConfig::default());
+
+        match stitcher.ingest(&next) {
+            IngestResult::Appended { dy, score, .. } => {
+                assert!((dy as i32 - 37).abs() <= 1, "dy={dy}");
+                assert!(score > 0.95, "score too low: {score}");
+            }
+            other => panic!("expected Appended through static header, got {other:?}"),
+        }
     }
 
     #[test]
@@ -353,7 +496,10 @@ mod tests {
         let frame_h = 200;
         let initial = gradient_frame(width, frame_h, 0);
         // Tight cap so we hit it after one ingest: 200 + 60 > 250.
-        let config = StitchConfig { max_height_px: 250, ..StitchConfig::default() };
+        let config = StitchConfig {
+            max_height_px: 250,
+            ..StitchConfig::default()
+        };
         let mut stitcher = ScrollStitcher::new(width, frame_h, initial, config);
 
         // Frame scrolled 60 rows -> would push height to 260 (> cap 250).
@@ -369,7 +515,10 @@ mod tests {
         let width = 80;
         let frame_h = 100;
         let stitcher = ScrollStitcher::new(
-            width, frame_h, gradient_frame(width, frame_h, 0), StitchConfig::default(),
+            width,
+            frame_h,
+            gradient_frame(width, frame_h, 0),
+            StitchConfig::default(),
         );
         let img = stitcher.finalize();
         assert_eq!(img.width, width);
@@ -378,17 +527,40 @@ mod tests {
     }
 
     #[test]
-    fn preview_thumbnail_downscales_to_target_height() {
+    fn preview_thumbnail_renders_a_crisp_panel_sized_view() {
         let width = 80;
         let frame_h = 800;
         let stitcher = ScrollStitcher::new(
-            width, frame_h, gradient_frame(width, frame_h, 0), StitchConfig::default(),
+            width,
+            frame_h,
+            gradient_frame(width, frame_h, 0),
+            StitchConfig::default(),
         );
-        let thumb = stitcher.preview_thumbnail(200);
+        let thumb = stitcher.preview_thumbnail(640, 360);
         assert!(thumb.starts_with(b"\x89PNG\r\n\x1a\n"));
         let decoded = image::load_from_memory(&thumb).unwrap().to_rgba8();
-        assert!(decoded.height() <= 200);
-        assert!(decoded.height() > 0);
+        assert_eq!(decoded.width(), 640);
+        assert_eq!(decoded.height(), 360);
+    }
+
+    #[test]
+    fn preview_thumbnail_avoids_full_canvas_clone() {
+        let source = include_str!("scroll_stitch.rs").replace("\r\n", "\n");
+        let start = source.find("pub fn preview_thumbnail").unwrap();
+        let end = source[start..]
+            .find("/// Compute the best vertical shift")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        assert!(
+            !body.contains("self.canvas.clone()"),
+            "preview generation should not clone the full stitched canvas",
+        );
+        assert!(
+            !body.contains("imageops::resize"),
+            "preview generation should downsample directly into a thumbnail buffer",
+        );
     }
 
     #[test]

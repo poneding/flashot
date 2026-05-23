@@ -44,6 +44,7 @@ type Actions = {
   commitDrag: () => void;
   commit: (r: Rect) => void;
   startScroll: () => void;
+  activateScroll: () => void;
   setSelection: (r: Rect) => void;
   beginMove: (p: Point) => void;
   beginResize: (handle: HandleId, p: Point) => void;
@@ -177,10 +178,14 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   startScroll: () => {
     if (get().mode !== "committed") return;
     set({
-      mode: "scrolling",
+      mode: "scrollStarting",
       colorPickerVisible: false,
       selectionInteraction: null,
     });
+  },
+  activateScroll: () => {
+    if (get().mode !== "scrollStarting") return;
+    set({ mode: "scrolling" });
   },
   setSelection: (r) => set({ selection: r }),
   beginMove: (p) => {

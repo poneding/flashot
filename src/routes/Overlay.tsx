@@ -84,6 +84,7 @@ export function OverlayRoute() {
   const start = useOverlay((s) => s.start);
   const end = useOverlay((s) => s.end);
   const startScroll = useOverlay((s) => s.startScroll);
+  const activateScroll = useOverlay((s) => s.activateScroll);
   const updateHoverAt = useOverlay((s) => s.updateHoverAt);
   const beginDrag = useOverlay((s) => s.beginDrag);
   const updateDrag = useOverlay((s) => s.updateDrag);
@@ -328,8 +329,16 @@ export function OverlayRoute() {
 
   const handleScroll = async () => {
     if (monitorId == null || !selection) return;
-    await startScrollSession(monitorId, selection);
+    const scrollSelection = selection;
     startScroll();
+    try {
+      await waitForOverlayPaint();
+      await startScrollSession(monitorId, scrollSelection);
+      activateScroll();
+    } catch (error) {
+      useOverlay.getState().commit(scrollSelection);
+      console.warn("Failed to start scrolling screenshot", error);
+    }
   };
 
   const handleClose = () => {
@@ -453,6 +462,12 @@ export function OverlayRoute() {
       <DetectHighlight />
       <SelectionBox />
       <ColorPicker />
+      {mode === "scrollStarting" && selection && monitorRect && (
+        <ScrollStartupStatus
+          selection={selection}
+          monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
+        />
+      )}
       {mode === "committed" && selection && monitorRect && monitorId != null && (
         <>
           <AnnotationStage selection={selection} scaleFactor={scaleFactor} interacting={!!selectionInteraction} />
@@ -473,6 +488,76 @@ export function OverlayRoute() {
         </>
       )}
       {flashRect && <QuickShotFlash rect={flashRect} />}
+    </div>
+  );
+}
+
+function waitForOverlayPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof window.requestAnimationFrame !== "function") {
+      window.setTimeout(resolve, 0);
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
+}
+
+function ScrollStartupStatus({ selection, monitorRect }: { selection: Rect; monitorRect: Rect }) {
+  const width = 132;
+  const height = 30;
+  const gap = 10;
+  const horizontalLeft = Math.min(
+    Math.max(selection.x, 8),
+    Math.max(8, monitorRect.width - width - 8),
+  );
+  const above = selection.y - height - gap;
+  const below = selection.y + selection.height + gap;
+  const right = selection.x + selection.width + gap;
+  const left = selection.x - width - gap;
+  const verticalTop = Math.min(
+    Math.max(selection.y, 8),
+    Math.max(8, monitorRect.height - height - 8),
+  );
+
+  const pos =
+    above >= 8
+      ? { left: horizontalLeft, top: above }
+      : below + height <= monitorRect.height - 8
+        ? { left: horizontalLeft, top: below }
+        : right + width <= monitorRect.width - 8
+          ? { left: right, top: verticalTop }
+          : left >= 8
+            ? { left, top: verticalTop }
+            : null;
+
+  if (!pos) return null;
+
+  return (
+    <div
+      role="status"
+      style={{
+        position: "fixed",
+        left: pos.left,
+        top: pos.top,
+        width,
+        height,
+        boxSizing: "border-box",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 6,
+        background: "rgba(20,20,20,0.88)",
+        border: "1px solid rgba(255,255,255,0.12)",
+        color: "rgba(255,255,255,0.88)",
+        fontSize: 12,
+        fontWeight: 500,
+        pointerEvents: "none",
+        zIndex: 10000,
+      }}
+    >
+      Starting...
     </div>
   );
 }

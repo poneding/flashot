@@ -46,7 +46,7 @@ export function SelectionBox() {
           pointerEvents: "none",
         }}
       />
-      {mode !== "scrolling" && (
+      {mode !== "scrollStarting" && mode !== "scrolling" && (
         <div
           style={{
             position: "absolute",

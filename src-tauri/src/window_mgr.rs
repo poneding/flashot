@@ -1,4 +1,4 @@
-use crate::scroll_stitch::{ScrollStitcher, StitchedImage};
+use crate::scroll_stitch::ScrollStitcher;
 use crate::types::FrozenFrame;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -26,7 +26,6 @@ pub(crate) struct ScrollState {
     pub rect: crate::types::Rect, // physical px
     pub stitcher: Arc<tokio::sync::Mutex<ScrollStitcher>>,
     pub cancel: Arc<std::sync::atomic::AtomicBool>,
-    pub result: Arc<std::sync::Mutex<Option<StitchedImage>>>,
 }
 
 impl WindowMgr {
@@ -41,7 +40,11 @@ impl WindowMgr {
             inner.in_session = true;
             inner.frames.clear();
         }
-        SessionGuard { mgr: self.clone(), app, ended: false }
+        SessionGuard {
+            mgr: self.clone(),
+            app,
+            ended: false,
+        }
     }
 
     pub fn store_frame(&self, frame: FrozenFrame) {
@@ -51,14 +54,18 @@ impl WindowMgr {
     pub fn frame(&self, monitor_id: u32) -> Option<FrozenFrame> {
         // Clone the rgba buffer out — caller cannot mutate the stored frame.
         // We only call this from the crop command path, which is rare (one click).
-        self.inner.lock().frames.get(&monitor_id).map(|f| FrozenFrame {
-            monitor_id: f.monitor_id,
-            rgba: f.rgba.clone(),
-            width: f.width,
-            height: f.height,
-            scale_factor: f.scale_factor,
-            icc_profile: f.icc_profile.clone(),
-        })
+        self.inner
+            .lock()
+            .frames
+            .get(&monitor_id)
+            .map(|f| FrozenFrame {
+                monitor_id: f.monitor_id,
+                rgba: f.rgba.clone(),
+                width: f.width,
+                height: f.height,
+                scale_factor: f.scale_factor,
+                icc_profile: f.icc_profile.clone(),
+            })
     }
 
     pub fn in_session(&self) -> bool {
@@ -75,14 +82,6 @@ impl WindowMgr {
 
     pub(crate) fn scroll_ref<R>(&self, f: impl FnOnce(&ScrollState) -> R) -> Option<R> {
         self.inner.lock().scroll.as_ref().map(f)
-    }
-
-    pub(crate) fn take_scroll_result(&self) -> Option<crate::scroll_stitch::StitchedImage> {
-        self.inner
-            .lock()
-            .scroll
-            .as_ref()
-            .and_then(|s| s.result.lock().unwrap().take())
     }
 
     pub fn end_session(&self, app: &AppHandle) {
@@ -191,16 +190,22 @@ mod tests {
 
         let mgr = WindowMgr::new();
         let cancel = std::sync::Arc::new(AtomicBool::new(false));
-        let stitcher = std::sync::Arc::new(tokio::sync::Mutex::new(
-            ScrollStitcher::new(2, 2, vec![0; 16], StitchConfig::default()),
-        ));
-        let result = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let stitcher = std::sync::Arc::new(tokio::sync::Mutex::new(ScrollStitcher::new(
+            2,
+            2,
+            vec![0; 16],
+            StitchConfig::default(),
+        )));
         mgr.set_scroll(super::ScrollState {
             monitor_id: 1,
-            rect: crate::types::Rect { x: 0, y: 0, width: 2, height: 2 },
+            rect: crate::types::Rect {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 2,
+            },
             stitcher,
             cancel: cancel.clone(),
-            result,
         });
 
         mgr.clear_session_state();

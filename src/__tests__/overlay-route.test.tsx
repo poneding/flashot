@@ -4,7 +4,7 @@ import { clearMocks, mockConvertFileSrc } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportAnnotationLayer } from "@/annotation/export";
 import { useAnnotation } from "@/annotation/store";
-import { pinImage, requestColorCopy, requestColorFormatToggle } from "@/lib/ipc";
+import { pinImage, requestColorCopy, requestColorFormatToggle, startScrollSession } from "@/lib/ipc";
 import { OverlayRoute } from "@/routes/Overlay";
 import { currentCursorPointInWindow } from "@/lib/cursor";
 import { useOverlay } from "@/overlay/state";
@@ -174,6 +174,54 @@ describe("OverlayRoute", () => {
       expect(exportAnnotationLayer).toHaveBeenCalledWith(2);
       expect(pinImage).toHaveBeenCalledWith(1, selection, annotationPng);
     });
+  });
+
+  it("shows a startup state before the backend captures the initial scroll frame", async () => {
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    vi.mocked(startScrollSession).mockReturnValueOnce(new Promise<void>(() => {}));
+    useOverlay.getState().commit(selection);
+
+    render(<OverlayRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Scrolling screenshot" }));
+
+    expect(useOverlay.getState().mode).toBe("scrollStarting");
+    expect(screen.getByText("Starting...")).toBeTruthy();
+    await waitFor(() => {
+      expect(startScrollSession).toHaveBeenCalledWith(1, selection);
+    });
+  });
+
+  it("enters scrolling mode after the backend starts the scroll session", async () => {
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    vi.mocked(startScrollSession).mockResolvedValueOnce(undefined);
+    useOverlay.getState().commit(selection);
+
+    render(<OverlayRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Scrolling screenshot" }));
+
+    await waitFor(() => {
+      expect(useOverlay.getState().mode).toBe("scrolling");
+    });
+  });
+
+  it("restores the committed selection if scrolling capture fails to start", async () => {
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(startScrollSession).mockRejectedValueOnce(new Error("initial capture failed"));
+    useOverlay.getState().commit(selection);
+
+    try {
+      render(<OverlayRoute />);
+      fireEvent.click(screen.getByRole("button", { name: "Scrolling screenshot" }));
+
+      await waitFor(() => {
+        expect(useOverlay.getState().mode).toBe("committed");
+        expect(useOverlay.getState().selection).toEqual(selection);
+      });
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("sets the native overlay cursor to crosshair while hovering", async () => {

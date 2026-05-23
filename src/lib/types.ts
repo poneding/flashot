@@ -32,7 +32,14 @@ export type QuickShotFlashPayload = {
   rect: Rect;
 };
 
-export type Mode = "idle" | "hover" | "dragging" | "committed" | "locked" | "scrolling";
+export type Mode =
+  | "idle"
+  | "hover"
+  | "dragging"
+  | "committed"
+  | "locked"
+  | "scrollStarting"
+  | "scrolling";
 
 export type ToolbarPosition =
   | { kind: "below"; x: number; y: number }

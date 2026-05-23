@@ -1,10 +1,14 @@
 import { TooltipBubble } from "@/annotation/Tooltip";
 import { clampToolbarPosition, computeVerticalToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
-import { CopyIcon, GripHorizontal, PinIcon, SaveIcon, ScrollText, XIcon, type LucideIcon } from "lucide-react";
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { CopyIcon, GripHorizontal, PinIcon, SaveIcon, XIcon } from "lucide-react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
-const TOOLBAR_SIZE = { width: 40, height: 190 };
+export const SCREENSHOT_TOOLBAR_RADIUS = 10;
+export const SCREENSHOT_TOOLBAR_BACKGROUND = "rgba(30, 30, 30, 0.85)";
+export const SCREENSHOT_TOOLBAR_BORDER = "1px solid rgba(255,255,255,0.1)";
+
+const TOOLBAR_SIZE = { width: 40, height: 223 };
 
 type ToolbarAction = () => void | Promise<void>;
 
@@ -21,7 +25,7 @@ type Props = {
 
 type ToolbarButtonProps = {
   label: string;
-  icon: LucideIcon;
+  icon: ReactNode;
   onClick: ToolbarAction;
   disabled?: boolean;
   tone?: "default" | "danger" | "primary" | "success";
@@ -95,19 +99,17 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
         left: pos.x,
         top: pos.y,
         width: TOOLBAR_SIZE.width,
-        height: TOOLBAR_SIZE.height,
         boxSizing: "border-box",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        gap: 2,
         padding: "4px 0",
-        borderRadius: 10,
-        background: "rgba(30, 30, 30, 0.85)",
+        borderRadius: SCREENSHOT_TOOLBAR_RADIUS,
+        background: SCREENSHOT_TOOLBAR_BACKGROUND,
         backdropFilter: "blur(12px)",
         WebkitBackdropFilter: "blur(12px)",
         boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
-        border: "1px solid rgba(255,255,255,0.1)",
+        border: SCREENSHOT_TOOLBAR_BORDER,
         color: "#f0f0f5",
         pointerEvents: "auto",
         userSelect: "none",
@@ -135,45 +137,86 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
 
       <Separator />
 
-      <ToolbarButton
-        label="Close"
-        icon={XIcon}
-        tone="danger"
-        onClick={onClose}
-      />
-      <ToolbarButton
-        label={selectionTooSmall ? "Selection too small" : "Scrolling screenshot"}
-        icon={ScrollText}
-        onClick={() => runAction(onScroll)}
-        disabled={selectionTooSmall}
-      />
-      <ToolbarButton
-        label="Pin"
-        icon={PinIcon}
-        onClick={() => runAction(onPin)}
-        disabled={busy}
-      />
-      <ToolbarButton
-        label="Save As"
-        icon={SaveIcon}
-        tone="primary"
-        onClick={() => runAction(onSave)}
-        disabled={busy}
-      />
-      <ToolbarButton
-        label="Copy"
-        icon={CopyIcon}
-        tone="success"
-        onClick={() => runAction(onCopy)}
-        disabled={busy}
-      />
+      <ToolbarGroup name="pin-scroll">
+        <ToolbarButton
+          label="Pin"
+          icon={<PinIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
+          onClick={() => runAction(onPin)}
+          disabled={busy}
+        />
+        <ToolbarButton
+          label={selectionTooSmall ? "Selection too small" : "Scrolling screenshot"}
+          icon={<ScrollScreenshotIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
+          onClick={() => runAction(onScroll)}
+          disabled={selectionTooSmall}
+        />
+      </ToolbarGroup>
+
+      <Separator />
+
+      <ToolbarGroup name="close">
+        <ToolbarButton
+          label="Close"
+          icon={<XIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
+          tone="danger"
+          onClick={onClose}
+        />
+      </ToolbarGroup>
+
+      <Separator />
+
+      <ToolbarGroup name="output">
+        <ToolbarButton
+          label="Save As"
+          icon={<SaveIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
+          tone="primary"
+          onClick={() => runAction(onSave)}
+          disabled={busy}
+        />
+        <ToolbarButton
+          label="Copy"
+          icon={<CopyIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
+          tone="success"
+          onClick={() => runAction(onCopy)}
+          disabled={busy}
+        />
+      </ToolbarGroup>
     </div>
+  );
+}
+
+function ScrollScreenshotIcon({ size = 24, strokeWidth = 2, ...props }: {
+  size?: number | string;
+  strokeWidth?: number | string;
+  "aria-hidden"?: "true";
+}) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="lucide lucide-chevrons-up-down-ellipsis-icon lucide-chevrons-up-down-ellipsis"
+      data-scroll-screenshot-icon="vertical"
+      {...props}
+    >
+      <path d="M12 8h.01" />
+      <path d="M12 12h.01" />
+      <path d="M12 16h.01" />
+      <path d="m7 7 5-5 5 5" />
+      <path d="m7 17 5 5 5-5" />
+    </svg>
   );
 }
 
 function ToolbarButton({
   label,
-  icon: Icon,
+  icon,
   onClick,
   disabled,
   tone = "default",
@@ -217,9 +260,26 @@ function ToolbarButton({
         transition: "background 0.1s, color 0.1s",
       }}
     >
-      <Icon size={18} strokeWidth={2.2} aria-hidden="true" />
+      {icon}
       {tooltipVisible && <TooltipBubble label={label} anchorRef={buttonRef} placement="right" />}
     </button>
+  );
+}
+
+function ToolbarGroup({ name, children }: { name: string; children: ReactNode }) {
+  return (
+    <div
+      data-screenshot-toolbar-group={name}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 2,
+        flexShrink: 0,
+      }}
+    >
+      {children}
+    </div>
   );
 }
 

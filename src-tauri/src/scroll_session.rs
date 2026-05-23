@@ -1,7 +1,7 @@
 //! Tokio-driven capture loop for an active ScrollSession.
 
 use crate::capture::capture_monitor_region;
-use crate::scroll_stitch::{IngestResult, ScrollStitcher, StitchedImage};
+use crate::scroll_stitch::{IngestResult, ScrollStitcher};
 use crate::types::Rect;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -12,7 +12,8 @@ use tokio::time::{interval, MissedTickBehavior};
 
 const TICK_MS: u64 = 60;
 const PROGRESS_THROTTLE_MS: u64 = 100;
-const PREVIEW_TARGET_HEIGHT: u32 = 320;
+const PREVIEW_TARGET_WIDTH: u32 = 640;
+const PREVIEW_TARGET_HEIGHT: u32 = 360;
 
 #[derive(serde::Serialize, Clone)]
 struct ProgressPayload {
@@ -39,7 +40,6 @@ pub fn spawn_loop(
     rect: Rect,
     stitcher: Arc<AsyncMutex<ScrollStitcher>>,
     cancel: Arc<AtomicBool>,
-    result_slot: Arc<std::sync::Mutex<Option<StitchedImage>>>,
 ) {
     tokio::spawn(async move {
         let mut tick = interval(Duration::from_millis(TICK_MS));
@@ -54,6 +54,9 @@ pub fn spawn_loop(
                 break;
             }
             tick.tick().await;
+            if cancel.load(Ordering::SeqCst) {
+                break;
+            }
 
             let frame = match capture_monitor_region(monitor_id, rect) {
                 Ok(f) => f,
@@ -62,6 +65,9 @@ pub fn spawn_loop(
                     continue;
                 }
             };
+            if cancel.load(Ordering::SeqCst) {
+                break;
+            }
 
             let result = {
                 let mut s = stitcher.lock().await;
@@ -70,7 +76,9 @@ pub fn spawn_loop(
 
             match result {
                 IngestResult::Appended {
-                    new_height, dy, score,
+                    new_height,
+                    dy,
+                    score,
                 } => {
                     consecutive_failures = 0;
                     frames_accepted += 1;
@@ -82,7 +90,7 @@ pub fn spawn_loop(
                         last_emit = Instant::now();
                         let thumb = {
                             let s = stitcher.lock().await;
-                            s.preview_thumbnail(PREVIEW_TARGET_HEIGHT)
+                            s.preview_thumbnail(PREVIEW_TARGET_WIDTH, PREVIEW_TARGET_HEIGHT)
                         };
                         let _ = app.emit(
                             "scroll:progress",
@@ -116,14 +124,6 @@ pub fn spawn_loop(
                     let is_max = matches!(result, IngestResult::MaxHeightReached);
                     let reason = if is_max { "max-height" } else { "bottom" };
                     tracing::info!(target: "scroll", "end detected: {reason} frames={frames_accepted}");
-                    {
-                        let s = stitcher.lock().await;
-                        *result_slot.lock().unwrap() = Some(StitchedImage {
-                            rgba: s.canvas_bytes_clone(),
-                            width: s.width(),
-                            height: s.height(),
-                        });
-                    }
                     let _ = app.emit(
                         "scroll:end-detected",
                         EndDetectedPayload {
@@ -164,4 +164,23 @@ fn base64_encode(bytes: &[u8]) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn end_detection_emits_without_materializing_canvas() {
+        let source = include_str!("scroll_session.rs").replace("\r\n", "\n");
+        let start = source.find("IngestResult::EndOfScroll").unwrap();
+        let end = source[start..]
+            .find("fn base64_encode")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        assert!(
+            !body.contains("canvas_bytes_clone"),
+            "auto-finish should emit the end event immediately and defer full-image cloning",
+        );
+    }
 }

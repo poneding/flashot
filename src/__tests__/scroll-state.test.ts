@@ -8,11 +8,19 @@ function reset() {
 describe("scroll state transitions", () => {
   beforeEach(() => reset());
 
-  it("startScroll moves committed → scrolling", () => {
+  it("startScroll moves committed → scrollStarting", () => {
     const s = useOverlay.getState();
     s.commit({ x: 0, y: 0, width: 200, height: 200 });
     expect(useOverlay.getState().mode).toBe("committed");
     s.startScroll();
+    expect(useOverlay.getState().mode).toBe("scrollStarting");
+  });
+
+  it("activateScroll moves scrollStarting → scrolling", () => {
+    const s = useOverlay.getState();
+    s.commit({ x: 0, y: 0, width: 200, height: 200 });
+    s.startScroll();
+    s.activateScroll();
     expect(useOverlay.getState().mode).toBe("scrolling");
   });
 
@@ -21,7 +29,7 @@ describe("scroll state transitions", () => {
     expect(useOverlay.getState().mode).toBe("idle");
   });
 
-  it("end() from scrolling returns to idle", () => {
+  it("end() from scrollStarting returns to idle", () => {
     const s = useOverlay.getState();
     s.commit({ x: 0, y: 0, width: 200, height: 200 });
     s.startScroll();
