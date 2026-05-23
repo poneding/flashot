@@ -313,6 +313,26 @@ mod tests {
     }
 
     #[test]
+    fn max_height_caps_canvas_growth() {
+        // Use frame_h=200 so the default 50-row ROI has full overlap with the
+        // last_frame search image after a 60-row scroll (avoids matcher edge
+        // effects that would otherwise reduce the NCC score below threshold).
+        let width = 80;
+        let frame_h = 200;
+        let initial = gradient_frame(width, frame_h, 0);
+        // Tight cap so we hit it after one ingest: 200 + 60 > 250.
+        let config = StitchConfig { max_height_px: 250, ..StitchConfig::default() };
+        let mut stitcher = ScrollStitcher::new(width, frame_h, initial, config);
+
+        // Frame scrolled 60 rows -> would push height to 260 (> cap 250).
+        let next = gradient_frame(width, frame_h, 60);
+        let r = stitcher.ingest(&next);
+        assert_eq!(r, IngestResult::MaxHeightReached);
+        assert_eq!(stitcher.height(), 250);
+        assert_eq!(stitcher.canvas.len(), (width * 250 * 4) as usize);
+    }
+
+    #[test]
     fn random_noise_frame_triggers_match_failed() {
         let width = 80;
         let frame_h = 600;
