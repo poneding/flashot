@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ScrollProgress } from "@/lib/types";
-import { onScrollProgress, scrollCopy, scrollSave, stopScrollSession } from "@/lib/ipc";
+import { onScrollMatchFailed, onScrollProgress, scrollCopy, scrollSave, stopScrollSession } from "@/lib/ipc";
 
 // Parses `#/scroll-chrome/{monitorId}` from window.location.hash, mirroring
 // the manual route parsing used by Pin.tsx (no react-router dependency).
@@ -19,11 +19,24 @@ export function ScrollChromeRoute() {
   const [parsed] = useState(() => parseScrollChromeRoute());
   const [progress, setProgress] = useState<ScrollProgress | null>(null);
   const [finalized, setFinalized] = useState<{ width: number; height: number } | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     const sub = onScrollProgress((p) => setProgress(p));
     return () => {
       sub.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, []);
+
+  useEffect(() => {
+    const p = onScrollMatchFailed(({ consecutiveFailures }) => {
+      if (consecutiveFailures >= 5) {
+        setToast("Can't detect scroll — try scrolling more slowly.");
+        window.setTimeout(() => setToast(null), 3000);
+      }
+    });
+    return () => {
+      p.then((u) => u()).catch(() => {});
     };
   }, []);
 
@@ -52,8 +65,28 @@ export function ScrollChromeRoute() {
         flexDirection: "column",
         pointerEvents: "auto",
         background: "transparent",
+        position: "relative",
       }}
     >
+      {toast && (
+        <div
+          style={{
+            position: "absolute",
+            top: 8,
+            left: 8,
+            right: 8,
+            background: "rgba(220, 38, 38, 0.92)",
+            color: "white",
+            padding: "6px 10px",
+            borderRadius: 6,
+            fontSize: 12,
+            textAlign: "center",
+            zIndex: 10,
+          }}
+        >
+          {toast}
+        </div>
+      )}
       <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
         {progress?.previewDataUrl && (
           <img
