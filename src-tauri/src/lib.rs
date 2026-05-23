@@ -246,6 +246,10 @@ pub fn run() {
             commands::pin_image,
             commands::close_pin,
             commands::set_pin_scale,
+            commands::start_scroll_session,
+            commands::stop_scroll_session,
+            commands::scroll_copy,
+            commands::scroll_save,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

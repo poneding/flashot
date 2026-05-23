@@ -11,6 +11,13 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tauri_plugin_autostart::ManagerExt as _;
 use uuid::Uuid;
 
+#[derive(serde::Serialize, Clone)]
+pub struct ScrollResult {
+    pub width: u32,
+    pub height: u32,
+    pub frame_count: u32,
+}
+
 const ABOUT_WINDOW_WIDTH: f64 = 360.0;
 const ABOUT_WINDOW_HEIGHT: f64 = 300.0;
 const SETTINGS_WINDOW_WIDTH: f64 = 560.0;
@@ -528,6 +535,142 @@ fn composite_annotation(
         width: base.width,
         height: base.height,
     })
+}
+
+#[tauri::command]
+pub async fn start_scroll_session(
+    monitor_id: u32,
+    rect: Rect,
+    app: AppHandle,
+    mgr: State<'_, Arc<WindowMgr>>,
+) -> Result<(), String> {
+    use crate::scroll_stitch::{ScrollStitcher, StitchConfig};
+    use crate::window_mgr::ScrollState;
+    use std::sync::atomic::AtomicBool;
+    use tokio::sync::Mutex as AsyncMutex;
+
+    // 1. Dismiss the frozen overlay so the user can see live content.
+    //    But keep the in_session flag — we still own the overlay window labels.
+    let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let scale = frame.scale_factor.max(1.0);
+    let phys_rect = Rect {
+        x: (rect.x as f32 * scale).round() as i32,
+        y: (rect.y as f32 * scale).round() as i32,
+        width: (rect.width as f32 * scale).round() as u32,
+        height: (rect.height as f32 * scale).round() as u32,
+    };
+
+    // 2. Capture the initial frame from the live screen (not the frozen one).
+    let initial = crate::capture::capture_monitor_region(monitor_id, phys_rect)
+        .map_err(|e| format!("initial capture failed: {e}"))?;
+
+    // 3. Hide frozen overlays' selection rect (interior shape-passthrough).
+    let _ = app.emit("scroll:overlay-passthrough", phys_rect);
+
+    let stitcher = Arc::new(AsyncMutex::new(ScrollStitcher::new(
+        phys_rect.width,
+        phys_rect.height,
+        initial,
+        StitchConfig::default(),
+    )));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let result_slot = Arc::new(std::sync::Mutex::new(None));
+
+    crate::scroll_session::spawn_loop(
+        app.clone(),
+        monitor_id,
+        phys_rect,
+        stitcher.clone(),
+        cancel.clone(),
+        result_slot.clone(),
+    );
+
+    mgr.set_scroll(ScrollState {
+        monitor_id,
+        rect: phys_rect,
+        stitcher,
+        cancel,
+        result: result_slot,
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stop_scroll_session(
+    commit: bool,
+    app: AppHandle,
+    mgr: State<'_, Arc<WindowMgr>>,
+) -> Result<Option<ScrollResult>, String> {
+    // Grab the cancel handle + stitcher Arc clones without taking the state out.
+    let (cancel, stitcher_arc, result_arc) = mgr
+        .scroll_ref(|s| (s.cancel.clone(), s.stitcher.clone(), s.result.clone()))
+        .ok_or("no active scroll session")?;
+    cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+
+    if !commit {
+        let _ = mgr.take_scroll();
+        mgr.end_session(&app);
+        return Ok(None);
+    }
+
+    // Finalize in place: if the loop already stashed a result, reuse it;
+    // otherwise clone the current canvas into the slot. We acquire the std
+    // mutex twice — once to peek, then drop the guard before `.await` so the
+    // future stays `Send`, and once to write — because the loop may race us.
+    let needs_canvas_copy = result_arc.lock().unwrap().is_none();
+    if needs_canvas_copy {
+        let s = stitcher_arc.lock().await;
+        let mut slot = result_arc.lock().unwrap();
+        if slot.is_none() {
+            *slot = Some(crate::scroll_stitch::StitchedImage {
+                rgba: s.canvas_bytes_clone(),
+                width: s.width(),
+                height: s.height(),
+            });
+        }
+    }
+    let summary = {
+        let slot = result_arc.lock().unwrap();
+        let img = slot.as_ref().expect("result slot populated above");
+        ScrollResult {
+            width: img.width,
+            height: img.height,
+            frame_count: 0,
+        }
+    };
+
+    Ok(Some(summary))
+}
+
+#[tauri::command]
+pub async fn scroll_copy(
+    app: AppHandle,
+    mgr: State<'_, Arc<WindowMgr>>,
+) -> Result<(), String> {
+    let img = mgr.take_scroll_result().ok_or("no scroll result available")?;
+    let _ = mgr.take_scroll();
+    clipboard::copy_image(img.rgba, img.width, img.height).map_err(|e| e.to_string())?;
+    mgr.end_session(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn scroll_save(
+    app: AppHandle,
+    mgr: State<'_, Arc<WindowMgr>>,
+) -> Result<Option<String>, String> {
+    let img = mgr.take_scroll_result().ok_or("no scroll result available")?;
+    let _ = mgr.take_scroll();
+    let mut settings = settings_store::load().unwrap_or_default();
+    mgr.end_session(&app);
+    let path = saver::save_image_dialog(img.rgba, img.width, img.height, &settings)
+        .map_err(|e| e.to_string())?;
+    if let Some(saved_path) = path.as_deref() {
+        saver::remember_last_save_dir(&mut settings, saved_path);
+        settings_store::save(&settings).map_err(|e| e.to_string())?;
+        let _ = app.emit("settings:changed", ());
+    }
+    Ok(path.map(|p| p.to_string_lossy().to_string()))
 }
 
 #[cfg(test)]
