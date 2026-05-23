@@ -106,7 +106,13 @@ impl WindowMgr {
 
     fn hide_overlays(&self, app: &AppHandle) {
         for (_label, w) in app.webview_windows() {
-            if w.label().starts_with("overlay-") {
+            let label = w.label();
+            if label.starts_with("overlay-chrome-") {
+                // Chrome windows must be closed, not hidden — otherwise the next
+                // scroll session reuses a stale hidden window. Their lifecycle
+                // is bound to a single scroll session.
+                let _ = w.close();
+            } else if label.starts_with("overlay-") {
                 #[cfg(target_os = "linux")]
                 let _ = w.set_fullscreen(false);
                 #[cfg(not(target_os = "linux"))]
