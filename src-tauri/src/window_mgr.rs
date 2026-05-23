@@ -20,7 +20,7 @@ struct Inner {
     scroll: Option<ScrollState>,
 }
 
-#[allow(dead_code)] // wired up in subsequent scroll-stitching tasks
+#[allow(dead_code)] // `monitor_id`/`rect` are recorded for future routing/debug use
 pub(crate) struct ScrollState {
     pub monitor_id: u32,
     pub rect: crate::types::Rect, // physical px
@@ -65,22 +65,18 @@ impl WindowMgr {
         self.inner.lock().in_session
     }
 
-    #[allow(dead_code)] // wired up in subsequent scroll-stitching tasks
     pub(crate) fn take_scroll(&self) -> Option<ScrollState> {
         self.inner.lock().scroll.take()
     }
 
-    #[allow(dead_code)] // wired up in subsequent scroll-stitching tasks
     pub(crate) fn set_scroll(&self, s: ScrollState) {
         self.inner.lock().scroll = Some(s);
     }
 
-    #[allow(dead_code)] // wired up in subsequent scroll-stitching tasks
     pub(crate) fn scroll_ref<R>(&self, f: impl FnOnce(&ScrollState) -> R) -> Option<R> {
         self.inner.lock().scroll.as_ref().map(f)
     }
 
-    #[allow(dead_code)] // wired up in subsequent scroll-stitching tasks
     pub(crate) fn take_scroll_result(&self) -> Option<crate::scroll_stitch::StitchedImage> {
         self.inner
             .lock()
@@ -180,5 +176,29 @@ mod tests {
 
         assert!(!mgr.in_session());
         assert!(mgr.frame(7).is_none());
+    }
+
+    #[test]
+    fn clear_session_state_cancels_active_scroll() {
+        use crate::scroll_stitch::{ScrollStitcher, StitchConfig};
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let mgr = WindowMgr::new();
+        let cancel = std::sync::Arc::new(AtomicBool::new(false));
+        let stitcher = std::sync::Arc::new(tokio::sync::Mutex::new(
+            ScrollStitcher::new(2, 2, vec![0; 16], StitchConfig::default()),
+        ));
+        let result = std::sync::Arc::new(std::sync::Mutex::new(None));
+        mgr.set_scroll(super::ScrollState {
+            monitor_id: 1,
+            rect: crate::types::Rect { x: 0, y: 0, width: 2, height: 2 },
+            stitcher,
+            cancel: cancel.clone(),
+            result,
+        });
+
+        mgr.clear_session_state();
+        assert!(cancel.load(Ordering::SeqCst), "scroll cancel must be set");
+        assert!(mgr.scroll_ref(|_| ()).is_none());
     }
 }
