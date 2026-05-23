@@ -99,3 +99,7 @@ harness = false
 [[bench]]
 name = "clipboard_bench"
 harness = false
+
+[[bench]]
+name = "scroll_stitch_bench"
+harness = false
