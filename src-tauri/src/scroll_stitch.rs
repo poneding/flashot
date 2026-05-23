@@ -311,4 +311,30 @@ mod tests {
         // 5th identical follow-up trips EndOfScroll (default end_of_scroll_frames=5).
         assert_eq!(stitcher.ingest(&initial), IngestResult::EndOfScroll);
     }
+
+    #[test]
+    fn random_noise_frame_triggers_match_failed() {
+        let width = 80;
+        let frame_h = 600;
+        let initial = gradient_frame(width, frame_h, 0);
+        let mut stitcher = ScrollStitcher::new(width, frame_h, initial, StitchConfig::default());
+
+        // Pseudo-random noise frame uncorrelated with the gradient.
+        let mut noise = Vec::with_capacity((width * frame_h * 4) as usize);
+        let mut seed: u32 = 0x9E3779B9;
+        for _ in 0..(width * frame_h) {
+            seed = seed.wrapping_mul(2654435761).wrapping_add(1);
+            let b = (seed >> 24) as u8;
+            noise.extend_from_slice(&[b, b.wrapping_add(73), b.wrapping_add(151), 255]);
+        }
+
+        match stitcher.ingest(&noise) {
+            IngestResult::MatchFailed { score } => {
+                assert!(score < 0.85, "score should be below threshold: {score}");
+            }
+            other => panic!("expected MatchFailed, got {other:?}"),
+        }
+        // Canvas must not grow on match failure.
+        assert_eq!(stitcher.height(), frame_h);
+    }
 }
