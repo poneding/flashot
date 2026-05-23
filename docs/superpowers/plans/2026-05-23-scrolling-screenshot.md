@@ -19,7 +19,7 @@
 **Files:**
 - Modify: `src-tauri/Cargo.toml`
 
-- [ ] **Step 1: Add `imageproc` to `[dependencies]` and register the new bench**
+- [ ] **Step 1: Add `imageproc` to `[dependencies]` (bench registration deferred to Task 9)**
 
 In `src-tauri/Cargo.toml`, under `[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]`, add after the `image` line:
 
@@ -27,13 +27,7 @@ In `src-tauri/Cargo.toml`, under `[target.'cfg(not(any(target_os = "android", ta
 imageproc = { version = "0.25", default-features = false }
 ```
 
-Then at the bottom of the file, after the existing `[[bench]]` blocks, add:
-
-```toml
-[[bench]]
-name = "scroll_stitch_bench"
-harness = false
-```
+The `[[bench]]` block for `scroll_stitch_bench` is **registered later in Task 9** when the bench file exists, because Cargo treats an entry pointing at a missing file as a manifest error (not a warning).
 
 - [ ] **Step 2: Verify the workspace still builds**
 
