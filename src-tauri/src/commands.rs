@@ -158,6 +158,9 @@ pub async fn crop_and_save(
 
 #[tauri::command]
 pub async fn cancel_capture(app: AppHandle, mgr: State<'_, Arc<WindowMgr>>) -> Result<(), String> {
+    if let Some(mid) = mgr.scroll_ref(|s| s.monitor_id) {
+        close_scroll_chrome(&app, mid);
+    }
     mgr.end_session(&app);
     Ok(())
 }
@@ -567,6 +570,14 @@ pub async fn start_scroll_session(
     // 3. Hide frozen overlays' selection rect (interior shape-passthrough).
     let _ = app.emit("scroll:overlay-passthrough", phys_rect);
 
+    // 4. Spawn the chrome window (status bar + preview) anchored next to the
+    //    selection. The original overlay becomes mouse-transparent so the
+    //    user can scroll the underlying app while we capture.
+    spawn_scroll_chrome(&app, monitor_id, phys_rect)?;
+    if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
+        let _ = w.set_ignore_cursor_events(true);
+    }
+
     let stitcher = Arc::new(AsyncMutex::new(ScrollStitcher::new(
         phys_rect.width,
         phys_rect.height,
@@ -595,6 +606,69 @@ pub async fn start_scroll_session(
     Ok(())
 }
 
+/// Spawn the always-on-top chrome window that hosts the status bar and live
+/// preview. The window is anchored to the right of the selection when there
+/// is room; otherwise it falls back to the bottom-left of the monitor so the
+/// user can still reach the Done/Cancel controls.
+fn spawn_scroll_chrome(
+    app: &AppHandle,
+    monitor_id: u32,
+    phys_rect: Rect,
+) -> Result<(), String> {
+    let chrome_label = format!("overlay-chrome-{monitor_id}");
+    if app.get_webview_window(&chrome_label).is_some() {
+        return Ok(());
+    }
+
+    let mon = crate::capture::enumerate_monitors()
+        .ok()
+        .and_then(|ms| ms.into_iter().find(|m| m.id == monitor_id))
+        .ok_or("monitor not found for chrome window")?;
+
+    // Strip width is fixed; height tracks the selection so the preview has
+    // breathing room above the status bar. Both are in logical pixels.
+    let strip_w = 80.0_f64;
+    let strip_h = (phys_rect.height as f64 / mon.scale_factor as f64) * 0.7;
+    let mon_logical_w = mon.rect.width as f64;
+    let mon_logical_h = mon.rect.height as f64;
+    let sel_logical_right = (phys_rect.x as f64 + phys_rect.width as f64) / mon.scale_factor as f64;
+    let sel_logical_top = phys_rect.y as f64 / mon.scale_factor as f64;
+    let mut x = mon.rect.x as f64 + sel_logical_right + 12.0;
+    let mut y = mon.rect.y as f64 + sel_logical_top;
+    if x + strip_w > mon.rect.x as f64 + mon_logical_w {
+        x = mon.rect.x as f64 + 12.0;
+        y = mon.rect.y as f64 + (mon_logical_h - strip_h - 12.0);
+    }
+
+    tauri::WebviewWindowBuilder::new(
+        app,
+        &chrome_label,
+        tauri::WebviewUrl::App(format!("index.html#/scroll-chrome/{monitor_id}").into()),
+    )
+    .transparent(true)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .inner_size(strip_w, strip_h)
+    .position(x, y)
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Tear down the chrome window for `monitor_id` (if any) and restore mouse
+/// events on the underlying overlay so the next capture session works.
+fn close_scroll_chrome(app: &AppHandle, monitor_id: u32) {
+    if let Some(w) = app.get_webview_window(&format!("overlay-chrome-{monitor_id}")) {
+        let _ = w.close();
+    }
+    if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
+        let _ = w.set_ignore_cursor_events(false);
+    }
+}
+
 #[tauri::command]
 pub async fn stop_scroll_session(
     commit: bool,
@@ -608,6 +682,9 @@ pub async fn stop_scroll_session(
     cancel.store(true, std::sync::atomic::Ordering::SeqCst);
 
     if !commit {
+        if let Some(mid) = mgr.scroll_ref(|s| s.monitor_id) {
+            close_scroll_chrome(&app, mid);
+        }
         let _ = mgr.take_scroll();
         mgr.end_session(&app);
         return Ok(None);
@@ -647,8 +724,12 @@ pub async fn scroll_copy(
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
+    let monitor_id = mgr.scroll_ref(|s| s.monitor_id);
     let img = mgr.take_scroll_result().ok_or("no scroll result available")?;
     let _ = mgr.take_scroll();
+    if let Some(mid) = monitor_id {
+        close_scroll_chrome(&app, mid);
+    }
     clipboard::copy_image(img.rgba, img.width, img.height).map_err(|e| e.to_string())?;
     mgr.end_session(&app);
     Ok(())
@@ -675,8 +756,12 @@ pub async fn scroll_save(
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
+    let monitor_id = mgr.scroll_ref(|s| s.monitor_id);
     let img = mgr.take_scroll_result().ok_or("no scroll result available")?;
     let _ = mgr.take_scroll();
+    if let Some(mid) = monitor_id {
+        close_scroll_chrome(&app, mid);
+    }
     let mut settings = settings_store::load().unwrap_or_default();
     mgr.end_session(&app);
     let path = saver::save_image_dialog(img.rgba, img.width, img.height, &settings)
