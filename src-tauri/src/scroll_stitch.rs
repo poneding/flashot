@@ -74,7 +74,6 @@ impl ScrollStitcher {
 
     pub fn width(&self) -> u32 { self.width }
     pub fn height(&self) -> u32 { self.height }
-    pub fn consecutive_no_change(&self) -> u32 { self.consecutive_no_change }
 
     pub fn canvas_bytes_clone(&self) -> Vec<u8> {
         self.canvas.clone()
