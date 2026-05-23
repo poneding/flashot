@@ -57,6 +57,7 @@ global-hotkey = "0.6"
 arboard = { version = "3", features = ["wayland-data-control"] }
 rfd = "0.14"
 image = { version = "0.25", default-features = false, features = ["png"] }
+imageproc = { version = "0.25", default-features = false }
 fontdb = "0.23.0"
 uuid = { version = "1.11", features = ["v4"] }
 
