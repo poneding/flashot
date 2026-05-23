@@ -20,6 +20,10 @@ export function DimMask() {
   const mode = useOverlay((s) => s.mode);
   const sel = useOverlay((s) => s.selection ?? s.hoverRect);
   if (!monitor) return null;
+  // During scrolling capture we draw nothing — the user must see the live
+  // app underneath, undimmed, to scroll it. The SelectionBox outline still
+  // marks the capture region.
+  if (mode === "scrollStarting" || mode === "scrolling") return null;
   if (!sel) {
     if (mode !== "hover" && mode !== "dragging" && mode !== "locked") return null;
     return <div data-dim-mask="full" style={rectStyle({ x: 0, y: 0, width: monitor.width, height: monitor.height })} />;

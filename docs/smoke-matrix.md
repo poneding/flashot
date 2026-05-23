@@ -105,6 +105,21 @@ Manual test scenarios for Flashot V0 before release.
 - **macOS**: 13.0+ (Ventura or later)
 - **Windows**: 10/11
 
+## Scrolling Screenshot (v1)
+
+| Target | macOS | Windows | Linux X11 |
+|---|---|---|---|
+| Long web page (Chrome / Firefox) | ⏳ pending | ⏳ pending | ⏳ pending |
+| Long PDF in system reader | ⏳ pending | ⏳ pending | ⏳ pending |
+| Chat scrollback (Slack / Discord / Telegram) | ⏳ pending | ⏳ pending | ⏳ pending |
+
+Procedure: trigger capture → draw selection over scrollable content → click Scrolling Screenshot button in Toolbar → scroll with mouse/trackpad → verify chrome window shows live preview + frame count → click Done → paste/save stitched result and visually verify no missing rows or duplicate rows. Esc cancels the scroll session and tears down the chrome window.
+
+Known limitations:
+- Wayland: passthrough behavior of `set_ignore_cursor_events` not validated; X11 only for v1.
+- Selection height < 100 logical px: Scrolling Screenshot button is disabled.
+- Fast scrolling may yield `scroll:match-failed` events; a toast surfaces in the chrome window after 5 consecutive failures.
+
 ## Reporting Issues
 
 When filing bugs, include:

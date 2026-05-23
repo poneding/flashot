@@ -6,8 +6,11 @@ pub mod overlay_window;
 pub mod permission;
 pub mod pin_mgr;
 pub mod saver;
+pub mod scroll_session;
+pub mod scroll_stitch;
 pub mod settings_store;
 pub mod tray;
+pub mod tray_template_icon;
 pub mod types;
 pub mod window_mgr;
 pub mod window_probe;
@@ -244,6 +247,10 @@ pub fn run() {
             commands::pin_image,
             commands::close_pin,
             commands::set_pin_scale,
+            commands::start_scroll_session,
+            commands::stop_scroll_session,
+            commands::scroll_copy,
+            commands::scroll_save,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -401,6 +408,7 @@ fn install_tray(
     fullscreen_hotkey: &str,
     active_window_hotkey: &str,
 ) {
+    tray_template_icon::install();
     #[cfg(target_os = "linux")]
     {
         let app = app.clone();

@@ -25,6 +25,7 @@ describe("Toolbar", () => {
   const onSave = vi.fn();
   const onPin = vi.fn();
   const onClose = vi.fn();
+  const onScroll = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -46,6 +47,7 @@ describe("Toolbar", () => {
         onSave={onSave}
         onPin={onPin}
         onClose={onClose}
+        onScroll={onScroll}
       />,
     );
   }
@@ -64,6 +66,7 @@ describe("Toolbar", () => {
     expect(handle).not.toBeNull();
     expect(toolbar?.firstElementChild).toBe(handle);
     expect(toolbar?.style.flexDirection).toBe("column");
+    expect(toolbar?.style.height).toBe("");
     expect(copy.textContent).toBe("");
     expect(save.textContent).toBe("");
     expect(pin.textContent).toBe("");
@@ -73,6 +76,43 @@ describe("Toolbar", () => {
     fireEvent.mouseEnter(copy);
 
     expect(screen.getByRole("tooltip").textContent).toBe("Copy");
+  });
+
+  it("groups pin and scrolling screenshot above the close action", () => {
+    const { container } = renderToolbar();
+    const pinScrollGroup = container.querySelector('[data-screenshot-toolbar-group="pin-scroll"]');
+    const closeGroup = container.querySelector('[data-screenshot-toolbar-group="close"]');
+
+    expect(pinScrollGroup).not.toBeNull();
+    expect(closeGroup).not.toBeNull();
+    expect(pinScrollGroup?.querySelector('[aria-label="Pin"]')).not.toBeNull();
+    expect(pinScrollGroup?.querySelector('[aria-label="Scrolling screenshot"]')).not.toBeNull();
+    expect(closeGroup?.querySelector('[aria-label="Close"]')).not.toBeNull();
+
+    const groups = Array.from(container.querySelectorAll("[data-screenshot-toolbar-group]"));
+    expect(groups.indexOf(pinScrollGroup as Element)).toBeLessThan(groups.indexOf(closeGroup as Element));
+  });
+
+  it("uses a vertical chevrons ellipsis icon for scrolling screenshot", () => {
+    renderToolbar();
+
+    const icon = screen
+      .getByRole("button", { name: "Scrolling screenshot" })
+      .querySelector("svg");
+    const paths = Array.from(icon?.querySelectorAll("path") ?? []).map((path) =>
+      path.getAttribute("d"),
+    );
+
+    expect(icon?.getAttribute("data-scroll-screenshot-icon")).toBe("vertical");
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "M12 8h.01",
+        "M12 12h.01",
+        "M12 16h.01",
+        "m7 7 5-5 5 5",
+        "m7 17 5 5 5-5",
+      ]),
+    );
   });
 
   it("defaults to the right side of the selection", () => {
@@ -93,7 +133,7 @@ describe("Toolbar", () => {
 
     const toolbar = container.querySelector("[data-screenshot-toolbar]") as HTMLElement;
     expect(toolbar.style.left).toBe("760px");
-    expect(toolbar.style.top).toBe("410px");
+    expect(toolbar.style.top).toBe("377px");
   });
 
   it("routes output actions through the provided callbacks", async () => {

@@ -11,6 +11,14 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tauri_plugin_autostart::ManagerExt as _;
 use uuid::Uuid;
 
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ScrollResult {
+    pub width: u32,
+    pub height: u32,
+    pub frame_count: u32,
+}
+
 const ABOUT_WINDOW_WIDTH: f64 = 360.0;
 const ABOUT_WINDOW_HEIGHT: f64 = 300.0;
 const SETTINGS_WINDOW_WIDTH: f64 = 560.0;
@@ -151,6 +159,9 @@ pub async fn crop_and_save(
 
 #[tauri::command]
 pub async fn cancel_capture(app: AppHandle, mgr: State<'_, Arc<WindowMgr>>) -> Result<(), String> {
+    if let Some(mid) = mgr.scroll_ref(|s| s.monitor_id) {
+        close_scroll_chrome(&app, mid);
+    }
     mgr.end_session(&app);
     Ok(())
 }
@@ -280,11 +291,7 @@ pub fn list_system_fonts() -> Vec<String> {
 
     let mut families: Vec<String> = db
         .faces()
-        .filter_map(|face| {
-            face.families
-                .first()
-                .map(|(name, _)| name.clone())
-        })
+        .filter_map(|face| face.families.first().map(|(name, _)| name.clone()))
         .collect();
 
     families.sort_unstable();
@@ -530,6 +537,280 @@ fn composite_annotation(
     })
 }
 
+#[tauri::command]
+pub async fn start_scroll_session(
+    monitor_id: u32,
+    rect: Rect,
+    app: AppHandle,
+    mgr: State<'_, Arc<WindowMgr>>,
+) -> Result<(), String> {
+    use crate::scroll_stitch::{ScrollStitcher, StitchConfig};
+    use crate::window_mgr::ScrollState;
+    use std::sync::atomic::AtomicBool;
+    use tokio::sync::Mutex as AsyncMutex;
+
+    // 1. Derive scale and physical rect from the frozen frame we already have.
+    let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let scale = frame.scale_factor.max(1.0);
+    let phys_rect = Rect {
+        x: (rect.x as f32 * scale).round() as i32,
+        y: (rect.y as f32 * scale).round() as i32,
+        width: (rect.width as f32 * scale).round() as u32,
+        height: (rect.height as f32 * scale).round() as u32,
+    };
+
+    // 2. Spawn the chrome window (status bar + preview) anchored next to the
+    //    selection. The original overlay stays VISIBLE (so the user sees the
+    //    selection outline) but is made mouse-transparent and the whole app
+    //    is deactivated on macOS so scroll-wheel events flow to the underlying
+    //    app instead of being intercepted by our key window.
+    spawn_scroll_chrome(&app, monitor_id, phys_rect)?;
+    if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
+        let _ = w.set_ignore_cursor_events(true);
+    }
+    schedule_app_deactivation_macos(&app);
+
+    // 3. Give macOS a moment to actually compose the screen without the
+    //    frozen overlay layer (frontend hides FrozenLayer when entering
+    //    scrolling mode). Empirically 80ms is enough.
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+
+    // 4. Capture the initial frame from the live screen.
+    let initial = match crate::capture::capture_monitor_region(monitor_id, phys_rect) {
+        Ok(initial) => initial,
+        Err(e) => {
+            close_scroll_chrome(&app, monitor_id);
+            return Err(format!("initial capture failed: {e}"));
+        }
+    };
+
+    let stitcher = Arc::new(AsyncMutex::new(ScrollStitcher::new(
+        phys_rect.width,
+        phys_rect.height,
+        initial,
+        StitchConfig::default(),
+    )));
+    let cancel = Arc::new(AtomicBool::new(false));
+
+    crate::scroll_session::spawn_loop(
+        app.clone(),
+        monitor_id,
+        phys_rect,
+        stitcher.clone(),
+        cancel.clone(),
+    );
+
+    mgr.set_scroll(ScrollState {
+        monitor_id,
+        rect: phys_rect,
+        stitcher,
+        cancel,
+    });
+    Ok(())
+}
+
+/// Spawn the always-on-top chrome window that hosts the status bar and live
+/// preview. The window is anchored to the right of the selection when there
+/// is room; otherwise it falls back to the bottom-left of the monitor so the
+/// user can still reach the Done/Cancel controls.
+fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Result<(), String> {
+    let chrome_label = format!("overlay-chrome-{monitor_id}");
+    if app.get_webview_window(&chrome_label).is_some() {
+        return Ok(());
+    }
+
+    let mon = crate::capture::enumerate_monitors()
+        .ok()
+        .and_then(|ms| ms.into_iter().find(|m| m.id == monitor_id))
+        .ok_or("monitor not found for chrome window")?;
+
+    // Chrome window dimensions chosen to comfortably fit the status text
+    // ("Stitching · N frames · NNNNpx") plus Done/Cancel buttons, with room
+    // above for a live preview thumbnail. All sizes in logical pixels.
+    let chrome_w = 320.0_f64;
+    let chrome_h = 220.0_f64;
+    let mon_logical_w = mon.rect.width as f64;
+    let mon_logical_h = mon.rect.height as f64;
+    let sel_logical_right = (phys_rect.x as f64 + phys_rect.width as f64) / mon.scale_factor as f64;
+    let sel_logical_bottom =
+        (phys_rect.y as f64 + phys_rect.height as f64) / mon.scale_factor as f64;
+    let sel_logical_top = phys_rect.y as f64 / mon.scale_factor as f64;
+    let mon_origin_x = mon.rect.x as f64;
+    let mon_origin_y = mon.rect.y as f64;
+
+    // Preference order: right of the selection, then below it, then anchor
+    // to the bottom-right of the monitor as a last resort.
+    let gap = 12.0;
+    let (x, y) = if sel_logical_right + gap + chrome_w <= mon_logical_w {
+        (
+            mon_origin_x + sel_logical_right + gap,
+            mon_origin_y + sel_logical_top,
+        )
+    } else if sel_logical_bottom + gap + chrome_h <= mon_logical_h {
+        (
+            mon_origin_x + (mon_logical_w - chrome_w - gap).max(gap),
+            mon_origin_y + sel_logical_bottom + gap,
+        )
+    } else {
+        (
+            mon_origin_x + (mon_logical_w - chrome_w - gap).max(gap),
+            mon_origin_y + (mon_logical_h - chrome_h - gap).max(gap),
+        )
+    };
+
+    tauri::WebviewWindowBuilder::new(
+        app,
+        &chrome_label,
+        tauri::WebviewUrl::App(format!("index.html#/scroll-chrome/{monitor_id}").into()),
+    )
+    .transparent(true)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .inner_size(chrome_w, chrome_h)
+    .position(x, y)
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn schedule_app_deactivation_macos(app: &AppHandle) {
+    if let Err(e) = app.run_on_main_thread(deactivate_app_macos_on_main_thread) {
+        tracing::warn!("failed to schedule app deactivation on main thread: {e}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn schedule_app_deactivation_macos(_app: &AppHandle) {}
+
+/// Deactivate the flashot application on macOS so the previously-active app
+/// regains focus. AppKit requires this to run on the main thread; callers must
+/// go through `schedule_app_deactivation_macos`.
+#[cfg(target_os = "macos")]
+fn deactivate_app_macos_on_main_thread() {
+    use objc::{
+        runtime::{Class, Object, Sel},
+        Message,
+    };
+    unsafe {
+        if let Some(app_class) = Class::get("NSApplication") {
+            let app: *mut Object =
+                match app_class.send_message(Sel::register("sharedApplication"), ()) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::warn!("sharedApplication failed: {e}");
+                        return;
+                    }
+                };
+            if !app.is_null() {
+                if let Err(e) = (*app).send_message::<_, ()>(Sel::register("deactivate"), ()) {
+                    tracing::warn!("NSApp deactivate failed: {e}");
+                }
+            }
+        }
+    }
+}
+
+/// Tear down the chrome window for `monitor_id` (if any) and restore mouse
+/// events on the underlying overlay so the next capture session works.
+fn close_scroll_chrome(app: &AppHandle, monitor_id: u32) {
+    if let Some(w) = app.get_webview_window(&format!("overlay-chrome-{monitor_id}")) {
+        let _ = w.close();
+    }
+    if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
+        let _ = w.set_ignore_cursor_events(false);
+    }
+}
+
+#[tauri::command]
+pub async fn stop_scroll_session(
+    commit: bool,
+    app: AppHandle,
+    mgr: State<'_, Arc<WindowMgr>>,
+) -> Result<Option<ScrollResult>, String> {
+    // Grab the cancel handle + stitcher Arc clones without taking the state out.
+    let (cancel, stitcher_arc) = mgr
+        .scroll_ref(|s| (s.cancel.clone(), s.stitcher.clone()))
+        .ok_or("no active scroll session")?;
+    cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+
+    if !commit {
+        if let Some(mid) = mgr.scroll_ref(|s| s.monitor_id) {
+            close_scroll_chrome(&app, mid);
+        }
+        let _ = mgr.take_scroll();
+        mgr.end_session(&app);
+        return Ok(None);
+    }
+
+    let (width, height, frame_count) = {
+        let s = stitcher_arc.lock().await;
+        (s.width(), s.height(), s.frame_count())
+    };
+
+    Ok(Some(ScrollResult {
+        width,
+        height,
+        frame_count,
+    }))
+}
+
+async fn materialize_scroll_image(
+    mgr: &WindowMgr,
+) -> Result<crate::scroll_stitch::StitchedImage, String> {
+    let (cancel, stitcher_arc) = mgr
+        .scroll_ref(|s| (s.cancel.clone(), s.stitcher.clone()))
+        .ok_or("no active scroll session")?;
+    cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+
+    let s = stitcher_arc.lock().await;
+    Ok(crate::scroll_stitch::StitchedImage {
+        rgba: s.canvas_bytes_clone(),
+        width: s.width(),
+        height: s.height(),
+    })
+}
+
+#[tauri::command]
+pub async fn scroll_copy(app: AppHandle, mgr: State<'_, Arc<WindowMgr>>) -> Result<(), String> {
+    let monitor_id = mgr.scroll_ref(|s| s.monitor_id);
+    let img = materialize_scroll_image(&mgr).await?;
+    let _ = mgr.take_scroll();
+    if let Some(mid) = monitor_id {
+        close_scroll_chrome(&app, mid);
+    }
+    clipboard::copy_image(img.rgba, img.width, img.height).map_err(|e| e.to_string())?;
+    mgr.end_session(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn scroll_save(
+    app: AppHandle,
+    mgr: State<'_, Arc<WindowMgr>>,
+) -> Result<Option<String>, String> {
+    let monitor_id = mgr.scroll_ref(|s| s.monitor_id);
+    let mut settings = settings_store::load().unwrap_or_default();
+    let path = match saver::choose_save_path(&settings).map_err(|e| e.to_string())? {
+        Some(path) => path,
+        None => return Ok(None),
+    };
+
+    let img = materialize_scroll_image(&mgr).await?;
+    let _ = mgr.take_scroll();
+    if let Some(mid) = monitor_id {
+        close_scroll_chrome(&app, mid);
+    }
+    mgr.end_session(&app);
+    saver::save_image_to_path(img.rgba, img.width, img.height, &path).map_err(|e| e.to_string())?;
+    saver::remember_last_save_dir(&mut settings, &path);
+    settings_store::save(&settings).map_err(|e| e.to_string())?;
+    let _ = app.emit("settings:changed", ());
+    Ok(Some(path.to_string_lossy().to_string()))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -628,6 +909,141 @@ mod tests {
         assert!(
             end_session_idx < save_dialog_idx,
             "native save dialogs must open after overlay windows are hidden",
+        );
+    }
+
+    #[test]
+    fn start_scroll_session_cleans_up_if_initial_capture_fails() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let start = source.find("pub async fn start_scroll_session").unwrap();
+        let end = source[start..]
+            .find("fn spawn_scroll_chrome")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        let capture_idx = body.find("capture_monitor_region").unwrap();
+        let cleanup_idx = body.find("close_scroll_chrome(&app, monitor_id)").unwrap();
+
+        assert!(
+            capture_idx < cleanup_idx,
+            "initial capture failure must restore chrome/mouse state before returning Err",
+        );
+    }
+
+    #[test]
+    fn macos_deactivation_is_scheduled_on_main_thread() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let start = source.find("pub async fn start_scroll_session").unwrap();
+        let end = source[start..]
+            .find("fn spawn_scroll_chrome")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        assert!(
+            !body.contains("deactivate_app_macos();"),
+            "start_scroll_session runs on a Tauri IPC worker and must not call AppKit directly",
+        );
+
+        let helper_start = source
+            .find("fn schedule_app_deactivation_macos")
+            .expect("missing macOS main-thread scheduling helper");
+        let helper_end = source[helper_start..]
+            .find("fn deactivate_app_macos_on_main_thread")
+            .map(|idx| helper_start + idx)
+            .expect("missing main-thread AppKit helper");
+        let helper_body = &source[helper_start..helper_end];
+
+        assert!(
+            helper_body.contains(".run_on_main_thread("),
+            "macOS app deactivation must be dispatched to the main thread",
+        );
+    }
+
+    #[test]
+    fn scroll_result_serializes_frame_count_for_frontend() {
+        let value = serde_json::to_value(ScrollResult {
+            width: 300,
+            height: 1200,
+            frame_count: 4,
+        })
+        .unwrap();
+
+        assert_eq!(value["frameCount"], 4);
+        assert!(
+            value.get("frame_count").is_none(),
+            "frontend expects camelCase ScrollResult fields",
+        );
+    }
+
+    #[test]
+    fn stop_scroll_session_returns_summary_without_materializing_canvas() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let start = source.find("pub async fn stop_scroll_session").unwrap();
+        let end = source[start..]
+            .find("async fn materialize_scroll_image")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        assert!(
+            !body.contains("canvas_bytes_clone"),
+            "Done should only return dimensions; cloning the full long image blocks the UI",
+        );
+        assert!(
+            !body.contains("StitchedImage"),
+            "Done should not materialize the full stitched image before showing Copy/Save",
+        );
+    }
+
+    #[test]
+    fn scroll_copy_and_save_materialize_canvas_lazily() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let helper_start = source
+            .find("async fn materialize_scroll_image")
+            .expect("missing lazy materialization helper");
+        let helper_end = source[helper_start..]
+            .find("#[tauri::command]\npub async fn scroll_copy")
+            .map(|idx| helper_start + idx)
+            .unwrap();
+        let helper_body = &source[helper_start..helper_end];
+
+        assert!(
+            helper_body.contains("canvas_bytes_clone"),
+            "Copy/Save path must still materialize the stitched canvas before output",
+        );
+
+        let copy_start = source.find("pub async fn scroll_copy").unwrap();
+        let save_start = source.find("pub async fn scroll_save").unwrap();
+        let copy_body = &source[copy_start..save_start];
+        let save_body = &source[save_start..];
+
+        assert!(copy_body.contains("materialize_scroll_image(&mgr).await"));
+        assert!(save_body.contains("materialize_scroll_image(&mgr).await"));
+    }
+
+    #[test]
+    fn scroll_save_prompts_for_path_before_materializing_canvas() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let start = source.find("pub async fn scroll_save").unwrap();
+        let end = source[start..]
+            .find("#[cfg(test)]")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        let prompt_idx = body.find("saver::choose_save_path").unwrap();
+        let materialize_idx = body.find("materialize_scroll_image(&mgr).await").unwrap();
+        let write_idx = body.find("saver::save_image_to_path").unwrap();
+
+        assert!(
+            prompt_idx < materialize_idx,
+            "Save should show the native dialog before generating the full long image",
+        );
+        assert!(
+            materialize_idx < write_idx,
+            "the full image must still be materialized before writing the selected path",
         );
     }
 

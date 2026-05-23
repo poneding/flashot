@@ -32,7 +32,14 @@ export type QuickShotFlashPayload = {
   rect: Rect;
 };
 
-export type Mode = "idle" | "hover" | "dragging" | "committed" | "locked";
+export type Mode =
+  | "idle"
+  | "hover"
+  | "dragging"
+  | "committed"
+  | "locked"
+  | "scrollStarting"
+  | "scrolling";
 
 export type ToolbarPosition =
   | { kind: "below"; x: number; y: number }
@@ -57,4 +64,19 @@ export type PinInfo = {
   originalWidth: number;
   originalHeight: number;
   currentScale: number;
+};
+
+export type ScrollProgress = {
+  frames: number;
+  height: number;
+  previewDataUrl: string;
+  lastScore: number;
+};
+
+export type ScrollEndReason = "bottom" | "max-height" | "user";
+
+export type ScrollResult = {
+  width: number;
+  height: number;
+  frameCount: number;
 };

@@ -1,3 +1,4 @@
+use crate::scroll_stitch::ScrollStitcher;
 use crate::types::FrozenFrame;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -16,6 +17,15 @@ struct Inner {
     /// Frozen frames keyed by monitor_id, alive only during a session.
     frames: HashMap<u32, FrozenFrame>,
     in_session: bool,
+    scroll: Option<ScrollState>,
+}
+
+#[allow(dead_code)] // `monitor_id`/`rect` are recorded for future routing/debug use
+pub(crate) struct ScrollState {
+    pub monitor_id: u32,
+    pub rect: crate::types::Rect, // physical px
+    pub stitcher: Arc<tokio::sync::Mutex<ScrollStitcher>>,
+    pub cancel: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl WindowMgr {
@@ -30,7 +40,11 @@ impl WindowMgr {
             inner.in_session = true;
             inner.frames.clear();
         }
-        SessionGuard { mgr: self.clone(), app, ended: false }
+        SessionGuard {
+            mgr: self.clone(),
+            app,
+            ended: false,
+        }
     }
 
     pub fn store_frame(&self, frame: FrozenFrame) {
@@ -40,18 +54,34 @@ impl WindowMgr {
     pub fn frame(&self, monitor_id: u32) -> Option<FrozenFrame> {
         // Clone the rgba buffer out — caller cannot mutate the stored frame.
         // We only call this from the crop command path, which is rare (one click).
-        self.inner.lock().frames.get(&monitor_id).map(|f| FrozenFrame {
-            monitor_id: f.monitor_id,
-            rgba: f.rgba.clone(),
-            width: f.width,
-            height: f.height,
-            scale_factor: f.scale_factor,
-            icc_profile: f.icc_profile.clone(),
-        })
+        self.inner
+            .lock()
+            .frames
+            .get(&monitor_id)
+            .map(|f| FrozenFrame {
+                monitor_id: f.monitor_id,
+                rgba: f.rgba.clone(),
+                width: f.width,
+                height: f.height,
+                scale_factor: f.scale_factor,
+                icc_profile: f.icc_profile.clone(),
+            })
     }
 
     pub fn in_session(&self) -> bool {
         self.inner.lock().in_session
+    }
+
+    pub(crate) fn take_scroll(&self) -> Option<ScrollState> {
+        self.inner.lock().scroll.take()
+    }
+
+    pub(crate) fn set_scroll(&self, s: ScrollState) {
+        self.inner.lock().scroll = Some(s);
+    }
+
+    pub(crate) fn scroll_ref<R>(&self, f: impl FnOnce(&ScrollState) -> R) -> Option<R> {
+        self.inner.lock().scroll.as_ref().map(f)
     }
 
     pub fn end_session(&self, app: &AppHandle) {
@@ -63,6 +93,9 @@ impl WindowMgr {
     fn clear_session_state(&self) {
         let mut inner = self.inner.lock();
         inner.frames.clear();
+        if let Some(s) = inner.scroll.take() {
+            s.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
         inner.in_session = false;
     }
 
@@ -72,7 +105,13 @@ impl WindowMgr {
 
     fn hide_overlays(&self, app: &AppHandle) {
         for (_label, w) in app.webview_windows() {
-            if w.label().starts_with("overlay-") {
+            let label = w.label();
+            if label.starts_with("overlay-chrome-") {
+                // Chrome windows must be closed, not hidden — otherwise the next
+                // scroll session reuses a stale hidden window. Their lifecycle
+                // is bound to a single scroll session.
+                let _ = w.close();
+            } else if label.starts_with("overlay-") {
                 #[cfg(target_os = "linux")]
                 let _ = w.set_fullscreen(false);
                 #[cfg(not(target_os = "linux"))]
@@ -142,5 +181,35 @@ mod tests {
 
         assert!(!mgr.in_session());
         assert!(mgr.frame(7).is_none());
+    }
+
+    #[test]
+    fn clear_session_state_cancels_active_scroll() {
+        use crate::scroll_stitch::{ScrollStitcher, StitchConfig};
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let mgr = WindowMgr::new();
+        let cancel = std::sync::Arc::new(AtomicBool::new(false));
+        let stitcher = std::sync::Arc::new(tokio::sync::Mutex::new(ScrollStitcher::new(
+            2,
+            2,
+            vec![0; 16],
+            StitchConfig::default(),
+        )));
+        mgr.set_scroll(super::ScrollState {
+            monitor_id: 1,
+            rect: crate::types::Rect {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 2,
+            },
+            stitcher,
+            cancel: cancel.clone(),
+        });
+
+        mgr.clear_session_state();
+        assert!(cancel.load(Ordering::SeqCst), "scroll cancel must be set");
+        assert!(mgr.scroll_ref(|_| ()).is_none());
     }
 }

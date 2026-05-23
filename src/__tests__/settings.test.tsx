@@ -12,9 +12,9 @@ vi.mock("@/lib/ipc", () => ({
 }));
 
 const settings: Settings = {
-  captureHotkey: "CommandOrControl+Shift+A",
-  fullscreenHotkey: "CommandOrControl+Shift+F",
-  activeWindowHotkey: "CommandOrControl+Shift+W",
+  captureHotkey: "Cmd+Shift+A",
+  fullscreenHotkey: "Cmd+Shift+F",
+  activeWindowHotkey: "Cmd+Shift+W",
   theme: "system",
   launchAtLogin: false,
   lastSaveDir: null,
