@@ -622,20 +622,35 @@ fn spawn_scroll_chrome(
         .and_then(|ms| ms.into_iter().find(|m| m.id == monitor_id))
         .ok_or("monitor not found for chrome window")?;
 
-    // Strip width is fixed; height tracks the selection so the preview has
-    // breathing room above the status bar. Both are in logical pixels.
-    let strip_w = 80.0_f64;
-    let strip_h = (phys_rect.height as f64 / mon.scale_factor as f64) * 0.7;
+    // Chrome window dimensions chosen to comfortably fit the status text
+    // ("Stitching · N frames · NNNNpx") plus Done/Cancel buttons, with room
+    // above for a live preview thumbnail. All sizes in logical pixels.
+    let chrome_w = 320.0_f64;
+    let chrome_h = 220.0_f64;
     let mon_logical_w = mon.rect.width as f64;
     let mon_logical_h = mon.rect.height as f64;
     let sel_logical_right = (phys_rect.x as f64 + phys_rect.width as f64) / mon.scale_factor as f64;
+    let sel_logical_bottom = (phys_rect.y as f64 + phys_rect.height as f64) / mon.scale_factor as f64;
     let sel_logical_top = phys_rect.y as f64 / mon.scale_factor as f64;
-    let mut x = mon.rect.x as f64 + sel_logical_right + 12.0;
-    let mut y = mon.rect.y as f64 + sel_logical_top;
-    if x + strip_w > mon.rect.x as f64 + mon_logical_w {
-        x = mon.rect.x as f64 + 12.0;
-        y = mon.rect.y as f64 + (mon_logical_h - strip_h - 12.0);
-    }
+    let mon_origin_x = mon.rect.x as f64;
+    let mon_origin_y = mon.rect.y as f64;
+
+    // Preference order: right of the selection, then below it, then anchor
+    // to the bottom-right of the monitor as a last resort.
+    let gap = 12.0;
+    let (x, y) = if sel_logical_right + gap + chrome_w <= mon_logical_w {
+        (mon_origin_x + sel_logical_right + gap, mon_origin_y + sel_logical_top)
+    } else if sel_logical_bottom + gap + chrome_h <= mon_logical_h {
+        (
+            mon_origin_x + (mon_logical_w - chrome_w - gap).max(gap),
+            mon_origin_y + sel_logical_bottom + gap,
+        )
+    } else {
+        (
+            mon_origin_x + (mon_logical_w - chrome_w - gap).max(gap),
+            mon_origin_y + (mon_logical_h - chrome_h - gap).max(gap),
+        )
+    };
 
     tauri::WebviewWindowBuilder::new(
         app,
@@ -647,7 +662,7 @@ fn spawn_scroll_chrome(
     .always_on_top(true)
     .skip_taskbar(true)
     .resizable(false)
-    .inner_size(strip_w, strip_h)
+    .inner_size(chrome_w, chrome_h)
     .position(x, y)
     .build()
     .map_err(|e| e.to_string())?;

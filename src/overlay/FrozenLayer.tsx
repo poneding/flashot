@@ -22,7 +22,12 @@ function frameSourceFromUrl(url: string) {
 
 export function FrozenLayer() {
   const url = useOverlay((s) => s.frameUrl);
+  const mode = useOverlay((s) => s.mode);
   if (!url) return null;
+  // In scrolling mode the user needs to see the live underlying app so they
+  // can scroll it. Hide the frozen screenshot — the SelectionBox outline still
+  // marks where the capture region is.
+  if (mode === "scrolling") return null;
   return (
     <img
       src={frameSourceFromUrl(url)}

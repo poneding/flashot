@@ -2,8 +2,6 @@ import { useEffect, useState } from "react";
 import type { ScrollProgress } from "@/lib/types";
 import { onScrollMatchFailed, onScrollProgress, scrollCopy, scrollSave, stopScrollSession } from "@/lib/ipc";
 
-// Parses `#/scroll-chrome/{monitorId}` from window.location.hash, mirroring
-// the manual route parsing used by Pin.tsx (no react-router dependency).
 function parseScrollChromeRoute(): { monitorId: number } | null {
   const h = window.location.hash || "";
   const prefix = "#/scroll-chrome/";
@@ -14,6 +12,15 @@ function parseScrollChromeRoute(): { monitorId: number } | null {
   if (!Number.isFinite(monitorId)) return null;
   return { monitorId };
 }
+
+const BTN_BASE: React.CSSProperties = {
+  border: 0,
+  padding: "6px 14px",
+  borderRadius: 6,
+  fontSize: 13,
+  fontWeight: 500,
+  cursor: "pointer",
+};
 
 export function ScrollChromeRoute() {
   const [parsed] = useState(() => parseScrollChromeRoute());
@@ -64,8 +71,13 @@ export function ScrollChromeRoute() {
         display: "flex",
         flexDirection: "column",
         pointerEvents: "auto",
-        background: "transparent",
+        background: "rgba(20,20,20,0.94)",
+        color: "white",
+        borderRadius: 10,
+        boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+        overflow: "hidden",
         position: "relative",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       }}
     >
       {toast && (
@@ -75,7 +87,7 @@ export function ScrollChromeRoute() {
             top: 8,
             left: 8,
             right: 8,
-            background: "rgba(220, 38, 38, 0.92)",
+            background: "rgba(220, 38, 38, 0.95)",
             color: "white",
             padding: "6px 10px",
             borderRadius: 6,
@@ -87,8 +99,19 @@ export function ScrollChromeRoute() {
           {toast}
         </div>
       )}
-      <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-        {progress?.previewDataUrl && (
+
+      <div
+        style={{
+          flex: 1,
+          position: "relative",
+          background: "rgba(0,0,0,0.35)",
+          overflow: "hidden",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {progress?.previewDataUrl ? (
           <img
             src={progress.previewDataUrl}
             alt=""
@@ -101,43 +124,68 @@ export function ScrollChromeRoute() {
               userSelect: "none",
             }}
           />
+        ) : (
+          <span style={{ color: "rgba(255,255,255,0.55)", fontSize: 12 }}>
+            {finalized ? "Done" : "Scroll the window below to capture…"}
+          </span>
         )}
       </div>
+
       <div
         style={{
-          padding: "8px 12px",
-          background: "rgba(20,20,20,0.92)",
-          color: "white",
+          padding: "10px 14px",
+          background: "rgba(0,0,0,0.55)",
           fontSize: 13,
           display: "flex",
           gap: 10,
           alignItems: "center",
-          flexWrap: "wrap",
+          justifyContent: "space-between",
+          borderTop: "1px solid rgba(255,255,255,0.08)",
         }}
       >
         {finalized ? (
           <>
-            <span>
-              {finalized.width}x{finalized.height}
+            <span style={{ opacity: 0.9 }}>
+              {finalized.width}×{finalized.height}
             </span>
-            <button type="button" onClick={onCopy}>
-              Copy
-            </button>
-            <button type="button" onClick={onSave}>
-              Save
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={onCopy}
+                style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
+              >
+                Copy
+              </button>
+              <button
+                type="button"
+                onClick={onSave}
+                style={{ ...BTN_BASE, background: "#4ade80", color: "#0a2a17" }}
+              >
+                Save
+              </button>
+            </div>
           </>
         ) : (
           <>
-            <span>
-              Stitching - {progress?.frames ?? 0} frames - {progress?.height ?? 0}px
+            <span style={{ opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
+              {progress?.frames ?? 0} frames · {progress?.height ?? 0}px
             </span>
-            <button type="button" onClick={onDone}>
-              Done
-            </button>
-            <button type="button" onClick={onCancel}>
-              Cancel
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={onDone}
+                style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
+              >
+                Done
+              </button>
+              <button
+                type="button"
+                onClick={onCancel}
+                style={{ ...BTN_BASE, background: "rgba(255,255,255,0.12)", color: "white" }}
+              >
+                Cancel
+              </button>
+            </div>
           </>
         )}
       </div>
