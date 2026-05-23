@@ -655,6 +655,22 @@ pub async fn scroll_copy(
 }
 
 #[tauri::command]
+pub async fn set_overlay_scroll_passthrough(
+    monitor_id: u32,
+    enabled: bool,
+    app: AppHandle,
+) -> Result<(), String> {
+    let label = format!("overlay-{monitor_id}");
+    let window = app
+        .get_webview_window(&label)
+        .ok_or("overlay window missing")?;
+    window
+        .set_ignore_cursor_events(enabled)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn scroll_save(
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,

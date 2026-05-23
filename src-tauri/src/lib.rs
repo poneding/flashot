@@ -250,6 +250,7 @@ pub fn run() {
             commands::stop_scroll_session,
             commands::scroll_copy,
             commands::scroll_save,
+            commands::set_overlay_scroll_passthrough,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
