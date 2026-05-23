@@ -562,21 +562,21 @@ pub async fn start_scroll_session(
         height: (rect.height as f32 * scale).round() as u32,
     };
 
-    // 2. Spawn the chrome window (status bar + preview) and hide the original
-    //    overlay BEFORE capturing the initial frame. On macOS, the overlay's
-    //    key-window status intercepts scroll-wheel events even with
-    //    set_ignore_cursor_events; hiding it lets events flow naturally to
-    //    the underlying app. Hiding it also means subsequent captures will
-    //    not include any overlay pixels — we must take the initial capture
-    //    in the same state so frame 1 and frame 2 are comparable.
+    // 2. Spawn the chrome window (status bar + preview) anchored next to the
+    //    selection. The original overlay stays VISIBLE (so the user sees the
+    //    selection outline) but is made mouse-transparent and the whole app
+    //    is deactivated on macOS so scroll-wheel events flow to the underlying
+    //    app instead of being intercepted by our key window.
     spawn_scroll_chrome(&app, monitor_id, phys_rect)?;
     if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
         let _ = w.set_ignore_cursor_events(true);
-        let _ = w.hide();
     }
+    #[cfg(target_os = "macos")]
+    deactivate_app_macos();
 
     // 3. Give macOS a moment to actually compose the screen without the
-    //    overlay before we grab pixels. Empirically 80ms is enough.
+    //    frozen overlay layer (frontend hides FrozenLayer when entering
+    //    scrolling mode). Empirically 80ms is enough.
     tokio::time::sleep(std::time::Duration::from_millis(80)).await;
 
     // 4. Capture the initial frame from the live screen.
@@ -676,6 +676,40 @@ fn spawn_scroll_chrome(
     .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+/// Deactivate the flashot application on macOS so the previously-active app
+/// regains focus. This is critical for scrolling capture: even with the
+/// overlay window flagged ignoreMouseEvents, macOS routes scroll-wheel events
+/// to the key window of the active app. By deactivating flashot we let the
+/// OS deliver scroll-wheel events to whatever the user is actually trying to
+/// scroll. The chrome window remains visible (always_on_top + transparent),
+/// but a first click on its buttons will need to re-activate flashot.
+#[cfg(target_os = "macos")]
+fn deactivate_app_macos() {
+    use objc::{
+        runtime::{Class, Object, Sel},
+        Message,
+    };
+    unsafe {
+        if let Some(app_class) = Class::get("NSApplication") {
+            let app: *mut Object =
+                match app_class.send_message(Sel::register("sharedApplication"), ()) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::warn!("sharedApplication failed: {e}");
+                        return;
+                    }
+                };
+            if !app.is_null() {
+                if let Err(e) =
+                    (*app).send_message::<_, ()>(Sel::register("deactivate"), ())
+                {
+                    tracing::warn!("NSApp deactivate failed: {e}");
+                }
+            }
+        }
+    }
 }
 
 /// Tear down the chrome window for `monitor_id` (if any) and restore mouse
