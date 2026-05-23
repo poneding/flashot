@@ -42,7 +42,6 @@ pub struct StitchedImage {
     pub height: u32,
 }
 
-#[allow(dead_code)]
 pub struct ScrollStitcher {
     canvas: Vec<u8>,
     width: u32,
@@ -76,6 +75,74 @@ impl ScrollStitcher {
     pub fn width(&self) -> u32 { self.width }
     pub fn height(&self) -> u32 { self.height }
     pub fn consecutive_no_change(&self) -> u32 { self.consecutive_no_change }
+
+    pub fn ingest(&mut self, frame_rgba: &[u8]) -> IngestResult {
+        debug_assert_eq!(
+            frame_rgba.len(),
+            (self.width * self.frame_height * 4) as usize,
+            "ingest frame size mismatch"
+        );
+
+        // Direction: we target scroll-DOWN (user scrolling forward through long
+        // content, new pixels appearing at the bottom of the viewport). Under
+        // scroll-DOWN the NEW frame's top ROI is what's still present in the
+        // OLD frame, shifted *downward* by dy rows. So we use `frame_rgba` as the
+        // template source and `last_frame` as the search image; the returned
+        // dy is the number of pixels by which the content scrolled.
+        let (dy, score) = column_match_ncc(
+            frame_rgba,            // template_source: take its top ROI
+            &self.last_frame,      // search_image: look for the ROI here
+            self.width,
+            self.frame_height,
+            self.static_drop_offset,
+            self.config.roi_rows,
+            self.config.sample_columns,
+        );
+
+        if score < self.config.min_match_score {
+            return IngestResult::MatchFailed { score };
+        }
+
+        if dy == 0 {
+            self.consecutive_no_change += 1;
+            if self.consecutive_no_change >= self.config.end_of_scroll_frames {
+                return IngestResult::EndOfScroll;
+            }
+            // Don't replace last_frame on no-change; we want to keep the
+            // canonical reference so a tiny redraw blip doesn't accumulate.
+            return IngestResult::NoChange;
+        }
+
+        self.consecutive_no_change = 0;
+
+        // Append rows [frame_height - dy .. frame_height] from the new frame
+        // (the bottom `dy` rows — the freshly-revealed content).
+        let strip_start = ((self.frame_height - dy) * self.width) as usize * 4;
+        let strip_end = (self.frame_height * self.width) as usize * 4;
+        let new_total_height = self.height + dy;
+
+        if new_total_height > self.config.max_height_px {
+            let allowed_dy = self.config.max_height_px - self.height;
+            let truncated_start =
+                ((self.frame_height - allowed_dy) * self.width) as usize * 4;
+            self.canvas
+                .extend_from_slice(&frame_rgba[truncated_start..strip_end]);
+            self.height = self.config.max_height_px;
+            self.last_frame.copy_from_slice(frame_rgba);
+            return IngestResult::MaxHeightReached;
+        }
+
+        self.canvas
+            .extend_from_slice(&frame_rgba[strip_start..strip_end]);
+        self.height = new_total_height;
+        self.last_frame.copy_from_slice(frame_rgba);
+
+        IngestResult::Appended {
+            new_height: self.height,
+            dy,
+            score,
+        }
+    }
 }
 
 /// Compute the best vertical shift (in rows) such that the top ROI of `prev`
@@ -162,20 +229,15 @@ fn extract_column_strip(
 mod tests {
     use super::*;
 
-    /// `width × height` RGBA frame with a deterministic pseudo-random luminance
-    /// per row. The `offset` shifts the pattern DOWN by `offset` rows: a row
-    /// that was at y=0 with offset=0 appears at y=`offset` with offset=`offset`.
-    /// Conceptually models content scrolling so that the previous frame's top
-    /// ROI reappears `offset` rows lower in the new frame, allowing the matcher
-    /// to recover the offset deterministically.
-    fn gradient_frame(width: u32, height: u32, offset: u8) -> Vec<u8> {
+    /// `width × height` RGBA frame whose row `y` carries a hash-derived luminance
+    /// of "document row `content_start + y`". Scrolling DOWN by N pixels means
+    /// `content_start` increases by N — the new frame's top ROI then appears
+    /// `N` rows below the old frame's top.
+    fn gradient_frame(width: u32, height: u32, content_start: u32) -> Vec<u8> {
         let mut v = Vec::with_capacity((width * height * 4) as usize);
         for y in 0..height {
-            // Splitmix-style hash on (y - offset) for a unique, discriminative
-            // per-row luminance. Mean-centered NCC requires a non-monotonic
-            // signal to avoid the linear-ramp degeneracy.
-            let key = (y as i64).wrapping_sub(offset as i64) as u64;
-            let mut h = key.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            let content_row = (content_start + y) as u64;
+            let mut h = content_row.wrapping_mul(0x9E37_79B9_7F4A_7C15);
             h ^= h >> 30;
             h = h.wrapping_mul(0xBF58_476D_1CE4_E5B9);
             h ^= h >> 27;
@@ -191,16 +253,16 @@ mod tests {
     fn column_match_recovers_known_offset() {
         let width = 80;
         let frame_height = 600;
-        let prev = gradient_frame(width, frame_height, 0);
-        // Frame B has the same content shifted DOWN by 37 rows: prev's top
-        // ROI [0..50] reappears at curr[37..87]. The matcher should recover 37.
-        let curr = gradient_frame(width, frame_height, 37);
+        // prev was at content row 37 (further down the document).
+        // curr is at content row 0 (user scrolled UP by 37 rows).
+        // prev's top ROI [0..50] = content rows [37..87].
+        // In curr (which starts at content row 0), these rows live at y=37..87.
+        let prev = gradient_frame(width, frame_height, 37);
+        let curr = gradient_frame(width, frame_height, 0);
 
         let (best_y, score) = column_match_ncc(
             &prev, &curr, width, frame_height,
-            0, // static_drop_offset
-            50, // roi_rows
-            9, // sample_columns
+            0, 50, 9,
         );
 
         assert!(
@@ -208,5 +270,29 @@ mod tests {
             "expected dy ≈ 37, got {best_y}"
         );
         assert!(score > 0.95, "score too low: {score}");
+    }
+
+    #[test]
+    fn ingest_appends_new_strip_for_known_scroll() {
+        let width = 80;
+        let frame_h = 600;
+        // initial captures content rows [0..600].
+        let initial = gradient_frame(width, frame_h, 0);
+        let mut stitcher = ScrollStitcher::new(width, frame_h, initial, StitchConfig::default());
+
+        // After scrolling DOWN by 37, next captures content rows [37..637].
+        let next = gradient_frame(width, frame_h, 37);
+        let result = stitcher.ingest(&next);
+
+        match result {
+            IngestResult::Appended { new_height, dy, score } => {
+                assert!((dy as i32 - 37).abs() <= 1, "dy={dy}");
+                assert_eq!(new_height, frame_h + dy);
+                assert_eq!(stitcher.height(), new_height);
+                assert!(score > 0.95);
+                assert_eq!(stitcher.canvas.len(), (width * new_height * 4) as usize);
+            }
+            other => panic!("expected Appended, got {other:?}"),
+        }
     }
 }
