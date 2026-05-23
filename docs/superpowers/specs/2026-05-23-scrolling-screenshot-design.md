@@ -321,6 +321,9 @@ Each phase ends with all tests green and is a candidate review checkpoint.
 - **Preview throttling fidelity**: 10 emits/sec may feel laggy. If so, switch from RGBA→PNG re-encode to incremental delta blit (send only the new strip + its y-offset). Decide after first-pass perf measurement.
 - **Linux passthrough mechanism**: validate during phase 2 — X11 has multiple options; Wayland may simply not work for v1 and we document that limitation.
 - **Result reuse for Pin**: v1 disallows Pin on stitched results because the pin window has no scroll affordance. A future "scrollable pin" could lift this.
+- **Keyboard shortcuts (Esc / ⌘+Enter) during scrolling**: deferred to v2. v1 ships with Done/Cancel buttons in the chrome window only. Adding global shortcuts requires `tauri-plugin-global-shortcut` plus careful lifecycle management to avoid colliding with other apps' Esc/Enter behavior; the chrome buttons are sufficient for shipping.
+- **State machine `scrollFinalized` mode**: collapsed away. The chrome window owns the finalized UI (Copy/Save buttons swap in when `finalized` local state is set), so the main overlay state machine only needs the `scrolling` mode. This is an intentional simplification from the original §6.1 design.
+- **`AssertUnwindSafe` panic wrapping for the tokio task**: deferred to v2. A loop panic today terminates silently — the cancel atomic stays false, but `clear_session_state` on the next session start (or on next overlay end) still tears the state down. Catching panic to emit a `scroll:match-failed` synthetic event would be nicer for diagnostics.
 
 ## 11. Out-of-scope (revisit later)
 
