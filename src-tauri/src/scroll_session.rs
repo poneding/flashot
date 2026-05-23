@@ -70,10 +70,14 @@ pub fn spawn_loop(
 
             match result {
                 IngestResult::Appended {
-                    new_height, score, ..
+                    new_height, dy, score,
                 } => {
                     consecutive_failures = 0;
                     frames_accepted += 1;
+                    tracing::info!(
+                        target: "scroll",
+                        "appended frame: dy={dy} score={score:.3} new_height={new_height} frames={frames_accepted}"
+                    );
                     if last_emit.elapsed() >= Duration::from_millis(PROGRESS_THROTTLE_MS) {
                         last_emit = Instant::now();
                         let thumb = {
@@ -91,9 +95,15 @@ pub fn spawn_loop(
                         );
                     }
                 }
-                IngestResult::NoChange => {}
+                IngestResult::NoChange => {
+                    tracing::trace!(target: "scroll", "no change");
+                }
                 IngestResult::MatchFailed { score } => {
                     consecutive_failures += 1;
+                    tracing::info!(
+                        target: "scroll",
+                        "match failed: score={score:.3} consecutive={consecutive_failures}"
+                    );
                     let _ = app.emit(
                         "scroll:match-failed",
                         MatchFailedPayload {
@@ -105,7 +115,7 @@ pub fn spawn_loop(
                 IngestResult::EndOfScroll | IngestResult::MaxHeightReached => {
                     let is_max = matches!(result, IngestResult::MaxHeightReached);
                     let reason = if is_max { "max-height" } else { "bottom" };
-                    // Stash the finalized image so scroll_copy / scroll_save can pick it up.
+                    tracing::info!(target: "scroll", "end detected: {reason} frames={frames_accepted}");
                     {
                         let s = stitcher.lock().await;
                         *result_slot.lock().unwrap() = Some(StitchedImage {

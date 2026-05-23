@@ -29,6 +29,9 @@ export function SelectionBox() {
     />
   );
 
+  // Use `outline` instead of `border` so the line never paints INSIDE the
+  // selection rect — critical for scrolling capture, which would otherwise
+  // pick up the outline as static content in the captured top ROI.
   return (
     <>
       <div
@@ -38,26 +41,29 @@ export function SelectionBox() {
           top: r.y,
           width: r.width,
           height: r.height,
-          border: `1.5px solid ${COLOR}`,
+          outline: `1.5px solid ${COLOR}`,
+          outlineOffset: 0,
           pointerEvents: "none",
         }}
       />
-      <div
-        style={{
-          position: "absolute",
-          left: r.x + 6,
-          top: r.y - 22,
-          background: FLOATING_LABEL_BACKGROUND,
-          color: COLOR,
-          padding: "2px 6px",
-          fontSize: 11,
-          borderRadius: 4,
-          fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
-          pointerEvents: "none",
-        }}
-      >
-        {Math.round(r.width)} × {Math.round(r.height)}
-      </div>
+      {mode !== "scrolling" && (
+        <div
+          style={{
+            position: "absolute",
+            left: r.x + 6,
+            top: r.y - 22,
+            background: FLOATING_LABEL_BACKGROUND,
+            color: COLOR,
+            padding: "2px 6px",
+            fontSize: 11,
+            borderRadius: 4,
+            fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
+            pointerEvents: "none",
+          }}
+        >
+          {Math.round(r.width)} × {Math.round(r.height)}
+        </div>
+      )}
       {mode === "committed" && (
         <>
           {handle("nw", hx(r.x), hy(r.y))}
