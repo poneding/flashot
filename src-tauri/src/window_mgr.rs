@@ -1,3 +1,4 @@
+use crate::scroll_stitch::{ScrollStitcher, StitchedImage};
 use crate::types::FrozenFrame;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -16,6 +17,16 @@ struct Inner {
     /// Frozen frames keyed by monitor_id, alive only during a session.
     frames: HashMap<u32, FrozenFrame>,
     in_session: bool,
+    scroll: Option<ScrollState>,
+}
+
+#[allow(dead_code)] // wired up in subsequent scroll-stitching tasks
+pub(crate) struct ScrollState {
+    pub monitor_id: u32,
+    pub rect: crate::types::Rect, // physical px
+    pub stitcher: Arc<tokio::sync::Mutex<ScrollStitcher>>,
+    pub cancel: Arc<std::sync::atomic::AtomicBool>,
+    pub result: Arc<std::sync::Mutex<Option<StitchedImage>>>,
 }
 
 impl WindowMgr {
@@ -54,6 +65,30 @@ impl WindowMgr {
         self.inner.lock().in_session
     }
 
+    #[allow(dead_code)] // wired up in subsequent scroll-stitching tasks
+    pub(crate) fn take_scroll(&self) -> Option<ScrollState> {
+        self.inner.lock().scroll.take()
+    }
+
+    #[allow(dead_code)] // wired up in subsequent scroll-stitching tasks
+    pub(crate) fn set_scroll(&self, s: ScrollState) {
+        self.inner.lock().scroll = Some(s);
+    }
+
+    #[allow(dead_code)] // wired up in subsequent scroll-stitching tasks
+    pub(crate) fn scroll_ref<R>(&self, f: impl FnOnce(&ScrollState) -> R) -> Option<R> {
+        self.inner.lock().scroll.as_ref().map(f)
+    }
+
+    #[allow(dead_code)] // wired up in subsequent scroll-stitching tasks
+    pub(crate) fn take_scroll_result(&self) -> Option<crate::scroll_stitch::StitchedImage> {
+        self.inner
+            .lock()
+            .scroll
+            .as_ref()
+            .and_then(|s| s.result.lock().unwrap().take())
+    }
+
     pub fn end_session(&self, app: &AppHandle) {
         self.clear_session_state();
         self.hide_overlays(app);
@@ -63,6 +98,9 @@ impl WindowMgr {
     fn clear_session_state(&self) {
         let mut inner = self.inner.lock();
         inner.frames.clear();
+        if let Some(s) = inner.scroll.take() {
+            s.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
         inner.in_session = false;
     }
 
