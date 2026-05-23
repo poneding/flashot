@@ -295,4 +295,20 @@ mod tests {
             other => panic!("expected Appended, got {other:?}"),
         }
     }
+
+    #[test]
+    fn repeated_identical_frames_trigger_end_of_scroll() {
+        let width = 80;
+        let frame_h = 600;
+        let initial = gradient_frame(width, frame_h, 0);
+        let mut stitcher = ScrollStitcher::new(width, frame_h, initial.clone(), StitchConfig::default());
+
+        // 4 identical follow-ups should all be NoChange.
+        for i in 0..4 {
+            let r = stitcher.ingest(&initial);
+            assert_eq!(r, IngestResult::NoChange, "iteration {i}");
+        }
+        // 5th identical follow-up trips EndOfScroll (default end_of_scroll_frames=5).
+        assert_eq!(stitcher.ingest(&initial), IngestResult::EndOfScroll);
+    }
 }
