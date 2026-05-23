@@ -20,6 +20,7 @@ import {
   releaseSelection,
   requestColorCopy,
   requestColorFormatToggle,
+  startScrollSession,
 } from "@/lib/ipc";
 import type { Rect } from "@/lib/types";
 import { ColorPicker, formatColorText } from "@/overlay/ColorPicker";
@@ -82,6 +83,7 @@ function setNativeOverlayCursor(cursor: string) {
 export function OverlayRoute() {
   const start = useOverlay((s) => s.start);
   const end = useOverlay((s) => s.end);
+  const startScroll = useOverlay((s) => s.startScroll);
   const updateHoverAt = useOverlay((s) => s.updateHoverAt);
   const beginDrag = useOverlay((s) => s.beginDrag);
   const updateDrag = useOverlay((s) => s.updateDrag);
@@ -324,6 +326,12 @@ export function OverlayRoute() {
     await pinImage(monitorId, selection, annotationPng ?? undefined);
   };
 
+  const handleScroll = async () => {
+    if (monitorId == null || !selection) return;
+    await startScrollSession(monitorId, selection);
+    startScroll();
+  };
+
   const handleClose = () => {
     cancelCapture();
   };
@@ -459,6 +467,8 @@ export function OverlayRoute() {
             onSave={handleSave}
             onPin={handlePin}
             onClose={handleClose}
+            onScroll={handleScroll}
+            selectionTooSmall={selection.height < 100}
           />
         </>
       )}

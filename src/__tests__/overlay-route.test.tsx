@@ -54,6 +54,7 @@ vi.mock("@/lib/ipc", () => ({
   requestColorCopy: vi.fn().mockResolvedValue(undefined),
   requestColorFormatToggle: vi.fn().mockResolvedValue(undefined),
   releaseSelection: vi.fn().mockResolvedValue(undefined),
+  startScrollSession: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/lib/cursor", () => ({

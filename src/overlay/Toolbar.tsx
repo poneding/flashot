@@ -15,7 +15,7 @@ type Props = {
   onSave: ToolbarAction;
   onPin: ToolbarAction;
   onClose: ToolbarAction;
-  onScroll?: ToolbarAction;
+  onScroll: ToolbarAction;
   selectionTooSmall?: boolean;
 };
 
@@ -144,8 +144,8 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
       <ToolbarButton
         label={selectionTooSmall ? "Selection too small" : "Scrolling screenshot"}
         icon={ScrollText}
-        onClick={() => runAction(onScroll ?? (() => {}))}
-        disabled={selectionTooSmall || !onScroll}
+        onClick={() => runAction(onScroll)}
+        disabled={selectionTooSmall}
       />
       <ToolbarButton
         label="Pin"

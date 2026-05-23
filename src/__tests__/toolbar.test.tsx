@@ -25,6 +25,7 @@ describe("Toolbar", () => {
   const onSave = vi.fn();
   const onPin = vi.fn();
   const onClose = vi.fn();
+  const onScroll = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -46,6 +47,7 @@ describe("Toolbar", () => {
         onSave={onSave}
         onPin={onPin}
         onClose={onClose}
+        onScroll={onScroll}
       />,
     );
   }
