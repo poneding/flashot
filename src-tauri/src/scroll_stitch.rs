@@ -143,6 +143,35 @@ impl ScrollStitcher {
             score,
         }
     }
+
+    pub fn finalize(self) -> StitchedImage {
+        StitchedImage {
+            rgba: self.canvas,
+            width: self.width,
+            height: self.height,
+        }
+    }
+
+    pub fn preview_thumbnail(&self, target_height_px: u32) -> Vec<u8> {
+        use image::{
+            codecs::png::PngEncoder, imageops::FilterType, ExtendedColorType, ImageBuffer,
+            ImageEncoder, RgbaImage,
+        };
+
+        let src: RgbaImage =
+            ImageBuffer::from_raw(self.width, self.height, self.canvas.clone())
+                .expect("canvas dims match buffer");
+        let scale = (target_height_px as f32 / self.height as f32).min(1.0);
+        let target_w = ((self.width as f32) * scale).max(1.0) as u32;
+        let target_h = ((self.height as f32) * scale).max(1.0) as u32;
+        let scaled = image::imageops::resize(&src, target_w, target_h, FilterType::Triangle);
+
+        let mut buf = Vec::new();
+        PngEncoder::new(&mut buf)
+            .write_image(scaled.as_raw(), target_w, target_h, ExtendedColorType::Rgba8)
+            .expect("PNG encode");
+        buf
+    }
 }
 
 /// Compute the best vertical shift (in rows) such that the top ROI of `prev`
@@ -330,6 +359,33 @@ mod tests {
         assert_eq!(r, IngestResult::MaxHeightReached);
         assert_eq!(stitcher.height(), 250);
         assert_eq!(stitcher.canvas.len(), (width * 250 * 4) as usize);
+    }
+
+    #[test]
+    fn finalize_returns_canvas_dims() {
+        let width = 80;
+        let frame_h = 100;
+        let stitcher = ScrollStitcher::new(
+            width, frame_h, gradient_frame(width, frame_h, 0), StitchConfig::default(),
+        );
+        let img = stitcher.finalize();
+        assert_eq!(img.width, width);
+        assert_eq!(img.height, frame_h);
+        assert_eq!(img.rgba.len(), (width * frame_h * 4) as usize);
+    }
+
+    #[test]
+    fn preview_thumbnail_downscales_to_target_height() {
+        let width = 80;
+        let frame_h = 800;
+        let stitcher = ScrollStitcher::new(
+            width, frame_h, gradient_frame(width, frame_h, 0), StitchConfig::default(),
+        );
+        let thumb = stitcher.preview_thumbnail(200);
+        assert!(thumb.starts_with(b"\x89PNG\r\n\x1a\n"));
+        let decoded = image::load_from_memory(&thumb).unwrap().to_rgba8();
+        assert!(decoded.height() <= 200);
+        assert!(decoded.height() > 0);
     }
 
     #[test]
