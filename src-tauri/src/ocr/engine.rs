@@ -13,6 +13,15 @@ use ort::session::Session;
 
 use crate::ocr::types::OcrError;
 
+/// OCR inference engine that manages the detection and recognition sessions.
+///
+/// **Concurrency model:** Each `Mutex<Session>` protects against concurrent
+/// `Session::run` calls on that session, as required by ort (not thread-safe
+/// per-session). However, the Engine itself does NOT serialize `det` and `rec`
+/// access — callers (e.g., `Engine::recognize` in Task 14) must acquire
+/// these guards **sequentially**, never simultaneously. This design keeps the
+/// per-session mutex model coherent. If concurrent recognition pipelines are
+/// needed in the future, a top-level coordinator would be required.
 pub struct Engine {
     det: OnceLock<Mutex<Session>>,
     rec: OnceLock<Mutex<Session>>,
