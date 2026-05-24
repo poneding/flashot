@@ -29,6 +29,7 @@ function persistStyle(style: AnnotationStyle) {
 type ToolStyleMemory = {
   line: Pick<AnnotationStyle, "lineShape" | "lineStyle">;
   arrow: Pick<AnnotationStyle, "lineStyle" | "arrowStyle">;
+  measure: Pick<AnnotationStyle, "color" | "strokeWidth">;
 };
 
 function lineToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["line"] {
@@ -46,10 +47,18 @@ function arrowToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["arrow
   };
 }
 
+function measureToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["measure"] {
+  return {
+    color: style.color ?? DEFAULT_STYLE.color,
+    strokeWidth: style.strokeWidth ?? DEFAULT_STYLE.strokeWidth,
+  };
+}
+
 function createToolStyleMemory(style: AnnotationStyle): ToolStyleMemory {
   return {
     line: lineToolStyle(style),
     arrow: arrowToolStyle(style),
+    measure: measureToolStyle(style),
   };
 }
 
@@ -61,6 +70,15 @@ function normalizeActiveStyleForTool(tool: ToolType, style: AnnotationStyle): An
   if (tool === "arrow") {
     return { ...style, lineShape: "straight", ...arrowToolStyle(style) };
   }
+  if (tool === "measure") {
+    return {
+      ...style,
+      ...measureToolStyle(style),
+      lineShape: "straight",
+      lineStyle: "solid",
+      arrow: "none",
+    };
+  }
   return style;
 }
 
@@ -69,6 +87,9 @@ function rememberToolStyle(tool: ToolType, style: AnnotationStyle) {
     toolStyleMemory.line = lineToolStyle(style);
   } else if (tool === "arrow") {
     toolStyleMemory.arrow = arrowToolStyle(style);
+  } else if (tool === "measure") {
+    toolStyleMemory.measure = measureToolStyle(style);
+    hasRememberedMeasureToolStyle = true;
   }
 }
 
@@ -78,6 +99,12 @@ function styleForTool(tool: ToolType, baseStyle: AnnotationStyle): AnnotationSty
   }
   if (tool === "arrow") {
     return normalizeActiveStyleForTool(tool, { ...baseStyle, ...toolStyleMemory.arrow });
+  }
+  if (tool === "measure") {
+    if (!hasRememberedMeasureToolStyle) {
+      return normalizeActiveStyleForTool(tool, baseStyle);
+    }
+    return normalizeActiveStyleForTool(tool, { ...baseStyle, ...toolStyleMemory.measure });
   }
   return baseStyle;
 }
@@ -112,6 +139,7 @@ type AnnotationActions = {
 let commandStack: CommandStack = createCommandStack();
 const initialActiveStyle = loadPersistedStyle();
 let toolStyleMemory = createToolStyleMemory(initialActiveStyle);
+let hasRememberedMeasureToolStyle = false;
 
 const initialState: AnnotationState = {
   objects: [],
