@@ -7,11 +7,19 @@ import {
   type HandleId,
 } from "@/lib/geometry";
 import { hitTestWindow } from "@/lib/hit-test";
-import type { CaptureStartPayload, Mode, Point, Rect, WindowRect } from "@/lib/types";
+import type { CaptureStartPayload, Mode, OcrResult, Point, Rect, WindowRect } from "@/lib/types";
 
 type SelectionInteraction =
   | { kind: "move"; origin: Point; startRect: Rect }
   | { kind: "resize"; handle: HandleId; startRect: Rect };
+
+export type OcrPhase =
+  | { kind: "idle" }
+  | { kind: "confirming-download"; sizeBytes: number }
+  | { kind: "downloading"; progress: number; downloadedBytes: number; totalBytes: number }
+  | { kind: "recognizing" }
+  | { kind: "result"; result: OcrResult }
+  | { kind: "error"; message: string };
 
 type State = {
   mode: Mode;
@@ -29,6 +37,8 @@ type State = {
   colorPickerVisible: boolean;
   colorCopied: boolean;
   currentColor: { r: number; g: number; b: number } | null;
+  ocr: OcrPhase;
+  lastOcrResult: OcrResult | null;
 };
 
 type Actions = {
@@ -56,6 +66,8 @@ type Actions = {
   hideColorPicker: () => void;
   setColorCopied: (v: boolean) => void;
   setCurrentColor: (c: { r: number; g: number; b: number } | null) => void;
+  setOcrPhase: (phase: OcrPhase) => void;
+  setLastOcrResult: (result: OcrResult | null) => void;
 };
 
 function localMonitorBounds(monitor: Rect | null): Rect {
@@ -91,6 +103,8 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   colorPickerVisible: false,
   colorCopied: false,
   currentColor: null,
+  ocr: { kind: "idle" },
+  lastOcrResult: null,
 
   start: (p) =>
     set({
@@ -248,4 +262,6 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   hideColorPicker: () => set({ colorPickerVisible: false, colorCopied: false }),
   setColorCopied: (v) => set({ colorCopied: v }),
   setCurrentColor: (c) => set({ currentColor: c }),
+  setOcrPhase: (phase) => set({ ocr: phase }),
+  setLastOcrResult: (result) => set({ lastOcrResult: result }),
 }));
