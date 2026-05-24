@@ -18,9 +18,11 @@ const handleStyle: React.CSSProperties = {
 export function SelectionBox() {
   const r = useOverlay((s) => s.selection);
   const mode = useOverlay((s) => s.mode);
+  const cornerRadius = useOverlay((s) => s.cornerRadius);
   const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
   if (!r) return null;
 
+  const effectiveRadius = mode === "scrollStarting" || mode === "scrolling" ? 0 : cornerRadius;
   const hx = (x: number) => x - 4;
   const hy = (y: number) => y - 4;
   const handleCursor = (id: HandleId) => colorPickerVisible ? "crosshair" : cursorForHandle(id);
@@ -31,23 +33,32 @@ export function SelectionBox() {
     />
   );
 
-  // Use `outline` instead of `border` so the line never paints INSIDE the
-  // selection rect — critical for scrolling capture, which would otherwise
-  // pick up the outline as static content in the captured top ROI.
   return (
     <>
-      <div
+      <svg
         style={{
           position: "absolute",
           left: r.x,
           top: r.y,
           width: r.width,
           height: r.height,
-          outline: `1.5px solid ${COLOR}`,
-          outlineOffset: 0,
           pointerEvents: "none",
+          overflow: "visible",
         }}
-      />
+      >
+        <rect
+          x="0"
+          y="0"
+          width={r.width}
+          height={r.height}
+          rx={effectiveRadius}
+          ry={effectiveRadius}
+          fill="none"
+          stroke={COLOR}
+          strokeWidth={1.5}
+          shapeRendering="geometricPrecision"
+        />
+      </svg>
       {mode !== "scrollStarting" && mode !== "scrolling" && (
         <div
           style={{
