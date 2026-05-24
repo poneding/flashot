@@ -45,6 +45,7 @@ describe("release workflow", () => {
     expect(workflow).toContain("macos-x86_64");
     expect(workflow).toContain("windows-x86_64");
     expect(workflow).toContain("linux-x86_64");
+    expect(workflow).toContain("timeout-minutes: 60");
     expect(workflow).toContain("tauri-apps/tauri-action@v0");
   });
 
@@ -75,6 +76,7 @@ describe("release workflow", () => {
 
     expect(workflow).toContain("name: Install macOS signing certificate");
     expect(workflow).toContain("if: runner.os == 'macOS'");
+    expect(workflow).toContain("timeout-minutes: 5");
     expect(workflow).toContain("MACOS_CODESIGN_CERTIFICATE: ${{ secrets.MACOS_CODESIGN_CERTIFICATE }}");
     expect(workflow).toContain("MACOS_CODESIGN_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CODESIGN_CERTIFICATE_PASSWORD }}");
     expect(workflow).toContain("MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}");
@@ -84,7 +86,10 @@ describe("release workflow", () => {
     expect(workflow).not.toContain('"${PKCS12_LEGACY_ARGS[@]}"');
     expect(workflow).not.toContain("PKCS12_LEGACY_ARGS=()");
     expect(workflow).not.toContain("            -legacy \\");
-    expect(workflow).toContain("security add-trusted-cert -r trustRoot -p codeSign");
+    expect(workflow).toContain("Trusting macOS signing certificate in system keychain");
+    expect(workflow).toContain("sudo security add-trusted-cert");
+    expect(workflow).toContain("-k /Library/Keychains/System.keychain");
+    expect(workflow).not.toContain('security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN_PATH"');
     expect(workflow).toContain("APPLE_SIGNING_IDENTITY=$MACOS_CODESIGN_IDENTITY");
   });
 

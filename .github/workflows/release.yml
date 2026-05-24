@@ -97,6 +97,7 @@ jobs:
   release:
     name: Build release (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     needs: [validate, changelog]
     strategy:
       fail-fast: false
@@ -147,6 +148,7 @@ jobs:
 
       - name: Install macOS signing certificate
         if: runner.os == 'macOS'
+        timeout-minutes: 5
         shell: bash
         env:
           MACOS_CODESIGN_CERTIFICATE: ${{ secrets.MACOS_CODESIGN_CERTIFICATE }}
@@ -167,6 +169,7 @@ jobs:
           KEYCHAIN_PATH="$RUNNER_TEMP/flashot-codesign.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
 
+          echo "Decoding macOS signing certificate"
           printf '%s' "$MACOS_CODESIGN_CERTIFICATE" | base64 -d > "$CERTIFICATE_PATH"
           PKCS12_LEGACY_ARG=""
           if openssl pkcs12 -help 2>&1 | grep -q -- "-legacy"; then
@@ -189,18 +192,31 @@ jobs:
               -passin "pass:$MACOS_CODESIGN_CERTIFICATE_PASSWORD"
           fi
 
+          echo "Trusting macOS signing certificate in system keychain"
+          sudo security add-trusted-cert \
+            -d \
+            -r trustRoot \
+            -p codeSign \
+            -k /Library/Keychains/System.keychain \
+            "$CERTIFICATE_PEM_PATH"
+
+          echo "Creating temporary signing keychain"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "Importing macOS signing identity"
           security import "$CERTIFICATE_PATH" \
             -k "$KEYCHAIN_PATH" \
             -P "$MACOS_CODESIGN_CERTIFICATE_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
-          security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN_PATH" "$CERTIFICATE_PEM_PATH"
+
+          echo "Allowing codesign to access the imported private key"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
 
+          echo "Verifying macOS signing identity"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
           if ! security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -F "$MACOS_CODESIGN_IDENTITY"; then
             echo "::error::MACOS_CODESIGN_IDENTITY '$MACOS_CODESIGN_IDENTITY' was not found in the imported certificate."
