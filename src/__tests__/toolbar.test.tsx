@@ -39,8 +39,9 @@ describe("Toolbar", () => {
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     __resetCornerRadiusPersistenceForTests();
+    vi.clearAllTimers();
+    vi.useRealTimers();
     cleanup();
   });
 
