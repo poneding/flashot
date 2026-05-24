@@ -4,6 +4,9 @@
 //! discovered at startup by [`init_ort_dylib`]. Engine loading, model
 //! download, and the recognition pipeline live in the submodules below.
 
+pub mod types;
+pub use types::{OcrError, OcrInstallStatus, OcrLine, OcrResult, TextBox};
+
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
