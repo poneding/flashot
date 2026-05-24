@@ -95,7 +95,6 @@ function buildMeasureObjectChildren(group: Konva.Group, obj: AnnotationObject) {
     height: LABEL_HEIGHT,
     cornerRadius: 5,
     fill: "rgba(20,20,20,0.86)",
-    listening: false,
     name: "measure-label-bg",
   }));
 

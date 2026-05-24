@@ -78,11 +78,13 @@ describe("measure annotation tool", () => {
     });
 
     const label = node.findOne(".measure-label") as Konva.Text;
+    const labelBg = node.findOne(".measure-label-bg") as Konva.Rect;
     const ticks = node.find(".measure-tick");
 
     expect(node.x()).toBe(15);
     expect(node.y()).toBe(27);
     expect(label.text()).toBe("100 px");
+    expect(labelBg.listening()).toBe(true);
     expect(ticks).toHaveLength(2);
   });
 });
