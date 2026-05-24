@@ -4,6 +4,7 @@
 //! discovered at startup by [`init_ort_dylib`]. Engine loading, model
 //! download, and the recognition pipeline live in the submodules below.
 
+pub mod download;
 pub mod manifest;
 pub mod paths;
 pub mod types;
