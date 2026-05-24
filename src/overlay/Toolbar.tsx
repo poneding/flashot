@@ -1,6 +1,8 @@
 import { TooltipBubble } from "@/annotation/Tooltip";
 import { clampToolbarPosition, computeVerticalToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
+import { CornerRadiusPanel } from "@/overlay/CornerRadiusPanel";
+import { useOverlay } from "@/overlay/state";
 import { CopyIcon, GripHorizontal, PinIcon, SaveIcon, TypeIcon, XIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
@@ -8,7 +10,10 @@ export const SCREENSHOT_TOOLBAR_RADIUS = 10;
 export const SCREENSHOT_TOOLBAR_BACKGROUND = "rgba(30, 30, 30, 0.85)";
 export const SCREENSHOT_TOOLBAR_BORDER = "1px solid rgba(255,255,255,0.1)";
 
-const TOOLBAR_SIZE = { width: 40, height: 223 };
+const TOOLBAR_SIZE = { width: 40, height: 264 };
+const RADIUS_PANEL_WIDTH = 220;
+const RADIUS_PANEL_HEIGHT = 48;
+const RADIUS_PANEL_GAP = 8;
 
 type ToolbarAction = () => void | Promise<void>;
 
@@ -41,13 +46,19 @@ const ACTION_COLORS: Record<NonNullable<ToolbarButtonProps["tone"]>, string> = {
 
 export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose, onScroll, onOcr, selectionTooSmall }: Props) {
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const radiusPanelRef = useRef<HTMLDivElement>(null);
+  const cornerRadius = useOverlay((s) => s.cornerRadius);
+  const setCornerRadius = useOverlay((s) => s.setCornerRadius);
   const [measuredHeight, setMeasuredHeight] = useState(TOOLBAR_SIZE.height);
   const [busy, setBusy] = useState(false);
   const [customPos, setCustomPos] = useState<{ x: number; y: number } | null>(null);
+  const [radiusPanelOpen, setRadiusPanelOpen] = useState(false);
+  const suppressNextRadiusToggleRef = useRef(false);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const toolbarSize = { width: TOOLBAR_SIZE.width, height: measuredHeight };
   const computedPos = computeVerticalToolbarPosition(selection, toolbarSize, monitorRect);
   const pos = customPos ? clampToolbarPosition(customPos, toolbarSize, monitorRect) : computedPos;
+  const radiusPanelPosition = computeRadiusPanelPosition(pos, monitorRect);
 
   useLayoutEffect(() => {
     const nextHeight = toolbarRef.current?.offsetHeight ?? 0;
@@ -62,6 +73,23 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
     } finally {
       setBusy(false);
     }
+  };
+
+  const toggleRadiusPanel = () => {
+    if (suppressNextRadiusToggleRef.current) {
+      suppressNextRadiusToggleRef.current = false;
+      setRadiusPanelOpen(false);
+      return;
+    }
+    setRadiusPanelOpen((open) => !open);
+  };
+
+  const dismissRadiusPanel = () => {
+    suppressNextRadiusToggleRef.current = true;
+    setRadiusPanelOpen(false);
+    window.setTimeout(() => {
+      suppressNextRadiusToggleRef.current = false;
+    }, 0);
   };
 
   const startToolbarDrag = (e: React.MouseEvent) => {
@@ -91,99 +119,188 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
   };
 
   return (
-    <div
-      ref={toolbarRef}
-      data-screenshot-toolbar
-      onMouseDown={(e) => e.stopPropagation()}
-      style={{
-        position: "fixed",
-        left: pos.x,
-        top: pos.y,
-        width: TOOLBAR_SIZE.width,
-        boxSizing: "border-box",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        padding: "4px 0",
-        borderRadius: SCREENSHOT_TOOLBAR_RADIUS,
-        background: SCREENSHOT_TOOLBAR_BACKGROUND,
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
-        boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
-        border: SCREENSHOT_TOOLBAR_BORDER,
-        color: "#f0f0f5",
-        pointerEvents: "auto",
-        userSelect: "none",
-        zIndex: 10000,
-      }}
-    >
+    <>
       <div
-        data-screenshot-toolbar-drag-handle
-        title="Move toolbar"
-        onMouseDown={startToolbarDrag}
+        ref={toolbarRef}
+        data-screenshot-toolbar
+        onMouseDown={(e) => e.stopPropagation()}
         style={{
-          position: "relative",
-          width: 32,
-          height: 24,
+          position: "fixed",
+          left: pos.x,
+          top: pos.y,
+          width: TOOLBAR_SIZE.width,
+          boxSizing: "border-box",
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
-          justifyContent: "center",
-          color: "rgba(255,255,255,0.45)",
-          cursor: "move",
-          flexShrink: 0,
+          padding: "4px 0",
+          borderRadius: SCREENSHOT_TOOLBAR_RADIUS,
+          background: SCREENSHOT_TOOLBAR_BACKGROUND,
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+          border: SCREENSHOT_TOOLBAR_BORDER,
+          color: "#f0f0f5",
+          pointerEvents: "auto",
+          userSelect: "none",
+          zIndex: 10000,
         }}
       >
-        <GripHorizontal size={14} />
+        <div
+          data-screenshot-toolbar-drag-handle
+          title="Move toolbar"
+          onMouseDown={startToolbarDrag}
+          style={{
+            position: "relative",
+            width: 32,
+            height: 24,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "rgba(255,255,255,0.45)",
+            cursor: "move",
+            flexShrink: 0,
+          }}
+        >
+          <GripHorizontal size={14} />
+        </div>
+
+        <Separator />
+
+        <ToolbarGroup name="radius">
+          <ToolbarButton
+            label={`Corner radius: ${cornerRadius} px`}
+            icon={<CornerRadiusIcon radius={cornerRadius} size={18} strokeWidth={2.2} aria-hidden="true" />}
+            onClick={toggleRadiusPanel}
+          />
+        </ToolbarGroup>
+
+        <Separator />
+
+        <ToolbarGroup name="pin-scroll">
+          <ToolbarButton
+            label="Pin"
+            icon={<PinIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
+            onClick={() => runAction(onPin)}
+            disabled={busy}
+          />
+          <ToolbarButton
+            label={selectionTooSmall ? "Selection too small" : "Scrolling screenshot"}
+            icon={<ScrollScreenshotIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
+            onClick={() => runAction(onScroll)}
+            disabled={selectionTooSmall}
+          />
+        </ToolbarGroup>
+
+        <Separator />
+
+        <ToolbarGroup name="close">
+          <ToolbarButton
+            label="Close"
+            icon={<XIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
+            tone="danger"
+            onClick={onClose}
+          />
+          <ToolbarButton
+            label="Save As"
+            icon={<SaveIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
+            tone="primary"
+            onClick={() => runAction(onSave)}
+            disabled={busy}
+          />
+          <ToolbarButton
+            label={selectionTooSmall ? "Selection too small" : "Extract text (OCR)"}
+            icon={<TypeIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
+            disabled={selectionTooSmall}
+            onClick={() => runAction(onOcr)}
+          />
+          <ToolbarButton
+            label="Copy"
+            icon={<CopyIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
+            tone="success"
+            onClick={() => runAction(onCopy)}
+            disabled={busy}
+          />
+        </ToolbarGroup>
       </div>
 
-      <Separator />
+      {radiusPanelOpen && (
+        <CornerRadiusPanel
+          panelRef={radiusPanelRef}
+          value={cornerRadius}
+          onChange={setCornerRadius}
+          onDismiss={dismissRadiusPanel}
+          style={{
+            position: "fixed",
+            left: radiusPanelPosition.left,
+            top: radiusPanelPosition.top,
+            width: RADIUS_PANEL_WIDTH,
+          }}
+        />
+      )}
+    </>
+  );
+}
 
-      <ToolbarGroup name="pin-scroll">
-        <ToolbarButton
-          label="Pin"
-          icon={<PinIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
-          onClick={() => runAction(onPin)}
-          disabled={busy}
-        />
-        <ToolbarButton
-          label={selectionTooSmall ? "Selection too small" : "Scrolling screenshot"}
-          icon={<ScrollScreenshotIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
-          onClick={() => runAction(onScroll)}
-          disabled={selectionTooSmall}
-        />
-      </ToolbarGroup>
+function computeRadiusPanelPosition(
+  toolbarPos: { x: number; y: number },
+  monitorRect: Rect,
+): { left: number; top: number } {
+  const monitorLeft = monitorRect.x;
+  const monitorTop = monitorRect.y;
+  const monitorRight = monitorRect.x + monitorRect.width;
+  const monitorBottom = monitorRect.y + monitorRect.height;
 
-      <Separator />
+  if (toolbarPos.x >= monitorLeft + RADIUS_PANEL_WIDTH + RADIUS_PANEL_GAP) {
+    return {
+      left: toolbarPos.x - RADIUS_PANEL_WIDTH - RADIUS_PANEL_GAP,
+      top: clamp(
+        toolbarPos.y + 4,
+        monitorTop + RADIUS_PANEL_GAP,
+        monitorBottom - RADIUS_PANEL_HEIGHT - RADIUS_PANEL_GAP,
+      ),
+    };
+  }
 
-      <ToolbarGroup name="close">
-        <ToolbarButton
-          label="Close"
-          icon={<XIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
-          tone="danger"
-          onClick={onClose}
-        />
-        <ToolbarButton
-          label="Save As"
-          icon={<SaveIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
-          tone="primary"
-          onClick={() => runAction(onSave)}
-          disabled={busy}
-        />
-        <ToolbarButton
-          label={selectionTooSmall ? "Selection too small" : "Extract text (OCR)"}
-          icon={<TypeIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
-          disabled={selectionTooSmall}
-          onClick={() => runAction(onOcr)}
-        />
-        <ToolbarButton
-          label="Copy"
-          icon={<CopyIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
-          tone="success"
-          onClick={() => runAction(onCopy)}
-          disabled={busy}
-        />
-      </ToolbarGroup>
-    </div>
+  return {
+    left: clamp(
+      toolbarPos.x,
+      monitorLeft + RADIUS_PANEL_GAP,
+      monitorRight - RADIUS_PANEL_WIDTH - RADIUS_PANEL_GAP,
+    ),
+    top: clamp(
+      toolbarPos.y - RADIUS_PANEL_HEIGHT - RADIUS_PANEL_GAP,
+      monitorTop + RADIUS_PANEL_GAP,
+      monitorBottom - RADIUS_PANEL_HEIGHT - RADIUS_PANEL_GAP,
+    ),
+  };
+}
+
+function CornerRadiusIcon({ radius, size = 24, strokeWidth = 2, ...props }: {
+  radius: number;
+  size?: number | string;
+  strokeWidth?: number | string;
+  "aria-hidden"?: "true";
+}) {
+  const rx = Math.round((Math.max(0, Math.min(radius, 60)) / 60) * 6);
+
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      data-corner-radius-icon
+      {...props}
+    >
+      <rect x="5" y="5" width="14" height="14" rx={rx} />
+      <path d="M9 5H7a2 2 0 0 0-2 2v2" />
+    </svg>
   );
 }
 
@@ -296,3 +413,8 @@ const separatorStyle: CSSProperties = {
   margin: "4px 0",
   flexShrink: 0,
 };
+
+function clamp(value: number, min: number, max: number): number {
+  if (max < min) return min;
+  return Math.max(min, Math.min(value, max));
+}

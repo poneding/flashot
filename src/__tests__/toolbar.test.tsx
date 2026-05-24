@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Toolbar } from "@/overlay/Toolbar";
-import { useOverlay } from "@/overlay/state";
+import { __resetCornerRadiusPersistenceForTests, useOverlay } from "@/overlay/state";
 import type { CaptureStartPayload } from "@/lib/types";
 
 vi.mock("@/lib/ipc", () => ({
@@ -10,6 +10,8 @@ vi.mock("@/lib/ipc", () => ({
   cropAndSave: vi.fn(),
   cancelCapture: vi.fn(),
   pinImage: vi.fn(),
+  getSettings: vi.fn(),
+  setSettings: vi.fn(),
 }));
 
 const capture: CaptureStartPayload = {
@@ -37,6 +39,7 @@ describe("Toolbar", () => {
   });
 
   afterEach(() => {
+    __resetCornerRadiusPersistenceForTests();
     cleanup();
   });
 
@@ -83,17 +86,70 @@ describe("Toolbar", () => {
 
   it("groups pin and scrolling screenshot above the close action", () => {
     const { container } = renderToolbar();
+    const radiusGroup = container.querySelector('[data-screenshot-toolbar-group="radius"]');
     const pinScrollGroup = container.querySelector('[data-screenshot-toolbar-group="pin-scroll"]');
     const closeGroup = container.querySelector('[data-screenshot-toolbar-group="close"]');
 
+    expect(radiusGroup).not.toBeNull();
     expect(pinScrollGroup).not.toBeNull();
     expect(closeGroup).not.toBeNull();
+    expect(radiusGroup?.querySelector('[aria-label="Corner radius: 0 px"]')).not.toBeNull();
     expect(pinScrollGroup?.querySelector('[aria-label="Pin"]')).not.toBeNull();
     expect(pinScrollGroup?.querySelector('[aria-label="Scrolling screenshot"]')).not.toBeNull();
     expect(closeGroup?.querySelector('[aria-label="Close"]')).not.toBeNull();
 
     const groups = Array.from(container.querySelectorAll("[data-screenshot-toolbar-group]"));
+    expect(groups[0]).toBe(radiusGroup);
+    expect(groups.indexOf(radiusGroup as Element)).toBeLessThan(groups.indexOf(pinScrollGroup as Element));
     expect(groups.indexOf(pinScrollGroup as Element)).toBeLessThan(groups.indexOf(closeGroup as Element));
+  });
+
+  describe("Toolbar corner radius control", () => {
+    it("renders the corner radius button as the first action after the drag handle", () => {
+      const { container } = renderToolbar();
+      const toolbar = container.querySelector("[data-screenshot-toolbar]") as HTMLElement;
+      const radiusGroup = container.querySelector('[data-screenshot-toolbar-group="radius"]');
+      const pinScrollGroup = container.querySelector('[data-screenshot-toolbar-group="pin-scroll"]');
+      const groups = Array.from(container.querySelectorAll("[data-screenshot-toolbar-group]"));
+
+      expect(radiusGroup).not.toBeNull();
+      expect(radiusGroup?.querySelector('[aria-label="Corner radius: 0 px"]')).not.toBeNull();
+      expect(groups[0]).toBe(radiusGroup);
+      expect(groups[1]).toBe(pinScrollGroup);
+      expect(toolbar.children[0].hasAttribute("data-screenshot-toolbar-drag-handle")).toBe(true);
+    });
+
+    it("opens the slider panel when clicked", () => {
+      renderToolbar();
+
+      fireEvent.click(screen.getByRole("button", { name: "Corner radius: 0 px" }));
+
+      expect(screen.getByRole("slider", { name: "Corner radius" })).not.toBeNull();
+      expect(screen.getByText("0 px")).not.toBeNull();
+    });
+
+    it("closes the slider panel when clicked again", () => {
+      renderToolbar();
+
+      const button = screen.getByRole("button", { name: "Corner radius: 0 px" });
+      fireEvent.click(button);
+      fireEvent.mouseDown(button);
+      fireEvent.click(button);
+
+      expect(screen.queryByRole("slider", { name: "Corner radius" })).toBeNull();
+    });
+
+    it("updates the overlay corner radius from the slider", () => {
+      renderToolbar();
+
+      fireEvent.click(screen.getByRole("button", { name: "Corner radius: 0 px" }));
+      fireEvent.change(screen.getByRole("slider", { name: "Corner radius" }), {
+        target: { value: "18" },
+      });
+
+      expect(useOverlay.getState().cornerRadius).toBe(18);
+      expect(screen.getByRole("button", { name: "Corner radius: 18 px" })).not.toBeNull();
+    });
   });
 
   it("uses a vertical chevrons ellipsis icon for scrolling screenshot", () => {
@@ -136,7 +192,7 @@ describe("Toolbar", () => {
 
     const toolbar = container.querySelector("[data-screenshot-toolbar]") as HTMLElement;
     expect(toolbar.style.left).toBe("760px");
-    expect(toolbar.style.top).toBe("377px");
+    expect(toolbar.style.top).toBe("336px");
   });
 
   it("routes output actions through the provided callbacks", async () => {
