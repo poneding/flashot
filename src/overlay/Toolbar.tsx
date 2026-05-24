@@ -165,8 +165,6 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
           <GripHorizontal size={14} />
         </div>
 
-        <Separator />
-
         <ToolbarGroup name="radius">
           <ToolbarButton
             label={`Corner radius: ${cornerRadius} px`}

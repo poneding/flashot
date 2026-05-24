@@ -108,6 +108,7 @@ describe("Toolbar", () => {
     it("renders the corner radius button as the first action after the drag handle", () => {
       const { container } = renderToolbar();
       const toolbar = container.querySelector("[data-screenshot-toolbar]") as HTMLElement;
+      const handle = toolbar.children[0];
       const radiusGroup = container.querySelector('[data-screenshot-toolbar-group="radius"]');
       const pinScrollGroup = container.querySelector('[data-screenshot-toolbar-group="pin-scroll"]');
       const groups = Array.from(container.querySelectorAll("[data-screenshot-toolbar-group]"));
@@ -116,7 +117,8 @@ describe("Toolbar", () => {
       expect(radiusGroup?.querySelector('[aria-label="Corner radius: 0 px"]')).not.toBeNull();
       expect(groups[0]).toBe(radiusGroup);
       expect(groups[1]).toBe(pinScrollGroup);
-      expect(toolbar.children[0].hasAttribute("data-screenshot-toolbar-drag-handle")).toBe(true);
+      expect(handle.hasAttribute("data-screenshot-toolbar-drag-handle")).toBe(true);
+      expect(handle.nextElementSibling).toBe(radiusGroup);
     });
 
     it("opens the slider panel when clicked", () => {
