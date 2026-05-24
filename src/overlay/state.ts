@@ -74,15 +74,30 @@ type Actions = {
 };
 
 let cornerRadiusPersistTimer: ReturnType<typeof setTimeout> | null = null;
+let cornerRadiusPersistVersion = 0;
+
+function normalizeCornerRadius(n: number): number {
+  return Math.max(0, Math.min(60, Math.round(n)));
+}
 
 function persistCornerRadiusDebounced(next: number) {
+  const version = ++cornerRadiusPersistVersion;
   if (cornerRadiusPersistTimer != null) clearTimeout(cornerRadiusPersistTimer);
   cornerRadiusPersistTimer = setTimeout(() => {
     cornerRadiusPersistTimer = null;
     void getSettings()
-      .then((s) => setSettings({ ...s, cornerRadius: next }))
+      .then((s) => {
+        if (version !== cornerRadiusPersistVersion) return undefined;
+        return setSettings({ ...s, cornerRadius: next });
+      })
       .catch((err) => console.warn("Failed to persist cornerRadius", err));
   }, 150);
+}
+
+export function __resetCornerRadiusPersistenceForTests() {
+  if (cornerRadiusPersistTimer != null) clearTimeout(cornerRadiusPersistTimer);
+  cornerRadiusPersistTimer = null;
+  cornerRadiusPersistVersion += 1;
 }
 
 function localMonitorBounds(monitor: Rect | null): Rect {
@@ -138,7 +153,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       colorPickerVisible: false,
       colorCopied: false,
       currentColor: null,
-      cornerRadius: p.cornerRadius ?? 0,
+      cornerRadius: normalizeCornerRadius(p.cornerRadius ?? 0),
     }),
 
   setCursor: (p) => set({ cursor: p }),
@@ -282,7 +297,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   setOcrPhase: (phase) => set({ ocr: phase }),
   setLastOcrResult: (result) => set({ lastOcrResult: result }),
   setCornerRadius: (n) => {
-    const clamped = Math.max(0, Math.min(60, Math.round(n)));
+    const clamped = normalizeCornerRadius(n);
     set({ cornerRadius: clamped });
     persistCornerRadiusDebounced(clamped);
   },

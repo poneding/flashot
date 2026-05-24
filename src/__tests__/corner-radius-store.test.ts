@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { useOverlay } from "@/overlay/state";
+import { __resetCornerRadiusPersistenceForTests, useOverlay } from "@/overlay/state";
 
 vi.mock("@/lib/ipc", () => ({
   setSettings: vi.fn().mockResolvedValue(undefined),
@@ -20,9 +20,12 @@ describe("overlay store corner radius", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    __resetCornerRadiusPersistenceForTests();
     useOverlay.setState({ cornerRadius: 0 });
   });
   afterEach(() => {
+    __resetCornerRadiusPersistenceForTests();
+    vi.clearAllTimers();
     vi.useRealTimers();
   });
 
@@ -71,5 +74,71 @@ describe("overlay store corner radius", () => {
       cornerRadius: 20,
     });
     expect(useOverlay.getState().cornerRadius).toBe(20);
+  });
+
+  it("start() normalizes cornerRadius from the capture payload", () => {
+    useOverlay.getState().start({
+      monitorId: 0,
+      monitorRect: { x: 0, y: 0, width: 100, height: 100 },
+      scaleFactor: 1,
+      frameUrl: "",
+      windows: [],
+      cornerRadius: 99,
+    });
+    expect(useOverlay.getState().cornerRadius).toBe(60);
+
+    useOverlay.getState().start({
+      monitorId: 0,
+      monitorRect: { x: 0, y: 0, width: 100, height: 100 },
+      scaleFactor: 1,
+      frameUrl: "",
+      windows: [],
+      cornerRadius: 12.6,
+    });
+    expect(useOverlay.getState().cornerRadius).toBe(13);
+  });
+
+  it("skips stale async persistence after a newer radius change", async () => {
+    let resolveFirstSettings!: (value: Awaited<ReturnType<typeof getSettings>>) => void;
+    const firstSettings = new Promise<Awaited<ReturnType<typeof getSettings>>>((resolve) => {
+      resolveFirstSettings = resolve;
+    });
+    (getSettings as unknown as ReturnType<typeof vi.fn>)
+      .mockReturnValueOnce(firstSettings)
+      .mockResolvedValueOnce({
+        captureHotkey: "",
+        fullscreenHotkey: "",
+        activeWindowHotkey: "",
+        theme: "system" as const,
+        launchAtLogin: false,
+        lastSaveDir: null,
+        cornerRadius: 0,
+      });
+
+    useOverlay.getState().setCornerRadius(10);
+    await vi.advanceTimersByTimeAsync(160);
+    expect(getSettings).toHaveBeenCalledTimes(1);
+
+    useOverlay.getState().setCornerRadius(30);
+    await vi.advanceTimersByTimeAsync(160);
+    expect(setSettings).toHaveBeenCalledTimes(1);
+    expect(setSettings).toHaveBeenLastCalledWith(expect.objectContaining({ cornerRadius: 30 }));
+
+    resolveFirstSettings({
+      captureHotkey: "",
+      fullscreenHotkey: "",
+      activeWindowHotkey: "",
+      theme: "system" as const,
+      launchAtLogin: false,
+      lastSaveDir: null,
+      cornerRadius: 0,
+    });
+    await vi.waitFor(() => expect(getSettings).toHaveBeenCalledTimes(2));
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(setSettings).toHaveBeenCalledTimes(1);
+    expect(setSettings).not.toHaveBeenCalledWith(expect.objectContaining({ cornerRadius: 10 }));
   });
 });
