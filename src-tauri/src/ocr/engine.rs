@@ -133,6 +133,101 @@ fn load_session(path: &Path) -> Result<Session, OcrError> {
         .map_err(|e| OcrError::ModelLoadFailed(e.to_string()))
 }
 
+use std::time::Instant;
+
+use crate::ocr::types::{OcrLine, OcrResult, TextBox};
+use crate::ocr::{detector, postprocess, recognizer};
+
+impl Engine {
+    /// End-to-end recognition: detect → warp each box → recognise → sort →
+    /// filter → concat. CPU-bound; callers must invoke via
+    /// `tokio::task::spawn_blocking`. Acquires det and rec guards
+    /// SEQUENTIALLY via the public detector::detect and recognizer::recognize
+    /// functions (det is held only across detector::detect, rec only across
+    /// recognizer::recognize per text-line), so the per-session-mutex
+    /// concurrency model documented above is preserved.
+    pub fn recognize(&self, rgba: &[u8], w: u32, h: u32) -> Result<OcrResult, OcrError> {
+        let start = Instant::now();
+
+        let boxes = detector::detect(rgba, w, h)?;
+        let mut lines = Vec::with_capacity(boxes.len());
+        for bbox in &boxes {
+            let (crop, cw, ch) = match warp_textline(rgba, w, h, bbox) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!("textline warp failed: {e}; skipping");
+                    continue;
+                }
+            };
+            let (text, conf) = recognizer::recognize(&crop, cw, ch)?;
+            if !text.is_empty() {
+                lines.push(OcrLine {
+                    text,
+                    bbox: bbox.clone(),
+                    confidence: conf,
+                });
+            }
+        }
+
+        let lines = postprocess::filter_low_confidence(lines);
+        let lines = postprocess::sort_reading_order(lines);
+        let full_text = postprocess::concatenate(&lines);
+
+        Ok(OcrResult {
+            full_text,
+            lines,
+            elapsed_ms: start.elapsed().as_millis() as u64,
+        })
+    }
+}
+
+/// Warp the quadrilateral `bbox` from the source RGBA image into an
+/// axis-aligned crop ready for the recogniser.
+fn warp_textline(
+    rgba: &[u8],
+    w: u32,
+    h: u32,
+    bbox: &TextBox,
+) -> Result<(Vec<u8>, u32, u32), OcrError> {
+    use image::{Rgba, RgbaImage};
+    use imageproc::geometric_transformations::{warp, Interpolation, Projection};
+
+    let dist = |(x1, y1): (f32, f32), (x2, y2): (f32, f32)| {
+        ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt()
+    };
+    let top = dist(bbox.points[0], bbox.points[1]);
+    let bottom = dist(bbox.points[3], bbox.points[2]);
+    let left = dist(bbox.points[0], bbox.points[3]);
+    let right = dist(bbox.points[1], bbox.points[2]);
+    let crop_w = top.max(bottom).round().max(1.0) as u32;
+    let crop_h = left.max(right).round().max(1.0) as u32;
+
+    let src_img = RgbaImage::from_raw(w, h, rgba.to_vec())
+        .ok_or_else(|| OcrError::InferenceFailed("source dims mismatch".into()))?;
+
+    // Map output → input quad.
+    let proj = Projection::from_control_points(
+        [
+            (0.0, 0.0),
+            (crop_w as f32, 0.0),
+            (crop_w as f32, crop_h as f32),
+            (0.0, crop_h as f32),
+        ],
+        [
+            bbox.points[0],
+            bbox.points[1],
+            bbox.points[2],
+            bbox.points[3],
+        ],
+    )
+    .ok_or_else(|| OcrError::InferenceFailed("degenerate quad".into()))?;
+
+    let warped = warp(&src_img, &proj, Interpolation::Bilinear, Rgba([0, 0, 0, 255]));
+    // `warp` returns an image sized to the input. Crop to our target.
+    let crop_img = image::imageops::crop_imm(&warped, 0, 0, crop_w, crop_h).to_image();
+    Ok((crop_img.into_raw(), crop_w, crop_h))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
