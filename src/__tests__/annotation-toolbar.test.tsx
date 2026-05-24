@@ -15,6 +15,7 @@ const capture: CaptureStartPayload = {
   monitorRect,
   scaleFactor: 2,
   windows: [],
+  cornerRadius: 0,
 };
 
 const selectedRect: AnnotationObject = {

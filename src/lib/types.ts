@@ -26,6 +26,7 @@ export type CaptureStartPayload = {
   monitorRect: Rect;
   scaleFactor: number;
   windows: WindowRect[];     // already translated to monitor-local coords
+  cornerRadius: number;
 };
 
 export type QuickShotFlashPayload = {
@@ -55,6 +56,7 @@ export type Settings = {
   theme: "system" | "light" | "dark";
   launchAtLogin: boolean;
   lastSaveDir: string | null;
+  cornerRadius: number;
 };
 
 export type PinInfo = {

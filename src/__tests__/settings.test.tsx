@@ -18,6 +18,7 @@ const settings: Settings = {
   theme: "system",
   launchAtLogin: false,
   lastSaveDir: null,
+  cornerRadius: 0,
 };
 
 describe("ThemeSelect", () => {
