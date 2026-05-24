@@ -1,12 +1,12 @@
 //! DBNet text detector. Pipeline: RGBA input → resize to ≤960px long edge
 //! (padded to multiple of 32) → normalise → NCHW float32 tensor → det.onnx →
 //! probability map → polygon extraction.
-//!
-//! Polygon extraction (full inference path) arrives in Task 11.
 
 use ndarray::Array4;
+use ort::value::Tensor;
 
-use crate::ocr::types::TextBox;
+use crate::ocr::engine::Engine;
+use crate::ocr::types::{OcrError, TextBox};
 
 pub const MAX_LONG_EDGE: u32 = 960;
 const MEAN: [f32; 3] = [0.485, 0.456, 0.406];
@@ -86,10 +86,203 @@ pub fn build_det_tensor(rgba: &[u8], w: u32, h: u32) -> Array4<f32> {
     tensor
 }
 
-/// Stub for the full detect pipeline. Implementation arrives in Task 11.
-#[allow(dead_code)]
-pub fn detect_stub(_rgba: &[u8], _w: u32, _h: u32) -> Vec<TextBox> {
-    Vec::new()
+const DB_BINARIZE_THRESHOLD: f32 = 0.3;
+const DB_BOX_THRESHOLD: f32 = 0.5;
+const DB_UNCLIP_RATIO: f32 = 1.6;
+const DB_MIN_EDGE: f32 = 3.0;
+
+pub fn detect(rgba: &[u8], w: u32, h: u32) -> Result<Vec<TextBox>, OcrError> {
+    let (resized, rw, rh, sx, sy) = resize_for_det(rgba, w, h);
+    let tensor = build_det_tensor(&resized, rw, rh);
+
+    let engine = Engine::global();
+    let mut session = engine.det();
+    let input_name = session.inputs[0].name.clone();
+    let outputs = session
+        .run(ort::inputs![input_name => Tensor::from_array(tensor)
+            .map_err(|e| OcrError::InferenceFailed(e.to_string()))?])
+        .map_err(|e| OcrError::InferenceFailed(e.to_string()))?;
+
+    let (shape, data) = outputs[0]
+        .try_extract_tensor::<f32>()
+        .map_err(|e| OcrError::InferenceFailed(e.to_string()))?;
+    // Expected shape: [1, 1, rh, rw]
+    debug_assert_eq!(&**shape, &[1i64, 1, rh as i64, rw as i64][..]);
+
+    let polygons = polygons_from_probability_map(data, rw, rh);
+
+    // Map polygon coordinates back to original image space.
+    let mut out = Vec::with_capacity(polygons.len());
+    for poly in polygons {
+        let scaled = TextBox {
+            points: [
+                (poly.points[0].0 * sx, poly.points[0].1 * sy),
+                (poly.points[1].0 * sx, poly.points[1].1 * sy),
+                (poly.points[2].0 * sx, poly.points[2].1 * sy),
+                (poly.points[3].0 * sx, poly.points[3].1 * sy),
+            ],
+        };
+        if min_edge_length(&scaled) >= DB_MIN_EDGE {
+            out.push(scaled);
+        }
+    }
+    Ok(out)
+}
+
+fn min_edge_length(b: &TextBox) -> f32 {
+    let mut min = f32::MAX;
+    for i in 0..4 {
+        let (x1, y1) = b.points[i];
+        let (x2, y2) = b.points[(i + 1) % 4];
+        let d = ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt();
+        if d < min {
+            min = d;
+        }
+    }
+    min
+}
+
+/// Convert the DBNet probability map into a list of quadrilateral text boxes.
+fn polygons_from_probability_map(prob: &[f32], w: u32, h: u32) -> Vec<TextBox> {
+    // STEP 1: Binarise the probability map.
+    let mut binary = vec![0u8; prob.len()];
+    for (i, &p) in prob.iter().enumerate() {
+        if p > DB_BINARIZE_THRESHOLD {
+            binary[i] = 255;
+        }
+    }
+
+    // STEP 2: Connected-component labelling on the binary map (4-connected).
+    let img = image::GrayImage::from_raw(w, h, binary.clone()).expect("dims match");
+    let labels = imageproc::region_labelling::connected_components(
+        &img,
+        imageproc::region_labelling::Connectivity::Four,
+        image::Luma([0u8]),
+    );
+
+    // Collect points per label.
+    use std::collections::HashMap;
+    let mut groups: HashMap<u32, Vec<(f32, f32)>> = HashMap::new();
+    for (x, y, pix) in labels.enumerate_pixels() {
+        let label = pix[0];
+        if label != 0 {
+            groups
+                .entry(label)
+                .or_default()
+                .push((x as f32, y as f32));
+        }
+    }
+
+    // STEP 3: For each component, fit min-area rect and score it.
+    let mut boxes = Vec::new();
+    for (_label, pts) in groups {
+        if pts.len() < 4 {
+            continue;
+        }
+        let rect = min_area_rect(&pts);
+
+        let score = mean_probability_in_box(&rect, prob, w, h);
+        if score < DB_BOX_THRESHOLD {
+            continue;
+        }
+
+        // STEP 4: Unclip the box outward by DB_UNCLIP_RATIO.
+        let unclipped = unclip(&rect, DB_UNCLIP_RATIO);
+        boxes.push(unclipped);
+    }
+    boxes
+}
+
+/// Minimum-area bounding rectangle around a point cloud.
+///
+/// v1 simplification: an axis-aligned bounding box. This works well for
+/// upright screenshot text (the overwhelming case) but undersells rotated
+/// text. A future iteration should replace with proper rotating-calipers
+/// minAreaRect (OpenCV-style). Reference: RapidOCR `db_postprocess.py`
+/// calls cv2.minAreaRect; oar-ocr's Rust port has a direct analogue.
+///
+/// Corner order: top-left, top-right, bottom-right, bottom-left.
+fn min_area_rect(points: &[(f32, f32)]) -> TextBox {
+    let (mut min_x, mut min_y) = (f32::MAX, f32::MAX);
+    let (mut max_x, mut max_y) = (f32::MIN, f32::MIN);
+    for &(x, y) in points {
+        if x < min_x {
+            min_x = x;
+        }
+        if y < min_y {
+            min_y = y;
+        }
+        if x > max_x {
+            max_x = x;
+        }
+        if y > max_y {
+            max_y = y;
+        }
+    }
+    TextBox {
+        points: [
+            (min_x, min_y),
+            (max_x, min_y),
+            (max_x, max_y),
+            (min_x, max_y),
+        ],
+    }
+}
+
+/// Mean probability inside the axis-aligned bounding box of `b`. Cheap
+/// approximation of OpenCV's polygon-mask version sufficient for filtering
+/// noise components.
+fn mean_probability_in_box(b: &TextBox, prob: &[f32], w: u32, _h: u32) -> f32 {
+    let (mut min_x, mut min_y) = (f32::MAX, f32::MAX);
+    let (mut max_x, mut max_y) = (f32::MIN, f32::MIN);
+    for &(x, y) in &b.points {
+        if x < min_x {
+            min_x = x;
+        }
+        if y < min_y {
+            min_y = y;
+        }
+        if x > max_x {
+            max_x = x;
+        }
+        if y > max_y {
+            max_y = y;
+        }
+    }
+    let (xmin, ymin) = (min_x.floor().max(0.0) as u32, min_y.floor().max(0.0) as u32);
+    let (xmax, ymax) = (max_x.ceil() as u32, max_y.ceil() as u32);
+    let mut sum = 0.0f32;
+    let mut count = 0u32;
+    for y in ymin..ymax {
+        for x in xmin..xmax {
+            let idx = (y * w + x) as usize;
+            if idx < prob.len() {
+                sum += prob[idx];
+                count += 1;
+            }
+        }
+    }
+    if count == 0 {
+        0.0
+    } else {
+        sum / count as f32
+    }
+}
+
+/// Outward dilation of a quadrilateral by `ratio`. v1 simplification:
+/// scale each corner outward from the box centroid by `ratio`. This is
+/// looser than a proper Vatti clipping unclip (used by PaddleOCR's
+/// pyclipper.PyclipperOffset) and may produce slightly oversized boxes,
+/// but it's adequate for v1 recognition accuracy on screenshot text.
+fn unclip(b: &TextBox, ratio: f32) -> TextBox {
+    let cx = b.points.iter().map(|p| p.0).sum::<f32>() / 4.0;
+    let cy = b.points.iter().map(|p| p.1).sum::<f32>() / 4.0;
+    let mut out = b.points;
+    for p in out.iter_mut() {
+        p.0 = cx + (p.0 - cx) * ratio;
+        p.1 = cy + (p.1 - cy) * ratio;
+    }
+    TextBox { points: out }
 }
 
 #[cfg(test)]

@@ -3,23 +3,20 @@
 //!
 //! The engine is a process-wide singleton (see `Engine::global`). Sessions
 //! are loaded lazily on first use and remain resident for the life of the
-//! process. Inference is serialised through a mutex because `ort` sessions
-//! are not safe to call concurrently.
+//! process. Each session is wrapped in a `Mutex` because `ort::Session::run`
+//! takes `&mut self` and the sessions are not safe to call concurrently.
 
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use ort::session::Session;
 
 use crate::ocr::types::OcrError;
 
 pub struct Engine {
-    det: OnceLock<Session>,
-    rec: OnceLock<Session>,
+    det: OnceLock<Mutex<Session>>,
+    rec: OnceLock<Mutex<Session>>,
     rec_keys: OnceLock<Vec<String>>,
-    // Used by recognition pipeline added in subsequent tasks.
-    #[allow(dead_code)]
-    inference_lock: Mutex<()>,
 }
 
 static ENGINE: OnceLock<Engine> = OnceLock::new();
@@ -30,7 +27,6 @@ impl Engine {
             det: OnceLock::new(),
             rec: OnceLock::new(),
             rec_keys: OnceLock::new(),
-            inference_lock: Mutex::new(()),
         })
     }
 
@@ -65,27 +61,36 @@ impl Engine {
         let det = load_session(&det_path)?;
         let rec = load_session(&rec_path)?;
 
-        let _ = self.det.set(det);
-        let _ = self.rec.set(rec);
+        let _ = self.det.set(Mutex::new(det));
+        let _ = self.rec.set(Mutex::new(rec));
         let _ = self.rec_keys.set(keys);
         Ok(())
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn det(&self) -> &Session {
-        self.det.get().expect("ensure_loaded must be called first")
+    /// Acquire exclusive access to the detection session. Blocks until any
+    /// in-flight detection finishes. Panics if `ensure_loaded` was not called.
+    pub(crate) fn det(&self) -> MutexGuard<'_, Session> {
+        self.det
+            .get()
+            .expect("ensure_loaded must be called first")
+            .lock()
+            .expect("det session mutex poisoned")
     }
+
+    /// Acquire exclusive access to the recognition session. Used by Task 12.
     #[allow(dead_code)]
-    pub(crate) fn rec(&self) -> &Session {
-        self.rec.get().expect("ensure_loaded must be called first")
+    pub(crate) fn rec(&self) -> MutexGuard<'_, Session> {
+        self.rec
+            .get()
+            .expect("ensure_loaded must be called first")
+            .lock()
+            .expect("rec session mutex poisoned")
     }
+
+    /// Recognition character table. Used by the CTC decoder in Task 12.
     #[allow(dead_code)]
     pub(crate) fn rec_keys(&self) -> &[String] {
         self.rec_keys.get().expect("ensure_loaded must be called first")
-    }
-    #[allow(dead_code)]
-    pub(crate) fn inference_guard(&self) -> std::sync::MutexGuard<'_, ()> {
-        self.inference_lock.lock().expect("inference mutex poisoned")
     }
 }
 
