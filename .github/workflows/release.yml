@@ -168,17 +168,26 @@ jobs:
           KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
 
           printf '%s' "$MACOS_CODESIGN_CERTIFICATE" | base64 -d > "$CERTIFICATE_PATH"
-          PKCS12_LEGACY_ARGS=()
+          PKCS12_LEGACY_ARG=""
           if openssl pkcs12 -help 2>&1 | grep -q -- "-legacy"; then
-            PKCS12_LEGACY_ARGS=(-legacy)
+            PKCS12_LEGACY_ARG="-legacy"
           fi
-          openssl pkcs12 \
-            -in "$CERTIFICATE_PATH" \
-            "${PKCS12_LEGACY_ARGS[@]}" \
-            -clcerts \
-            -nokeys \
-            -out "$CERTIFICATE_PEM_PATH" \
-            -passin "pass:$MACOS_CODESIGN_CERTIFICATE_PASSWORD"
+          if [ -n "$PKCS12_LEGACY_ARG" ]; then
+            openssl pkcs12 \
+              -in "$CERTIFICATE_PATH" \
+              "$PKCS12_LEGACY_ARG" \
+              -clcerts \
+              -nokeys \
+              -out "$CERTIFICATE_PEM_PATH" \
+              -passin "pass:$MACOS_CODESIGN_CERTIFICATE_PASSWORD"
+          else
+            openssl pkcs12 \
+              -in "$CERTIFICATE_PATH" \
+              -clcerts \
+              -nokeys \
+              -out "$CERTIFICATE_PEM_PATH" \
+              -passin "pass:$MACOS_CODESIGN_CERTIFICATE_PASSWORD"
+          fi
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
