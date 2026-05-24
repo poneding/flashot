@@ -189,21 +189,30 @@ pub async fn crop_and_copy(
     monitor_id: u32,
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
+    corner_radius: u32,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
-    let (rgba, width, height) = mgr
-        .crop_frame_rgba(monitor_id, rect)
-        .ok_or("crop failed")?;
-    let cropped = CroppedImage {
-        rgba,
-        width,
-        height,
-    };
-    let final_image = match annotation_png {
+    let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let cropped = crop_rgba(
+        &frame.rgba,
+        frame.width,
+        frame.height,
+        rect,
+        frame.scale_factor,
+    )
+    .ok_or("crop failed")?;
+    let mut final_image = match annotation_png {
         Some(png_data) if !png_data.is_empty() => composite_annotation(&cropped, &png_data)?,
         _ => cropped,
     };
+    crate::mask::apply_rounded_corners(
+        &mut final_image.rgba,
+        final_image.width,
+        final_image.height,
+        corner_radius,
+        frame.scale_factor,
+    );
     clipboard::copy_image(final_image.rgba, final_image.width, final_image.height)
         .map_err(|e| e.to_string())?;
     mgr.end_session(&app);
@@ -215,21 +224,30 @@ pub async fn crop_and_save(
     monitor_id: u32,
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
+    corner_radius: u32,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
-    let (rgba, width, height) = mgr
-        .crop_frame_rgba(monitor_id, rect)
-        .ok_or("crop failed")?;
-    let cropped = CroppedImage {
-        rgba,
-        width,
-        height,
-    };
-    let final_image = match annotation_png {
+    let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let cropped = crop_rgba(
+        &frame.rgba,
+        frame.width,
+        frame.height,
+        rect,
+        frame.scale_factor,
+    )
+    .ok_or("crop failed")?;
+    let mut final_image = match annotation_png {
         Some(png_data) if !png_data.is_empty() => composite_annotation(&cropped, &png_data)?,
         _ => cropped,
     };
+    crate::mask::apply_rounded_corners(
+        &mut final_image.rgba,
+        final_image.width,
+        final_image.height,
+        corner_radius,
+        frame.scale_factor,
+    );
     let mut settings = settings_store::load().unwrap_or_default();
     mgr.end_session(&app);
     let path = saver::save_image_dialog(
@@ -396,18 +414,27 @@ pub async fn pin_image(
     monitor_id: u32,
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
+    corner_radius: u32,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
     pin_mgr: State<'_, Arc<PinManager>>,
 ) -> Result<String, String> {
-    let (rgba, width, height) = mgr
-        .crop_frame_rgba(monitor_id, rect)
-        .ok_or("crop failed")?;
-    let cropped = CroppedImage {
-        rgba,
-        width,
-        height,
-    };
+    let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let mut cropped = crop_rgba(
+        &frame.rgba,
+        frame.width,
+        frame.height,
+        rect,
+        frame.scale_factor,
+    )
+    .ok_or("crop failed")?;
+    crate::mask::apply_rounded_corners(
+        &mut cropped.rgba,
+        cropped.width,
+        cropped.height,
+        corner_radius,
+        frame.scale_factor,
+    );
 
     let pin_id = Uuid::new_v4().to_string();
     let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
@@ -1023,7 +1050,7 @@ mod tests {
             .unwrap();
         let body = &source[start..end];
 
-        let crop_idx = body.find("mgr\n        .crop_frame_rgba").unwrap();
+        let crop_idx = body.find("crop_rgba").unwrap();
         let end_session_idx = body.find("mgr.end_session(&app);").unwrap();
         let save_dialog_idx = body.find("saver::save_image_dialog").unwrap();
 
@@ -1035,6 +1062,59 @@ mod tests {
             end_session_idx < save_dialog_idx,
             "native save dialogs must open after overlay windows are hidden",
         );
+    }
+
+    #[test]
+    fn crop_commands_apply_corner_radius_after_compositing() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        for name in ["crop_and_copy", "crop_and_save"] {
+            let body = function_body(&source, name);
+            let composite_idx = body.find("composite_annotation").unwrap();
+            let mask_idx = body
+                .find("apply_rounded_corners")
+                .unwrap_or_else(|| panic!("{name} must call mask::apply_rounded_corners"));
+            assert!(
+                composite_idx < mask_idx,
+                "{name}: mask must be applied after compositing annotations",
+            );
+            assert!(
+                body.contains("corner_radius"),
+                "{name} must accept a corner_radius parameter",
+            );
+        }
+
+        let pin_body = function_body(&source, "pin_image");
+        assert!(
+            pin_body.contains("corner_radius"),
+            "pin_image must accept a corner_radius parameter",
+        );
+        assert!(
+            pin_body.contains("apply_rounded_corners"),
+            "pin_image must call mask::apply_rounded_corners",
+        );
+        assert!(
+            !pin_body.contains("composite_annotation"),
+            "pin_image should keep annotation PNGs as a separate layer",
+        );
+    }
+
+    #[test]
+    fn quick_shot_paths_do_not_apply_corner_radius() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"),
+        )
+        .unwrap()
+        .replace("\r\n", "\n");
+        for name in [
+            "copy_active_display_to_clipboard",
+            "copy_active_window_to_clipboard",
+        ] {
+            let body = function_body(&source, name);
+            assert!(
+                !body.contains("apply_rounded_corners"),
+                "{name}: fullscreen and active-window quick-shots must stay rectangular",
+            );
+        }
     }
 
     #[test]
