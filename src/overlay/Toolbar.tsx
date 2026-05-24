@@ -4,7 +4,7 @@ import type { Rect } from "@/lib/types";
 import { CornerRadiusPanel } from "@/overlay/CornerRadiusPanel";
 import { useOverlay } from "@/overlay/state";
 import { CopyIcon, GripHorizontal, PinIcon, SaveIcon, TypeIcon, XIcon } from "lucide-react";
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 export const SCREENSHOT_TOOLBAR_RADIUS = 10;
 export const SCREENSHOT_TOOLBAR_BACKGROUND = "rgba(30, 30, 30, 0.85)";
@@ -33,6 +33,7 @@ type ToolbarButtonProps = {
   label: string;
   icon: ReactNode;
   onClick: ToolbarAction;
+  buttonRef?: RefObject<HTMLButtonElement>;
   disabled?: boolean;
   tone?: "default" | "danger" | "primary" | "success";
 };
@@ -47,13 +48,13 @@ const ACTION_COLORS: Record<NonNullable<ToolbarButtonProps["tone"]>, string> = {
 export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose, onScroll, onOcr, selectionTooSmall }: Props) {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const radiusPanelRef = useRef<HTMLDivElement>(null);
+  const radiusButtonRef = useRef<HTMLButtonElement>(null);
   const cornerRadius = useOverlay((s) => s.cornerRadius);
   const setCornerRadius = useOverlay((s) => s.setCornerRadius);
   const [measuredHeight, setMeasuredHeight] = useState(TOOLBAR_SIZE.height);
   const [busy, setBusy] = useState(false);
   const [customPos, setCustomPos] = useState<{ x: number; y: number } | null>(null);
   const [radiusPanelOpen, setRadiusPanelOpen] = useState(false);
-  const suppressNextRadiusToggleRef = useRef(false);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const toolbarSize = { width: TOOLBAR_SIZE.width, height: measuredHeight };
   const computedPos = computeVerticalToolbarPosition(selection, toolbarSize, monitorRect);
@@ -73,23 +74,6 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
     } finally {
       setBusy(false);
     }
-  };
-
-  const toggleRadiusPanel = () => {
-    if (suppressNextRadiusToggleRef.current) {
-      suppressNextRadiusToggleRef.current = false;
-      setRadiusPanelOpen(false);
-      return;
-    }
-    setRadiusPanelOpen((open) => !open);
-  };
-
-  const dismissRadiusPanel = () => {
-    suppressNextRadiusToggleRef.current = true;
-    setRadiusPanelOpen(false);
-    window.setTimeout(() => {
-      suppressNextRadiusToggleRef.current = false;
-    }, 0);
   };
 
   const startToolbarDrag = (e: React.MouseEvent) => {
@@ -167,9 +151,10 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
 
         <ToolbarGroup name="radius">
           <ToolbarButton
+            buttonRef={radiusButtonRef}
             label={`Corner radius: ${cornerRadius} px`}
             icon={<CornerRadiusIcon radius={cornerRadius} size={18} strokeWidth={2.2} aria-hidden="true" />}
-            onClick={toggleRadiusPanel}
+            onClick={() => setRadiusPanelOpen((open) => !open)}
           />
         </ToolbarGroup>
 
@@ -227,7 +212,8 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
           panelRef={radiusPanelRef}
           value={cornerRadius}
           onChange={setCornerRadius}
-          onDismiss={dismissRadiusPanel}
+          onDismiss={() => setRadiusPanelOpen(false)}
+          ignoreDismissRef={radiusButtonRef}
           style={{
             position: "fixed",
             left: radiusPanelPosition.left,
@@ -335,11 +321,13 @@ function ToolbarButton({
   label,
   icon,
   onClick,
+  buttonRef: providedButtonRef,
   disabled,
   tone = "default",
 }: ToolbarButtonProps) {
   const [tooltipVisible, setTooltipVisible] = useState(false);
-  const buttonRef = useRef<HTMLButtonElement>(null);
+  const internalButtonRef = useRef<HTMLButtonElement>(null);
+  const buttonRef = providedButtonRef ?? internalButtonRef;
   const color = disabled ? "rgba(255,255,255,0.45)" : ACTION_COLORS[tone];
 
   return (

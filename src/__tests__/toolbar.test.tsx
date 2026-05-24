@@ -39,6 +39,7 @@ describe("Toolbar", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     __resetCornerRadiusPersistenceForTests();
     cleanup();
   });
@@ -136,6 +137,19 @@ describe("Toolbar", () => {
       const button = screen.getByRole("button", { name: "Corner radius: 0 px" });
       fireEvent.click(button);
       fireEvent.mouseDown(button);
+      fireEvent.click(button);
+
+      expect(screen.queryByRole("slider", { name: "Corner radius" })).toBeNull();
+    });
+
+    it("closes the slider panel even if timers run between button mousedown and click", () => {
+      vi.useFakeTimers();
+      renderToolbar();
+
+      const button = screen.getByRole("button", { name: "Corner radius: 0 px" });
+      fireEvent.click(button);
+      fireEvent.mouseDown(button);
+      act(() => vi.runOnlyPendingTimers());
       fireEvent.click(button);
 
       expect(screen.queryByRole("slider", { name: "Corner radius" })).toBeNull();

@@ -1,5 +1,4 @@
-import { useDismissOnOutsideMouseDown } from "@/lib/useDismissOnOutsideMouseDown";
-import type { CSSProperties, RefObject } from "react";
+import { useEffect, type CSSProperties, type RefObject } from "react";
 
 const PANEL_BACKGROUND = "rgba(30, 30, 30, 0.95)";
 
@@ -8,11 +7,20 @@ type Props = {
   value: number;
   onChange: (n: number) => void;
   onDismiss: () => void;
+  ignoreDismissRef?: RefObject<HTMLElement>;
   style?: CSSProperties;
 };
 
-export function CornerRadiusPanel({ panelRef, value, onChange, onDismiss, style }: Props) {
-  useDismissOnOutsideMouseDown(true, panelRef, onDismiss);
+export function CornerRadiusPanel({ panelRef, value, onChange, onDismiss, ignoreDismissRef, style }: Props) {
+  useEffect(() => {
+    const close = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (ignoreDismissRef?.current?.contains(target)) return;
+      if (panelRef.current && !panelRef.current.contains(target)) onDismiss();
+    };
+    document.addEventListener("mousedown", close, true);
+    return () => document.removeEventListener("mousedown", close, true);
+  }, [ignoreDismissRef, onDismiss, panelRef]);
 
   return (
     <div
@@ -22,6 +30,7 @@ export function CornerRadiusPanel({ panelRef, value, onChange, onDismiss, style 
       style={{
         display: "flex",
         alignItems: "center",
+        boxSizing: "border-box",
         gap: 10,
         padding: "8px 12px",
         borderRadius: 8,
