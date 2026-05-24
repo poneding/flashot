@@ -53,9 +53,17 @@ describe("exportAnnotationLayer", () => {
 
   it("exports measurement content while hiding measurement edit overlays", async () => {
     const blob = new Blob(["png"], { type: "image/png" });
-    const toBlob = vi.fn(({ callback }) => callback(blob));
+    let overlayVisible = true;
+    const toBlob = vi.fn(({ callback }) => {
+      expect(overlayVisible).toBe(false);
+      callback(blob);
+    });
     const overlay = {
-      visible: vi.fn((value?: boolean) => value === undefined ? true : undefined),
+      visible: vi.fn((value?: boolean) => {
+        if (value === undefined) return overlayVisible;
+        overlayVisible = value;
+        return undefined;
+      }),
     };
     useAnnotation.getState().addObject({
       id: "measure-1",
