@@ -58,6 +58,48 @@ describe("PinRoute", () => {
     expect(screen.queryByAltText("Pinned annotations")).toBeNull();
   });
 
+  it("applies radius from the query string to the screenshot layer", async () => {
+    window.location.hash = "#/pin/test-id?radius=8";
+
+    render(<PinRoute />);
+
+    const screenshot = await screen.findByAltText("Pinned screenshot");
+
+    expect(screenshot.style.borderRadius).toBe("8px");
+  });
+
+  it("applies radius from the query string to screenshot and annotation layers", async () => {
+    window.location.hash = "#/pin/test-id?annotation=1&radius=8";
+
+    render(<PinRoute />);
+
+    const screenshot = await screen.findByAltText("Pinned screenshot");
+    const annotation = await screen.findByAltText("Pinned annotations");
+
+    expect(screenshot.style.borderRadius).toBe("8px");
+    expect(annotation.style.borderRadius).toBe("8px");
+  });
+
+  it("clamps oversized radius values", async () => {
+    window.location.hash = "#/pin/test-id?radius=999";
+
+    render(<PinRoute />);
+
+    const screenshot = await screen.findByAltText("Pinned screenshot");
+
+    expect(screenshot.style.borderRadius).toBe("60px");
+  });
+
+  it("defaults invalid radius values to zero", async () => {
+    window.location.hash = "#/pin/test-id?radius=bad";
+
+    render(<PinRoute />);
+
+    const screenshot = await screen.findByAltText("Pinned screenshot");
+
+    expect(screenshot.style.borderRadius).toBe("0px");
+  });
+
   it("reveals the visual layer after the screenshot image is ready", async () => {
     window.location.hash = "#/pin/test-id";
 
