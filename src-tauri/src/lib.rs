@@ -258,6 +258,7 @@ pub fn run() {
             commands::scroll_save,
             ocr::commands::ocr_status,
             ocr::commands::ocr_install,
+            ocr::commands::ocr_register_chrome,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

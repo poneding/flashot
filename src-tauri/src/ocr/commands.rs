@@ -4,7 +4,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Window};
 
 use crate::ocr::download::{self, ProgressFn};
 use crate::ocr::manifest::{self, ASSETS};
@@ -69,5 +69,23 @@ pub async fn ocr_install(app: AppHandle) -> Result<(), String> {
         }
     });
 
+    Ok(())
+}
+
+/// Register the calling window as the active OCR chrome window so the
+/// session's RAII teardown closes it automatically. The frontend invokes
+/// this once the OCR chrome route mounts; closing the previous chrome
+/// window (if any) is handled inside [`WindowMgr::set_ocr_chrome`].
+#[tauri::command]
+pub async fn ocr_register_chrome(
+    state: tauri::State<'_, std::sync::Arc<crate::window_mgr::WindowMgr>>,
+    window: Window,
+) -> Result<(), String> {
+    let label = window.label().to_string();
+    let webview = window
+        .app_handle()
+        .get_webview_window(&label)
+        .ok_or_else(|| format!("webview {label} not found"))?;
+    state.set_ocr_chrome(webview);
     Ok(())
 }

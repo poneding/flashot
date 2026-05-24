@@ -192,15 +192,14 @@ pub async fn crop_and_copy(
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
-    let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
-    let cropped = crop_rgba(
-        &frame.rgba,
-        frame.width,
-        frame.height,
-        rect,
-        frame.scale_factor,
-    )
-    .ok_or("crop failed")?;
+    let (rgba, width, height) = mgr
+        .crop_frame_rgba(monitor_id, rect)
+        .ok_or("crop failed")?;
+    let cropped = CroppedImage {
+        rgba,
+        width,
+        height,
+    };
     let final_image = match annotation_png {
         Some(png_data) if !png_data.is_empty() => composite_annotation(&cropped, &png_data)?,
         _ => cropped,
@@ -219,15 +218,14 @@ pub async fn crop_and_save(
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
-    let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
-    let cropped = crop_rgba(
-        &frame.rgba,
-        frame.width,
-        frame.height,
-        rect,
-        frame.scale_factor,
-    )
-    .ok_or("crop failed")?;
+    let (rgba, width, height) = mgr
+        .crop_frame_rgba(monitor_id, rect)
+        .ok_or("crop failed")?;
+    let cropped = CroppedImage {
+        rgba,
+        width,
+        height,
+    };
     let final_image = match annotation_png {
         Some(png_data) if !png_data.is_empty() => composite_annotation(&cropped, &png_data)?,
         _ => cropped,
@@ -402,15 +400,14 @@ pub async fn pin_image(
     mgr: State<'_, Arc<WindowMgr>>,
     pin_mgr: State<'_, Arc<PinManager>>,
 ) -> Result<String, String> {
-    let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
-    let cropped = crop_rgba(
-        &frame.rgba,
-        frame.width,
-        frame.height,
-        rect,
-        frame.scale_factor,
-    )
-    .ok_or("crop failed")?;
+    let (rgba, width, height) = mgr
+        .crop_frame_rgba(monitor_id, rect)
+        .ok_or("crop failed")?;
+    let cropped = CroppedImage {
+        rgba,
+        width,
+        height,
+    };
 
     let pin_id = Uuid::new_v4().to_string();
     let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
@@ -992,7 +989,7 @@ mod tests {
             .unwrap();
         let body = &source[start..end];
 
-        let crop_idx = body.find("let cropped = crop_rgba").unwrap();
+        let crop_idx = body.find("mgr\n        .crop_frame_rgba").unwrap();
         let end_session_idx = body.find("mgr.end_session(&app);").unwrap();
         let save_dialog_idx = body.find("saver::save_image_dialog").unwrap();
 
