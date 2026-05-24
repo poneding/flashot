@@ -46,11 +46,9 @@ pub fn recognize(rgba: &[u8], w: u32, h: u32) -> Result<(String, f32), OcrError>
     debug_assert_eq!(shape.len(), 3);
     let t = shape[1] as usize;
     let c = shape[2] as usize;
-    // Decode while `session` and `outputs` are still alive — `data` borrows
-    // from `outputs[0]` and that borrow must outlive `ctc_greedy_decode`.
+    // outputs/session are kept alive across `ctc_greedy_decode` because `data`
+    // borrows from `outputs`; scope end handles drop.
     let result = ctc_greedy_decode(data, t, c, engine.rec_keys());
-    drop(outputs);
-    drop(session);
     Ok(result)
 }
 
@@ -62,7 +60,7 @@ pub fn ctc_greedy_decode(logits: &[f32], t: usize, c: usize, keys: &[String]) ->
     let mut prev = usize::MAX;
     for ti in 0..t {
         let row = &logits[ti * c..(ti + 1) * c];
-        let (mut max_idx, mut max_val) = (0usize, f32::MIN);
+        let (mut max_idx, mut max_val) = (0usize, f32::NEG_INFINITY);
         for (i, &v) in row.iter().enumerate() {
             if v > max_val {
                 max_val = v;
@@ -116,5 +114,21 @@ mod tests {
         let (text, conf) = ctc_greedy_decode(&logits, 3, 2, &keys);
         assert!(text.is_empty());
         assert_eq!(conf, 0.0);
+    }
+
+    #[test]
+    fn ctc_decode_keeps_non_consecutive_duplicates() {
+        // keys: ["", "a", "b"]
+        let keys = vec!["".into(), "a".into(), "b".into()];
+        // Sequence a, b, a → "aba" (a repeats are separated by b, so both kept)
+        let mut logits = vec![0.0; 3 * 3];
+        let set = |logits: &mut Vec<f32>, t: usize, idx: usize, v: f32| {
+            logits[t * 3 + idx] = v;
+        };
+        set(&mut logits, 0, 1, 5.0); // a
+        set(&mut logits, 1, 2, 5.0); // b
+        set(&mut logits, 2, 1, 5.0); // a
+        let (text, _conf) = ctc_greedy_decode(&logits, 3, 3, &keys);
+        assert_eq!(text, "aba");
     }
 }
