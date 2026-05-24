@@ -455,11 +455,18 @@ pub async fn pin_image(
     };
 
     let window_label = format!("pin-{}", pin_id);
-    let route = if annotation_path.is_some() {
+    let mut route = if annotation_path.is_some() {
         format!("index.html#/pin/{}?annotation=1", pin_id)
     } else {
         format!("index.html#/pin/{}", pin_id)
     };
+    if corner_radius > 0 {
+        if route.contains('?') {
+            route.push_str(&format!("&radius={corner_radius}"));
+        } else {
+            route.push_str(&format!("?radius={corner_radius}"));
+        }
+    }
     let url = tauri::WebviewUrl::App(route.into());
 
     let outer_width = rect.width as f64 + 2.0 * PIN_SHADOW_PADDING;
@@ -1297,6 +1304,20 @@ mod tests {
         assert!(
             !body.contains("composite_annotation(&cropped"),
             "pin_image should avoid synchronous annotation compositing before creating the pin window",
+        );
+    }
+
+    #[test]
+    fn pin_image_appends_radius_to_route_when_nonzero() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "pin_image");
+        assert!(
+            body.contains("&radius="),
+            "pin_image must forward corner_radius to the pin route URL when > 0",
+        );
+        assert!(
+            body.contains("if corner_radius > 0"),
+            "pin_image must only append the radius query param when nonzero",
         );
     }
 
