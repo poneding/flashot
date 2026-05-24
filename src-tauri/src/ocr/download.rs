@@ -26,7 +26,7 @@ pub async fn download_one(
     asset: &AssetSpec,
     install_dir: &Path,
     cancel: Arc<AtomicBool>,
-    on_chunk: &dyn Fn(u64, u64),
+    on_chunk: &(dyn Fn(u64, u64) + Send + Sync),
 ) -> Result<(), OcrError> {
     let final_path: PathBuf = install_dir.join(asset.name);
     let partial_path: PathBuf = install_dir.join(format!("{}.partial", asset.name));

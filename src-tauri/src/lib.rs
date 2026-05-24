@@ -256,6 +256,8 @@ pub fn run() {
             commands::stop_scroll_session,
             commands::scroll_copy,
             commands::scroll_save,
+            ocr::commands::ocr_status,
+            ocr::commands::ocr_install,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
