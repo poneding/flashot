@@ -2,6 +2,7 @@ pub mod capture;
 pub mod clipboard;
 pub mod commands;
 pub mod hotkey;
+pub mod ocr;
 pub mod overlay_window;
 pub mod permission;
 pub mod pin_mgr;
@@ -86,6 +87,10 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            if let Err(e) = ocr::init_ort_dylib(&app.handle()) {
+                tracing::warn!("OCR will be unavailable: {e:?}");
+            }
+
             configure_capture_app_shell(app.handle())?;
 
             // Create shared WindowMgr state
