@@ -213,9 +213,10 @@ export function OverlayRoute() {
   // Keyboard: Esc cancels; Cmd/Ctrl+C copies when committed
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Don't intercept keys when editing text annotations
+      // Don't intercept editing shortcuts while text-like fields own focus.
+      // Range sliders are tool controls: Escape should still cancel capture.
       const active = document.activeElement;
-      if (active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")) return;
+      if (isTextInputLike(active)) return;
 
       if (e.key === "Escape") { e.preventDefault(); cancelCapture(); return; }
 
@@ -548,6 +549,13 @@ export function OverlayRoute() {
       {flashRect && <QuickShotFlash rect={flashRect} />}
     </div>
   );
+}
+
+function isTextInputLike(element: Element | null): boolean {
+  if (!element) return false;
+  if (element.tagName === "TEXTAREA") return true;
+  if (element.tagName !== "INPUT") return false;
+  return (element as HTMLInputElement).type !== "range";
 }
 
 function waitForOverlayPaint(): Promise<void> {

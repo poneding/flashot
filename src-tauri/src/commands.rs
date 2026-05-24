@@ -25,11 +25,16 @@ const SETTINGS_WINDOW_WIDTH: f64 = 560.0;
 const SETTINGS_WINDOW_HEIGHT: f64 = 560.0;
 const UPDATER_WINDOW_WIDTH: f64 = 360.0;
 const UPDATER_WINDOW_HEIGHT: f64 = 280.0;
+const MAX_CORNER_RADIUS: u32 = 60;
 
 /// Extra padding (logical px per side) added to pin windows so the CSS
 /// boxShadow rendered by the frontend has room outside the image.
 /// Must match `PIN_SHADOW_PADDING` in src/routes/Pin.tsx.
 const PIN_SHADOW_PADDING: f64 = 24.0;
+
+fn clamp_corner_radius(radius: u32) -> u32 {
+    radius.min(MAX_CORNER_RADIUS)
+}
 
 fn show_pin_window(window: &WebviewWindow) -> Result<(), String> {
     configure_pin_window_before_show(window)?;
@@ -193,6 +198,7 @@ pub async fn crop_and_copy(
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
+    let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
     let cropped = crop_rgba(
         &frame.rgba,
@@ -228,6 +234,7 @@ pub async fn crop_and_save(
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
+    let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
     let cropped = crop_rgba(
         &frame.rgba,
@@ -419,6 +426,7 @@ pub async fn pin_image(
     mgr: State<'_, Arc<WindowMgr>>,
     pin_mgr: State<'_, Arc<PinManager>>,
 ) -> Result<String, String> {
+    let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
     let mut cropped = crop_rgba(
         &frame.rgba,
@@ -1122,6 +1130,14 @@ mod tests {
                 "{name}: fullscreen and active-window quick-shots must stay rectangular",
             );
         }
+    }
+
+    #[test]
+    fn clamp_corner_radius_caps_backend_command_inputs() {
+        assert_eq!(clamp_corner_radius(0), 0);
+        assert_eq!(clamp_corner_radius(60), 60);
+        assert_eq!(clamp_corner_radius(61), 60);
+        assert_eq!(clamp_corner_radius(u32::MAX), 60);
     }
 
     #[test]

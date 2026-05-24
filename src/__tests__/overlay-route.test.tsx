@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportAnnotationLayer } from "@/annotation/export";
 import { useAnnotation } from "@/annotation/store";
 import {
+  cancelCapture,
   cropAndCopy,
   cropAndSave,
   pinImage,
@@ -202,6 +203,20 @@ describe("OverlayRoute", () => {
     await waitFor(() => {
       expect(action).toHaveBeenCalledWith(1, selection, annotationPng, 18);
     });
+  });
+
+  it("cancels capture with Escape even when the corner radius slider is focused", () => {
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    useOverlay.getState().commit(selection);
+
+    render(<OverlayRoute />);
+    fireEvent.click(screen.getByLabelText(/corner radius/i));
+    const slider = screen.getByRole("slider");
+    slider.focus();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(cancelCapture).toHaveBeenCalledTimes(1);
   });
 
   it("shows a startup state before the backend captures the initial scroll frame", async () => {
