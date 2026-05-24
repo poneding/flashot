@@ -5,6 +5,7 @@
 //! download, and the recognition pipeline live in the submodules below.
 
 pub mod commands;
+pub mod detector;
 pub mod download;
 pub mod engine;
 pub mod manifest;
