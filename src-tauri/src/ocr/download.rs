@@ -3,7 +3,7 @@
 //! and cancellation leave no partial files behind.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use futures_util::StreamExt;
@@ -76,6 +76,45 @@ pub async fn download_one(
         let _ = fs::remove_file(&partial_path).await;
     }
     result
+}
+
+/// Aggregated progress callback signature.
+pub type ProgressFn = Arc<dyn Fn(u64, u64) + Send + Sync>;
+
+/// Download every asset in `assets` into `install_dir` sequentially. Progress
+/// is reported as `(total_downloaded_bytes, grand_total_bytes)`. Sequential
+/// (not concurrent) keeps the implementation simple and avoids hammering the
+/// GitHub Release CDN — total bytes are small enough that parallel download
+/// wouldn't save measurable time anyway.
+///
+/// On any failure or cancel, all `*.partial` files are already cleaned up by
+/// `download_one`. Successfully-installed siblings are **not** rolled back —
+/// the caller can call `uninstall_version` if a clean wipe is needed.
+pub async fn download_all(
+    assets: &[AssetSpec],
+    install_dir: &Path,
+    cancel: Arc<AtomicBool>,
+    on_progress: ProgressFn,
+) -> Result<(), OcrError> {
+    let grand_total: u64 = assets.iter().map(|a| a.size_bytes).sum();
+    let downloaded = Arc::new(AtomicU64::new(0));
+
+    for asset in assets {
+        let downloaded = downloaded.clone();
+        let on_progress = on_progress.clone();
+        download_one(asset, install_dir, cancel.clone(), &move |chunk, _per_asset_total| {
+            let now = downloaded.fetch_add(chunk, Ordering::Relaxed) + chunk;
+            on_progress(now, grand_total);
+        })
+        .await?;
+    }
+    Ok(())
+}
+
+/// Delete an old install directory. Used to clean up after a successful
+/// upgrade. Non-fatal: silently swallows errors so upgrade flows keep going.
+pub async fn uninstall_version(version_dir: &Path) {
+    let _ = fs::remove_dir_all(version_dir).await;
 }
 
 #[cfg(test)]
@@ -170,5 +209,39 @@ mod tests {
         assert!(matches!(err, OcrError::Cancelled));
         assert!(!tmp.path().join("slow.bin").exists());
         assert!(!tmp.path().join("slow.bin.partial").exists());
+    }
+
+    #[tokio::test]
+    async fn download_all_aggregates_progress() {
+        let server = MockServer::start().await;
+        let body_a = b"aaaa".to_vec(); // 4 bytes
+        let body_b = b"bbbbbbbb".to_vec(); // 8 bytes
+        let (asset_a, _) = make_asset(&server, "a.bin", &body_a);
+        let (asset_b, _) = make_asset(&server, "b.bin", &body_b);
+        Mock::given(method("GET")).and(path("/a.bin"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body_a.clone()))
+            .mount(&server).await;
+        Mock::given(method("GET")).and(path("/b.bin"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body_b.clone()))
+            .mount(&server).await;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let progress_log: Arc<std::sync::Mutex<Vec<(u64, u64)>>> = Arc::default();
+        let log = progress_log.clone();
+        let progress: ProgressFn = Arc::new(move |done, total| {
+            log.lock().unwrap().push((done, total));
+        });
+
+        download_all(
+            &[asset_a, asset_b],
+            tmp.path(),
+            Arc::new(AtomicBool::new(false)),
+            progress,
+        ).await.unwrap();
+
+        let log = progress_log.lock().unwrap();
+        assert!(!log.is_empty());
+        assert_eq!(log.iter().map(|(_, t)| *t).max().unwrap(), 12);
+        assert_eq!(log.last().unwrap().0, 12);
     }
 }
