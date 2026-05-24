@@ -7,6 +7,7 @@ import {
   type HandleId,
 } from "@/lib/geometry";
 import { hitTestWindow } from "@/lib/hit-test";
+import { getSettings, setSettings } from "@/lib/ipc";
 import type { CaptureStartPayload, Mode, OcrResult, Point, Rect, WindowRect } from "@/lib/types";
 
 type SelectionInteraction =
@@ -39,6 +40,7 @@ type State = {
   currentColor: { r: number; g: number; b: number } | null;
   ocr: OcrPhase;
   lastOcrResult: OcrResult | null;
+  cornerRadius: number;
 };
 
 type Actions = {
@@ -68,7 +70,20 @@ type Actions = {
   setCurrentColor: (c: { r: number; g: number; b: number } | null) => void;
   setOcrPhase: (phase: OcrPhase) => void;
   setLastOcrResult: (result: OcrResult | null) => void;
+  setCornerRadius: (n: number) => void;
 };
+
+let cornerRadiusPersistTimer: ReturnType<typeof setTimeout> | null = null;
+
+function persistCornerRadiusDebounced(next: number) {
+  if (cornerRadiusPersistTimer != null) clearTimeout(cornerRadiusPersistTimer);
+  cornerRadiusPersistTimer = setTimeout(() => {
+    cornerRadiusPersistTimer = null;
+    void getSettings()
+      .then((s) => setSettings({ ...s, cornerRadius: next }))
+      .catch((err) => console.warn("Failed to persist cornerRadius", err));
+  }, 150);
+}
 
 function localMonitorBounds(monitor: Rect | null): Rect {
   return {
@@ -105,6 +120,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   currentColor: null,
   ocr: { kind: "idle" },
   lastOcrResult: null,
+  cornerRadius: 0,
 
   start: (p) =>
     set({
@@ -122,6 +138,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       colorPickerVisible: false,
       colorCopied: false,
       currentColor: null,
+      cornerRadius: p.cornerRadius ?? 0,
     }),
 
   setCursor: (p) => set({ cursor: p }),
@@ -264,4 +281,9 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   setCurrentColor: (c) => set({ currentColor: c }),
   setOcrPhase: (phase) => set({ ocr: phase }),
   setLastOcrResult: (result) => set({ lastOcrResult: result }),
+  setCornerRadius: (n) => {
+    const clamped = Math.max(0, Math.min(60, Math.round(n)));
+    set({ cornerRadius: clamped });
+    persistCornerRadiusDebounced(clamped);
+  },
 }));
