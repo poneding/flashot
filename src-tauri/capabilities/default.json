@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main", "overlay-*", "settings", "about", "updater", "pin-*"],
+  "windows": ["main", "overlay-*", "settings", "about", "updater", "pin-*", "ocr-chrome-*"],
   "permissions": [
     "core:default",
     "core:window:allow-set-size",
