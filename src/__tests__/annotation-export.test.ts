@@ -50,4 +50,35 @@ describe("exportAnnotationLayer", () => {
     expect(overlay.visible).toHaveBeenCalledWith(false);
     expect(overlay.visible).toHaveBeenLastCalledWith(true);
   });
+
+  it("exports measurement content while hiding measurement edit overlays", async () => {
+    const blob = new Blob(["png"], { type: "image/png" });
+    const toBlob = vi.fn(({ callback }) => callback(blob));
+    const overlay = {
+      visible: vi.fn((value?: boolean) => value === undefined ? true : undefined),
+    };
+    useAnnotation.getState().addObject({
+      id: "measure-1",
+      type: "measure",
+      start: { x: 0, y: 0 },
+      end: { x: 30, y: 40 },
+      style: { color: "#ff0000", strokeWidth: 4 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    });
+    vi.mocked(getStage).mockReturnValue({
+      toBlob,
+      batchDraw: vi.fn(),
+      find: vi.fn((selector: string) => selector === ".annotation-edit-overlay" ? [overlay] : []),
+    } as unknown as Konva.Stage);
+    vi.mocked(getTransformer).mockReturnValue({ visible: vi.fn() } as never);
+
+    await exportAnnotationLayer(2);
+
+    expect(toBlob).toHaveBeenCalledWith(expect.objectContaining({
+      pixelRatio: 2,
+      mimeType: "image/png",
+    }));
+    expect(overlay.visible).toHaveBeenCalledWith(false);
+    expect(overlay.visible).toHaveBeenLastCalledWith(true);
+  });
 });
