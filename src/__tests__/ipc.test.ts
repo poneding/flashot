@@ -1,8 +1,28 @@
 /** @vitest-environment jsdom */
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
-import { pinImage } from "@/lib/ipc";
+import { cropAndCopy, cropAndSave, pinImage } from "@/lib/ipc";
 import type { Rect } from "@/lib/types";
+
+function captureInvocations() {
+  const invocations: Array<{ cmd: string; payload?: unknown }> = [];
+
+  mockIPC((cmd, payload) => {
+    invocations.push({ cmd, payload });
+
+    if (cmd === "crop_and_save") {
+      return null;
+    }
+
+    if (cmd === "pin_image") {
+      return "pin-1";
+    }
+
+    return undefined;
+  });
+
+  return invocations;
+}
 
 describe("ipc wrappers", () => {
   afterEach(() => {
@@ -26,7 +46,43 @@ describe("ipc wrappers", () => {
         monitorId: 7,
         rect,
         annotationPng: [1, 2, 255],
+        cornerRadius: 0,
       },
+    });
+  });
+
+  describe("cropAndCopy/Save/pinImage forward cornerRadius", () => {
+    it("forwards cornerRadius to crop_and_copy", async () => {
+      const invocations = captureInvocations();
+
+      await cropAndCopy(1, { x: 0, y: 0, width: 10, height: 10 }, undefined, 12);
+
+      expect(invocations[invocations.length - 1]).toEqual({
+        cmd: "crop_and_copy",
+        payload: expect.objectContaining({ cornerRadius: 12 }),
+      });
+    });
+
+    it("forwards cornerRadius to crop_and_save", async () => {
+      const invocations = captureInvocations();
+
+      await cropAndSave(1, { x: 0, y: 0, width: 10, height: 10 }, undefined, 8);
+
+      expect(invocations[invocations.length - 1]).toEqual({
+        cmd: "crop_and_save",
+        payload: expect.objectContaining({ cornerRadius: 8 }),
+      });
+    });
+
+    it("forwards cornerRadius to pin_image", async () => {
+      const invocations = captureInvocations();
+
+      await pinImage(1, { x: 0, y: 0, width: 10, height: 10 }, undefined, 4);
+
+      expect(invocations[invocations.length - 1]).toEqual({
+        cmd: "pin_image",
+        payload: expect.objectContaining({ cornerRadius: 4 }),
+      });
     });
   });
 });
