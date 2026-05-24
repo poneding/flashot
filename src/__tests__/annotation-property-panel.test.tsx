@@ -90,6 +90,15 @@ describe("Annotation property panel", () => {
     expect(screen.getByTitle("Corner radius")).not.toBeNull();
   });
 
+  it("renders measurement controls without decorative line style choices", () => {
+    render(<PropertyPanel tool="measure" />);
+
+    expect(screen.getByTitle("Stroke width")).not.toBeNull();
+    expect(screen.getByTitle("#ff0000")).not.toBeNull();
+    expect(screen.queryByLabelText("Line style: Solid")).toBeNull();
+    expect(screen.queryByLabelText("Arrowhead: Open")).toBeNull();
+  });
+
   it("shows immediate custom tooltips for numeric controls on hover", () => {
     render(<PropertyPanel tool="rect" />);
 

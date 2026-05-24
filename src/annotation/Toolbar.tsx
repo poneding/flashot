@@ -15,6 +15,7 @@ import {
   Pipette,
   Pencil,
   Redo2,
+  Ruler,
   Square,
   Type,
   Undo2,
@@ -33,6 +34,7 @@ type ToolDef = {
 const TOOLS: ToolDef[] = [
   { id: "draw", icon: <Pencil size={18} />, label: "Pen" },
   { id: "line", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="19" x2="19" y2="5" /></svg>, label: "Line" },
+  { id: "measure", icon: <Ruler size={18} />, label: "Measure" },
   { id: "arrow", icon: <MoveUpRight size={18} />, label: "Arrow" },
   { id: "rect", icon: <Square size={18} />, label: "Rectangle" },
   { id: "ellipse", icon: <Circle size={18} />, label: "Ellipse" },
