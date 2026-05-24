@@ -1,5 +1,5 @@
 use crate::{
-    clipboard, overlay_window,
+    clipboard, ocr, overlay_window,
     pin_mgr::{PinEntry, PinManager},
     saver, settings_store,
     settings_store::Settings,
@@ -901,6 +901,40 @@ pub async fn scroll_save(
     settings_store::save(&settings).map_err(|e| e.to_string())?;
     let _ = app.emit("settings:changed", ());
     Ok(Some(path.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+pub async fn ocr_recognize(
+    app: AppHandle,
+    state: State<'_, Arc<WindowMgr>>,
+    monitor_id: u32,
+    rect: Rect,
+) -> Result<ocr::types::OcrResult, String> {
+    // Ensure the engine is loaded. Reuses cached sessions on subsequent calls.
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {e}"))?;
+    let install_dir = ocr::paths::install_dir(&data_dir);
+    ocr::engine::Engine::global()
+        .ensure_loaded(&install_dir)
+        .map_err(|e| format!("{e}"))?;
+
+    // Look up the frozen frame and crop the selection.
+    let cropped = state
+        .crop_frame_rgba(monitor_id, rect)
+        .ok_or_else(|| "frozen frame not available for monitor".to_string())?;
+
+    // Heavy: run on a blocking thread to keep the Tokio runtime responsive.
+    let (rgba, w, h) = cropped;
+    let result = tokio::task::spawn_blocking(move || {
+        ocr::engine::Engine::global().recognize(&rgba, w, h)
+    })
+    .await
+    .map_err(|e| format!("join error: {e}"))?
+    .map_err(|e| format!("{e}"))?;
+
+    Ok(result)
 }
 #[cfg(test)]
 mod tests {
