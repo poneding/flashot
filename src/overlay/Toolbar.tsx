@@ -161,11 +161,6 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
           tone="danger"
           onClick={onClose}
         />
-      </ToolbarGroup>
-
-      <Separator />
-
-      <ToolbarGroup name="output">
         <ToolbarButton
           label="Save As"
           icon={<SaveIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
