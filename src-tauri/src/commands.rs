@@ -38,6 +38,100 @@ fn show_pin_window(window: &WebviewWindow) -> Result<(), String> {
         .map_err(|e| format!("Failed to show pin window: {e}"))
 }
 
+fn show_app_window(window: &WebviewWindow) -> Result<(), String> {
+    window
+        .unminimize()
+        .map_err(|e| format!("Failed to unminimize app window: {e}"))?;
+    window
+        .show()
+        .map_err(|e| format!("Failed to show app window: {e}"))?;
+    bring_app_window_to_front(window)
+}
+
+#[cfg(target_os = "macos")]
+fn bring_app_window_to_front(window: &WebviewWindow) -> Result<(), String> {
+    if macos_is_main_thread() {
+        return bring_macos_app_window_to_front(window);
+    }
+
+    let task_window = window.clone();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+
+    window
+        .run_on_main_thread(move || {
+            let result = bring_macos_app_window_to_front(&task_window);
+            let _ = tx.send(result);
+        })
+        .map_err(|e| e.to_string())?;
+
+    rx.recv()
+        .map_err(|_| "bring app window to front did not return from the main thread".to_string())?
+}
+
+#[cfg(target_os = "macos")]
+fn macos_is_main_thread() -> bool {
+    use objc::{
+        runtime::{Class, Sel, BOOL, YES},
+        Message,
+    };
+
+    unsafe {
+        let Some(thread_class) = Class::get("NSThread") else {
+            return false;
+        };
+        match thread_class.send_message::<_, BOOL>(Sel::register("isMainThread"), ()) {
+            Ok(is_main) => is_main == YES,
+            Err(e) => {
+                tracing::warn!("NSThread isMainThread failed: {e}");
+                false
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn bring_macos_app_window_to_front(window: &WebviewWindow) -> Result<(), String> {
+    use objc::{
+        runtime::{Class, Object, Sel, YES},
+        Message,
+    };
+
+    let ns_window = window.ns_window().map_err(|e| e.to_string())? as *mut Object;
+    unsafe {
+        let ns_window = &*ns_window;
+        ns_window
+            .send_message::<_, ()>(Sel::register("orderFrontRegardless"), ())
+            .map_err(|e| e.to_string())?;
+
+        if let Some(app_class) = Class::get("NSApplication") {
+            let app: *mut Object = app_class
+                .send_message(Sel::register("sharedApplication"), ())
+                .map_err(|e| e.to_string())?;
+            if !app.is_null() {
+                (*app)
+                    .send_message::<_, ()>(Sel::register("activateIgnoringOtherApps:"), (YES,))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+
+        ns_window
+            .send_message::<_, ()>(
+                Sel::register("makeKeyAndOrderFront:"),
+                (std::ptr::null_mut::<Object>(),),
+            )
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn bring_app_window_to_front(window: &WebviewWindow) -> Result<(), String> {
+    window
+        .set_focus()
+        .map_err(|e| format!("Failed to focus app window: {e}"))
+}
+
 #[cfg(target_os = "macos")]
 fn configure_pin_window_before_show(window: &WebviewWindow) -> Result<(), String> {
     let task_window = window.clone();
@@ -211,18 +305,18 @@ fn apply_launch_at_login(
 #[tauri::command]
 pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("settings") {
-        let _ = w.show();
-        let _ = w.set_focus();
+        show_app_window(&w)?;
         return Ok(());
     }
     let url = tauri::WebviewUrl::App("index.html#/settings".into());
     let (width, height) = settings_window_size();
-    tauri::WebviewWindowBuilder::new(&app, "settings", url)
+    let window = tauri::WebviewWindowBuilder::new(&app, "settings", url)
         .title("Flashot Settings")
         .inner_size(width, height)
         .resizable(false)
         .build()
         .map_err(|e| e.to_string())?;
+    show_app_window(&window)?;
     Ok(())
 }
 
@@ -239,35 +333,35 @@ pub fn end_text_input_session(window: WebviewWindow) -> Result<(), String> {
 #[tauri::command]
 pub fn open_about_window(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("about") {
-        let _ = w.show();
-        let _ = w.set_focus();
+        show_app_window(&w)?;
         return Ok(());
     }
     let url = tauri::WebviewUrl::App("index.html#/about".into());
     let (width, height) = about_window_size();
-    tauri::WebviewWindowBuilder::new(&app, "about", url)
+    let window = tauri::WebviewWindowBuilder::new(&app, "about", url)
         .title("About Flashot")
         .inner_size(width, height)
         .resizable(false)
         .build()
         .map_err(|e| e.to_string())?;
+    show_app_window(&window)?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn open_updater_window(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("updater") {
-        let _ = w.show();
-        let _ = w.set_focus();
+        show_app_window(&w)?;
         return Ok(());
     }
     let url = tauri::WebviewUrl::App("index.html#/updater".into());
-    tauri::WebviewWindowBuilder::new(&app, "updater", url)
+    let window = tauri::WebviewWindowBuilder::new(&app, "updater", url)
         .title("Check for Updates")
         .inner_size(UPDATER_WINDOW_WIDTH, UPDATER_WINDOW_HEIGHT)
         .resizable(false)
         .build()
         .map_err(|e| e.to_string())?;
+    show_app_window(&window)?;
     Ok(())
 }
 
@@ -1171,6 +1265,54 @@ mod tests {
         assert_eq!(settings_window_size(), (560.0, 560.0));
     }
 
+    #[test]
+    fn reopened_menu_windows_are_explicitly_brought_to_front() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        for name in [
+            "open_settings_window",
+            "open_about_window",
+            "open_updater_window",
+        ] {
+            let body = function_body(&source, name);
+            assert!(
+                body.contains("show_app_window(&w)?;"),
+                "{name} must raise an already-open window instead of only focusing it",
+            );
+        }
+    }
+
+    #[test]
+    fn macos_menu_window_fronting_activates_before_keying_window() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "bring_macos_app_window_to_front");
+
+        let order_idx = body.find("orderFrontRegardless").unwrap();
+        let activate_idx = body.find("activateIgnoringOtherApps:").unwrap();
+        let key_idx = body.find("makeKeyAndOrderFront:").unwrap();
+
+        assert!(
+            order_idx < activate_idx && activate_idx < key_idx,
+            "macOS menu windows must be ordered front, then app-activated, then made key",
+        );
+    }
+
+    #[test]
+    fn macos_menu_window_fronting_runs_directly_on_main_thread() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "bring_app_window_to_front");
+
+        let main_thread_idx = body.find("macos_is_main_thread()").unwrap();
+        let direct_front_idx = body
+            .find("bring_macos_app_window_to_front(window)")
+            .unwrap();
+        let dispatch_idx = body.find("run_on_main_thread").unwrap();
+
+        assert!(
+            main_thread_idx < direct_front_idx && direct_front_idx < dispatch_idx,
+            "menu event callbacks already run on the main thread and must not synchronously requeue",
+        );
+    }
+
     #[derive(Default)]
     struct FakeLaunchAtLogin {
         calls: std::cell::RefCell<Vec<&'static str>>,
@@ -1223,5 +1365,27 @@ mod tests {
             apply_idx < save_idx,
             "login startup must be applied before settings are persisted",
         );
+    }
+
+    fn function_body<'a>(source: &'a str, name: &str) -> &'a str {
+        let needle = format!("fn {name}");
+        let start = source
+            .find(&needle)
+            .unwrap_or_else(|| panic!("{name} not found"));
+        let body_start = source[start..].find('{').map(|idx| start + idx).unwrap();
+        let mut depth = 0usize;
+        for (idx, ch) in source[body_start..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &source[body_start..body_start + idx + 1];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("{name} body did not close");
     }
 }

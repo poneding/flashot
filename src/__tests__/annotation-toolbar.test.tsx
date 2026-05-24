@@ -152,6 +152,24 @@ describe("Annotation toolbar", () => {
     expect(useOverlay.getState().colorPickerVisible).toBe(false);
   });
 
+  it("turns off annotation tools when the color picker is enabled", () => {
+    const { container } = renderToolbar();
+
+    fireEvent.click(screen.getByTitle("Rectangle"));
+    expect(useAnnotation.getState().activeTool).toBe("rect");
+    expect(propertyPanelElement(container)).not.toBeNull();
+
+    fireEvent.click(screen.getByTitle("Color Picker"));
+
+    expect(useOverlay.getState().colorPickerVisible).toBe(true);
+    expect(useAnnotation.getState().activeTool).toBe("select");
+    expect(
+      Array.from(container.querySelectorAll("div")).some(
+        (el) => (el as HTMLElement).style.zIndex === "10001",
+      ),
+    ).toBe(false);
+  });
+
   it("toggles an active annotation tool back to move mode on the second click", () => {
     renderToolbar();
     const rectangle = screen.getByTitle("Rectangle");

@@ -96,6 +96,16 @@ export function Toolbar({ selection, monitorRect }: Props) {
     setShowPanel(tool !== "eraser");
   }
 
+  function handleColorPickerClick() {
+    const willShowPicker = !colorPickerVisible;
+    toggleColorPicker();
+
+    if (willShowPicker) {
+      setActiveTool("select");
+      setShowPanel(false);
+    }
+  }
+
   const startToolbarDrag = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -206,7 +216,7 @@ export function Toolbar({ selection, monitorRect }: Props) {
           icon={<Pipette size={18} />}
           label="Color Picker"
           active={colorPickerVisible}
-          onClick={toggleColorPicker}
+          onClick={handleColorPickerClick}
         />
 
         <Separator />
