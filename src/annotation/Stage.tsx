@@ -10,6 +10,12 @@ import {
   onLineEnd,
   updateLineObjectNode,
 } from "@/annotation/tools/line";
+import {
+  onMeasureStart,
+  onMeasureMove,
+  onMeasureEnd,
+  updateMeasureObjectNode,
+} from "@/annotation/tools/measure";
 import { onArrowStart, onArrowMove, onArrowEnd } from "@/annotation/tools/arrow";
 import { onRectStart, onRectMove, onRectEnd } from "@/annotation/tools/rect";
 import { onEllipseStart, onEllipseMove, onEllipseEnd } from "@/annotation/tools/ellipse";
@@ -33,6 +39,8 @@ let stage: Konva.Stage | null = null;
 let layer: Konva.Layer | null = null;
 let transformer: Konva.Transformer | null = null;
 let lineEditGroup: Konva.Group | null = null;
+
+type LineEditHandle = "start" | "control" | "end";
 
 const TRANSFORMER_ANCHORS = [
   "top-left",
@@ -67,6 +75,7 @@ type ToolHandlers = {
 const TOOL_HANDLERS: Partial<Record<ToolType, ToolHandlers>> = {
   draw: { start: onDrawStart, move: onDrawMove, end: (_x, _y) => onDrawEnd() },
   line: { start: onLineStart, move: onLineMove, end: onLineEnd },
+  measure: { start: onMeasureStart, move: onMeasureMove, end: onMeasureEnd },
   arrow: { start: onArrowStart, move: onArrowMove, end: onArrowEnd },
   rect: { start: onRectStart, move: onRectMove, end: onRectEnd },
   ellipse: { start: onEllipseStart, move: onEllipseMove, end: onEllipseEnd },
@@ -90,7 +99,7 @@ function objectBasePosition(obj: AnnotationObject): { x: number; y: number } {
     return start;
   }
 
-  if (obj.type === "line" || obj.type === "arrow") {
+  if (obj.type === "line" || obj.type === "arrow" || obj.type === "measure") {
     return start;
   }
 
@@ -125,8 +134,12 @@ function isTransformerNode(node: Konva.Node | null): boolean {
   return isNodeInTree(node, transformer);
 }
 
-function isLineObject(obj: AnnotationObject | undefined): boolean {
-  return obj?.type === "line" || obj?.type === "arrow";
+function isEndpointEditableObject(obj: AnnotationObject | undefined): boolean {
+  return obj?.type === "line" || obj?.type === "arrow" || obj?.type === "measure";
+}
+
+function editableLineHandles(obj: AnnotationObject): LineEditHandle[] {
+  return obj.type === "measure" ? ["start", "end"] : ["start", "control", "end"];
 }
 
 function isEditOverlayNode(node: Konva.Node | null): boolean {
@@ -160,7 +173,7 @@ export function transformerConfigForObject(obj: AnnotationObject | undefined): {
   enabledAnchors: string[];
 } {
   if (!obj) return { useTransformer: false, rotateEnabled: false, enabledAnchors: [] };
-  if (isLineObject(obj)) return { useTransformer: false, rotateEnabled: false, enabledAnchors: [] };
+  if (isEndpointEditableObject(obj)) return { useTransformer: false, rotateEnabled: false, enabledAnchors: [] };
   if (obj.type === "draw") return { useTransformer: true, rotateEnabled: true, enabledAnchors: [] };
   return { useTransformer: true, rotateEnabled: true, enabledAnchors: TRANSFORMER_ANCHORS };
 }
@@ -268,14 +281,14 @@ function lineVisualPointToObjectPoint(obj: AnnotationObject, point: Point): Poin
   };
 }
 
-function lineHandleObject(obj: AnnotationObject, handle: "start" | "control" | "end", point: Point): AnnotationObject {
+function lineHandleObject(obj: AnnotationObject, handle: LineEditHandle, point: Point): AnnotationObject {
   const objectPoint = lineVisualPointToObjectPoint(obj, point);
   if (handle === "start") return { ...obj, start: objectPoint };
   if (handle === "end") return { ...obj, end: objectPoint };
   return { ...obj, points: [objectPoint.x, objectPoint.y] };
 }
 
-function lineHandlePoint(obj: AnnotationObject, handle: "start" | "control" | "end"): Point {
+function lineHandlePoint(obj: AnnotationObject, handle: LineEditHandle): Point {
   if (handle === "start") return linePointWithTransform(obj, obj.start ?? { x: 0, y: 0 });
   if (handle === "end") return linePointWithTransform(obj, obj.end ?? { x: 0, y: 0 });
   return linePointWithTransform(obj, lineControlPoint(obj));
@@ -286,9 +299,10 @@ function clearLineEditHandles() {
   lineEditGroup = null;
 }
 
-function moveLineEditHandles(obj: AnnotationObject, activeHandle?: "start" | "control" | "end") {
+function moveLineEditHandles(obj: AnnotationObject, activeHandle?: LineEditHandle) {
   if (!lineEditGroup) return;
-  (["start", "control", "end"] as const).forEach((handle) => {
+  const handles = editableLineHandles(obj);
+  handles.forEach((handle) => {
     if (handle === activeHandle) return;
     const node = lineEditGroup?.findOne(`.line-edit-${handle}`) as Konva.Circle | undefined;
     const point = lineHandlePoint(obj, handle);
@@ -296,14 +310,18 @@ function moveLineEditHandles(obj: AnnotationObject, activeHandle?: "start" | "co
   });
   const guide = lineEditGroup.findOne(".line-edit-guide") as Konva.Line | undefined;
   const start = lineHandlePoint(obj, "start");
-  const control = lineHandlePoint(obj, "control");
   const end = lineHandlePoint(obj, "end");
-  guide?.points([start.x, start.y, control.x, control.y, end.x, end.y]);
+  if (handles.includes("control")) {
+    const control = lineHandlePoint(obj, "control");
+    guide?.points([start.x, start.y, control.x, control.y, end.x, end.y]);
+  } else {
+    guide?.points([start.x, start.y, end.x, end.y]);
+  }
 }
 
 function previewLineHandleDrag(
   obj: AnnotationObject,
-  handle: "start" | "control" | "end",
+  handle: LineEditHandle,
   point: Point,
 ) {
   const nextObj = lineHandleObject(obj, handle, point);
@@ -313,7 +331,8 @@ function previewLineHandleDrag(
       x: nextObj.start!.x + nextObj.transform.x,
       y: nextObj.start!.y + nextObj.transform.y,
     });
-    updateLineObjectNode(node, nextObj);
+    if (nextObj.type === "measure") updateMeasureObjectNode(node, nextObj);
+    else updateLineObjectNode(node, nextObj);
   }
   moveLineEditHandles(nextObj, handle);
   layer?.batchDraw();
@@ -321,7 +340,7 @@ function previewLineHandleDrag(
 
 function persistLineHandleDrag(
   obj: AnnotationObject,
-  handle: "start" | "control" | "end",
+  handle: LineEditHandle,
   point: Point,
 ) {
   const objectPoint = lineVisualPointToObjectPoint(obj, point);
@@ -331,7 +350,7 @@ function persistLineHandleDrag(
   else resizeObject(obj.id, { points: [objectPoint.x, objectPoint.y] });
 }
 
-function createLineEditHandle(obj: AnnotationObject, handle: "start" | "control" | "end"): Konva.Circle {
+function createLineEditHandle(obj: AnnotationObject, handle: LineEditHandle): Konva.Circle {
   const point = lineHandlePoint(obj, handle);
   const circle = new Konva.Circle({
     x: point.x,
@@ -363,20 +382,29 @@ function renderLineEditHandles(obj: AnnotationObject) {
   clearLineEditHandles();
   lineEditGroup = new Konva.Group({ name: EDIT_OVERLAY_NAME });
 
-  const control = lineHandlePoint(obj, "control");
+  const handles = editableLineHandles(obj);
   const start = lineHandlePoint(obj, "start");
   const end = lineHandlePoint(obj, "end");
+  const guidePoints = handles.includes("control")
+    ? (() => {
+        const control = lineHandlePoint(obj, "control");
+        return [start.x, start.y, control.x, control.y, end.x, end.y];
+      })()
+    : [start.x, start.y, end.x, end.y];
+
   lineEditGroup.add(new Konva.Line({
-    points: [start.x, start.y, control.x, control.y, end.x, end.y],
+    points: guidePoints,
     stroke: "#0099ff",
     strokeWidth: 1,
     dash: [4, 4],
     listening: false,
     name: `${EDIT_OVERLAY_NAME} line-edit-guide`,
   }));
-  lineEditGroup.add(createLineEditHandle(obj, "start"));
-  lineEditGroup.add(createLineEditHandle(obj, "control"));
-  lineEditGroup.add(createLineEditHandle(obj, "end"));
+
+  handles.forEach((handle) => {
+    lineEditGroup?.add(createLineEditHandle(obj, handle));
+  });
+
   layer.add(lineEditGroup);
   lineEditGroup.moveToTop();
 }
@@ -394,7 +422,7 @@ function syncSelectionWithStore(selectedObjectId = useAnnotation.getState().sele
   const config = transformerConfigForObject(selectedObject);
   if (!config.useTransformer) {
     transformer.nodes([]);
-    if (selectedObject && isLineObject(selectedObject)) {
+    if (selectedObject && isEndpointEditableObject(selectedObject)) {
       renderLineEditHandles(selectedObject);
     }
     layer.batchDraw();
@@ -540,7 +568,7 @@ export function AnnotationStage({ selection, scaleFactor, interacting }: Props) 
       }
       const node = getObjectNodeFromHit(e.target);
       const obj = node ? useAnnotation.getState().objects.find((o) => o.id === node.id()) : undefined;
-      if (obj && !isLineObject(obj) && useAnnotation.getState().activeTool !== "eraser") {
+      if (obj && !isEndpointEditableObject(obj) && useAnnotation.getState().activeTool !== "eraser") {
         setStageCursor(cursorForAnnotationInteraction("drag"));
         return;
       }
