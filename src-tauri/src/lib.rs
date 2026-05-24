@@ -2,6 +2,7 @@ pub mod capture;
 pub mod clipboard;
 pub mod commands;
 pub mod hotkey;
+pub mod mask;
 pub mod ocr;
 pub mod overlay_window;
 pub mod permission;
@@ -87,7 +88,7 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            if let Err(e) = ocr::init_ort_dylib(&app.handle()) {
+            if let Err(e) = ocr::init_ort_dylib(app.handle()) {
                 tracing::warn!("OCR will be unavailable: {e:?}");
             }
 
