@@ -41,6 +41,17 @@ describe("overlay store corner radius", () => {
     expect(useOverlay.getState().cornerRadius).toBe(60);
   });
 
+  it("normalizes non-finite values to 0", () => {
+    useOverlay.getState().setCornerRadius(Number.NaN);
+    expect(useOverlay.getState().cornerRadius).toBe(0);
+
+    useOverlay.getState().setCornerRadius(Number.POSITIVE_INFINITY);
+    expect(useOverlay.getState().cornerRadius).toBe(0);
+
+    useOverlay.getState().setCornerRadius(Number.NEGATIVE_INFINITY);
+    expect(useOverlay.getState().cornerRadius).toBe(0);
+  });
+
   it("coalesces rapid changes into a single debounced setSettings call", async () => {
     (getSettings as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       captureHotkey: "",

@@ -77,7 +77,8 @@ let cornerRadiusPersistTimer: ReturnType<typeof setTimeout> | null = null;
 let cornerRadiusPersistVersion = 0;
 
 function normalizeCornerRadius(n: number): number {
-  return Math.max(0, Math.min(60, Math.round(n)));
+  const finite = Number.isFinite(n) ? n : 0;
+  return Math.max(0, Math.min(60, Math.round(finite)));
 }
 
 function persistCornerRadiusDebounced(next: number) {
