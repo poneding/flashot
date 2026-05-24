@@ -483,6 +483,8 @@ struct CaptureStartPayload {
     monitor_rect: types::Rect,
     #[serde(rename = "scaleFactor")]
     scale_factor: f32,
+    #[serde(rename = "cornerRadius")]
+    corner_radius: u32,
     windows: Vec<types::WindowRect>,
 }
 
@@ -603,6 +605,9 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
                 mon.id
             );
 
+            let corner_radius = settings_store::load()
+                .map(|s| s.corner_radius.min(60))
+                .unwrap_or(0);
             tracing::info!("run_capture: emitting capture:start event");
             app.emit_to(
                 capture_start_target(&label),
@@ -612,6 +617,7 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
                     frame_url: asset_url,
                     monitor_rect: mon.rect,
                     scale_factor: mon.scale_factor,
+                    corner_radius,
                     windows: local_windows,
                 },
             )
@@ -1427,6 +1433,22 @@ mod tests {
         assert_eq!(
             capture_start_target("overlay-42"),
             tauri::EventTarget::webview_window("overlay-42")
+        );
+    }
+
+    #[test]
+    fn capture_start_payload_includes_corner_radius() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let start = source.find("struct CaptureStartPayload").unwrap();
+        let end = source[start..].find("}\n").map(|idx| start + idx).unwrap();
+        let body = &source[start..end];
+        assert!(
+            body.contains("corner_radius"),
+            "CaptureStartPayload must carry the persisted corner radius to the frontend",
+        );
+        assert!(
+            body.contains("cornerRadius"),
+            "CaptureStartPayload must serialize as camelCase cornerRadius",
         );
     }
 
