@@ -18,13 +18,15 @@ const handleStyle: React.CSSProperties = {
 export function SelectionBox() {
   const r = useOverlay((s) => s.selection);
   const mode = useOverlay((s) => s.mode);
+  const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
   if (!r) return null;
 
   const hx = (x: number) => x - 4;
   const hy = (y: number) => y - 4;
+  const handleCursor = (id: HandleId) => colorPickerVisible ? "crosshair" : cursorForHandle(id);
   const handle = (id: HandleId, left: number, top: number) => (
     <div
-      style={{ ...handleStyle, left, top, cursor: cursorForHandle(id) }}
+      style={{ ...handleStyle, left, top, cursor: handleCursor(id) }}
       data-handle={id}
     />
   );

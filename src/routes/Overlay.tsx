@@ -98,6 +98,7 @@ export function OverlayRoute() {
   const selection = useOverlay((s) => s.selection);
   const cursor = useOverlay((s) => s.cursor);
   const selectionInteraction = useOverlay((s) => s.selectionInteraction);
+  const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
   const frameUrl = useOverlay((s) => s.frameUrl);
   const scaleFactor = useOverlay((s) => s.scaleFactor);
   const monitorRect = useOverlay((s) => s.monitorRect);
@@ -421,6 +422,7 @@ export function OverlayRoute() {
 
   const overlayCursor = (() => {
     if (mode === "hover" || mode === "dragging") return "crosshair";
+    if (mode === "committed" && colorPickerVisible) return "crosshair";
     if (selectionInteraction?.kind === "resize") return cursorForHandle(selectionInteraction.handle);
     if (selectionInteraction?.kind === "move") return "move";
     if (mode === "committed" && selection && cursor) {
@@ -441,7 +443,7 @@ export function OverlayRoute() {
 
   return (
     <div
-      className={mode === "hover" || mode === "dragging" ? "overlay-crosshair" : undefined}
+      className={overlayCursor === "crosshair" ? "overlay-crosshair" : undefined}
       onMouseMove={onMouseMove}
       onMouseEnter={onMouseMove}
       onMouseDown={onMouseDown}

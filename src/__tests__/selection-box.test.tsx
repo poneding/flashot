@@ -33,4 +33,13 @@ describe("SelectionBox", () => {
     expect(dimensions.style.background).toBe("rgba(18, 18, 18, 0.72)");
     expect(dimensions.style.color).toBe("rgb(78, 209, 255)");
   });
+
+  it("uses crosshair cursors on resize handles while the color picker is visible", () => {
+    useOverlay.getState().toggleColorPicker();
+    const { container } = render(<SelectionBox />);
+
+    const handle = container.querySelector("[data-handle='nw']") as HTMLElement;
+
+    expect(handle.style.cursor).toBe("crosshair");
+  });
 });

@@ -245,6 +245,33 @@ describe("OverlayRoute", () => {
     });
   });
 
+  it("uses the native crosshair cursor while the committed color picker is visible", async () => {
+    render(<OverlayRoute />);
+
+    act(() => {
+      useOverlay.getState().commit({ x: 100, y: 120, width: 200, height: 160 });
+    });
+    await waitFor(() => {
+      expect(webviewWindowMock.setCursorIcon).toHaveBeenCalledWith("default");
+    });
+
+    webviewWindowMock.setCursorIcon.mockClear();
+    act(() => {
+      useOverlay.getState().toggleColorPicker();
+    });
+    await waitFor(() => {
+      expect(webviewWindowMock.setCursorIcon).toHaveBeenCalledWith("crosshair");
+    });
+
+    webviewWindowMock.setCursorIcon.mockClear();
+    act(() => {
+      useOverlay.getState().toggleColorPicker();
+    });
+    await waitFor(() => {
+      expect(webviewWindowMock.setCursorIcon).toHaveBeenCalledWith("default");
+    });
+  });
+
   it("broadcasts hover color format shortcuts instead of mutating the focused overlay", () => {
     vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => {}));
 

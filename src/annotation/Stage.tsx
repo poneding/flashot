@@ -21,6 +21,7 @@ import { TextOverlay } from "@/annotation/TextOverlay";
 import { addTextToLayer } from "@/annotation/tools/text";
 import { hitTestHandle } from "@/lib/geometry";
 import { renderObject } from "@/annotation/render";
+import { useOverlay } from "@/overlay/state";
 
 type Props = {
   selection: Rect;
@@ -220,7 +221,11 @@ function replaceRenderedObjectNode(obj: AnnotationObject): Konva.Node | null {
 
 function setStageCursor(cursor: string) {
   const container = stage?.container();
-  if (container) container.style.cursor = cursor;
+  if (container) container.style.cursor = cursorWithColorPickerOverride(cursor);
+}
+
+function cursorWithColorPickerOverride(cursor: string): string {
+  return useOverlay.getState().colorPickerVisible ? "crosshair" : cursor;
 }
 
 function toolCursor(tool = useAnnotation.getState().activeTool): string {
@@ -230,6 +235,10 @@ function toolCursor(tool = useAnnotation.getState().activeTool): string {
     case "eraser": return "grab";
     default: return "crosshair";
   }
+}
+
+function stageCursorForTool(tool: ToolType, colorPickerVisible: boolean): string {
+  return colorPickerVisible ? "crosshair" : toolCursor(tool);
 }
 
 function normalizedLayerPixelRatio(scaleFactor: number): number {
@@ -443,6 +452,7 @@ function syncLayerWithStore(prevObjects: AnnotationObject[] = []) {
 export function AnnotationStage({ selection, scaleFactor, interacting }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeTool = useAnnotation((s) => s.activeTool);
+  const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
   const [, forceRender] = useState(0);
   const [textEditing, setTextEditing] = useState<{ position: { x: number; y: number }; editingObject: AnnotationObject | null; key: number } | null>(null);
   const textFlushRef = useRef<(() => void) | null>(null);
@@ -693,9 +703,7 @@ export function AnnotationStage({ selection, scaleFactor, interacting }: Props) 
     setDrawingState("idle");
   };
 
-  const cursor = (() => {
-    return toolCursor(activeTool);
-  })();
+  const cursor = stageCursorForTool(activeTool, colorPickerVisible);
 
   return (
     <>

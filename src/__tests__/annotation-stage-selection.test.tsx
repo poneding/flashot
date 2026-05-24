@@ -116,6 +116,25 @@ describe("AnnotationStage selection movement", () => {
     expect(stageNode.style.cursor).toBe("move");
   });
 
+  it("uses the crosshair cursor while the committed color picker is visible", () => {
+    const { container } = render(<AnnotationStage selection={selection} scaleFactor={2} />);
+    const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
+
+    expect(stageNode.style.cursor).toBe("move");
+
+    act(() => {
+      useOverlay.getState().toggleColorPicker();
+    });
+
+    expect(stageNode.style.cursor).toBe("crosshair");
+
+    act(() => {
+      useOverlay.getState().toggleColorPicker();
+    });
+
+    expect(stageNode.style.cursor).toBe("move");
+  });
+
   it("uses the selected annotation tool cursor inside the committed screenshot area", () => {
     useAnnotation.getState().setActiveTool("rect");
 
@@ -123,6 +142,26 @@ describe("AnnotationStage selection movement", () => {
 
     const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
     expect(stageNode.style.cursor).toBe("crosshair");
+  });
+
+  it("restores the selected annotation tool cursor when the color picker is hidden", () => {
+    useAnnotation.getState().setActiveTool("text");
+    const { container } = render(<AnnotationStage selection={selection} scaleFactor={2} />);
+    const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
+
+    expect(stageNode.style.cursor).toBe("text");
+
+    act(() => {
+      useOverlay.getState().toggleColorPicker();
+    });
+
+    expect(stageNode.style.cursor).toBe("crosshair");
+
+    act(() => {
+      useOverlay.getState().toggleColorPicker();
+    });
+
+    expect(stageNode.style.cursor).toBe("text");
   });
 
   it("lets empty committed screenshot drags move the whole selection", () => {
