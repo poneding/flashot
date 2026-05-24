@@ -66,7 +66,6 @@ fn resize_rgba_bilinear(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u
 /// Public wrapper around the bilinear resize so other OCR modules (e.g. the
 /// recognizer in Task 12) can reuse it without going through detector's
 /// resize_for_det path.
-#[allow(dead_code)]
 pub(crate) fn resize_rgba_bilinear_pub(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
     resize_rgba_bilinear(src, sw, sh, dw, dh)
 }
