@@ -13,6 +13,7 @@ import {
   type AnnotationStyle,
   type ToolType,
 } from "@/annotation/types";
+import { useDismissOnOutsideMouseDown } from "@/lib/useDismissOnOutsideMouseDown";
 import {
   ChevronDown,
   Circle,
@@ -21,7 +22,7 @@ import {
   Square,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
@@ -75,21 +76,6 @@ const darkScrollbarStyle: CSSProperties = {
   background: OVERLAY_SURFACE_BACKGROUND,
   borderRadius: 4,
 };
-
-function useDismissOnOutsideMouseDown<T extends HTMLElement>(
-  open: boolean,
-  ref: RefObject<T>,
-  onDismiss: () => void,
-) {
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onDismiss();
-    };
-    document.addEventListener("mousedown", close, true);
-    return () => document.removeEventListener("mousedown", close, true);
-  }, [open, ref, onDismiss]);
-}
 
 // ─── Separator ────────────────────────────────────────────────────────────────
 
