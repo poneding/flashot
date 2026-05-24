@@ -59,6 +59,10 @@ rfd = "0.14"
 image = { version = "0.25", default-features = false, features = ["png"] }
 fontdb = "0.23.0"
 uuid = { version = "1.11", features = ["v4"] }
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["load-dynamic", "ndarray", "copy-dylibs"] }
+ndarray = "0.16"
+sha2 = "0.10"
+imageproc = { version = "0.25", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 xcb = "1.5"
