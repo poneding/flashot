@@ -4,6 +4,7 @@ import { FLOATING_LABEL_BACKGROUND } from "@/lib/floating-surface";
 import { SELECTION_COLOR } from "@/lib/colors";
 
 const COLOR = SELECTION_COLOR;
+const STROKE_WIDTH = 1.5;
 
 const handleStyle: React.CSSProperties = {
   position: "absolute",
@@ -23,6 +24,7 @@ export function SelectionBox() {
   if (!r) return null;
 
   const effectiveRadius = mode === "scrollStarting" || mode === "scrolling" ? 0 : cornerRadius;
+  const halfStroke = STROKE_WIDTH / 2;
   const hx = (x: number) => x - 4;
   const hy = (y: number) => y - 4;
   const handleCursor = (id: HandleId) => colorPickerVisible ? "crosshair" : cursorForHandle(id);
@@ -47,15 +49,15 @@ export function SelectionBox() {
         }}
       >
         <rect
-          x="0"
-          y="0"
-          width={r.width}
-          height={r.height}
+          x={-halfStroke}
+          y={-halfStroke}
+          width={r.width + STROKE_WIDTH}
+          height={r.height + STROKE_WIDTH}
           rx={effectiveRadius}
           ry={effectiveRadius}
           fill="none"
           stroke={COLOR}
-          strokeWidth={1.5}
+          strokeWidth={STROKE_WIDTH}
           shapeRendering="geometricPrecision"
         />
       </svg>

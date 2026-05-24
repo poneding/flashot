@@ -19,6 +19,13 @@ describe("SelectionBox rounded outline", () => {
     const rect = container.querySelector("svg rect");
     expect(rect).not.toBeNull();
     expect(rect?.getAttribute("rx")).toBe("12");
+    expect(rect?.getAttribute("ry")).toBe("12");
+    expect(rect?.getAttribute("x")).toBe("-0.75");
+    expect(rect?.getAttribute("y")).toBe("-0.75");
+    expect(rect?.getAttribute("width")).toBe("101.5");
+    expect(rect?.getAttribute("height")).toBe("81.5");
+    expect(rect?.getAttribute("fill")).toBe("none");
+    expect(rect?.getAttribute("stroke-width")).toBe("1.5");
   });
 
   it("forces rx=0 during scrolling regardless of store cornerRadius", () => {
@@ -26,5 +33,12 @@ describe("SelectionBox rounded outline", () => {
     const { container } = render(<SelectionBox />);
     const rect = container.querySelector("svg rect");
     expect(rect?.getAttribute("rx")).toBe("0");
+    expect(rect?.getAttribute("ry")).toBe("0");
+    expect(rect?.getAttribute("x")).toBe("-0.75");
+    expect(rect?.getAttribute("y")).toBe("-0.75");
+    expect(rect?.getAttribute("width")).toBe("101.5");
+    expect(rect?.getAttribute("height")).toBe("81.5");
+    expect(rect?.getAttribute("fill")).toBe("none");
+    expect(rect?.getAttribute("stroke-width")).toBe("1.5");
   });
 });
