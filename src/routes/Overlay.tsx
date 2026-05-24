@@ -103,6 +103,7 @@ export function OverlayRoute() {
   const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
   const frameUrl = useOverlay((s) => s.frameUrl);
   const scaleFactor = useOverlay((s) => s.scaleFactor);
+  const cornerRadius = useOverlay((s) => s.cornerRadius);
   const monitorRect = useOverlay((s) => s.monitorRect);
   const [flashRect, setFlashRect] = useState<Rect | null>(null);
   const flashTimerRef = useRef<number | null>(null);
@@ -280,7 +281,7 @@ export function OverlayRoute() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mode, selection, monitorId]);
+  }, [mode, selection, monitorId, cornerRadius]);
 
   useEffect(() => {
     if (mode !== "hover" || !frameUrl) return;
@@ -320,19 +321,19 @@ export function OverlayRoute() {
   const handleCopy = async () => {
     if (monitorId == null || !selection) return;
     const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await cropAndCopy(monitorId, selection, annotationPng ?? undefined);
+    await cropAndCopy(monitorId, selection, annotationPng ?? undefined, cornerRadius);
   };
 
   const handleSave = async () => {
     if (monitorId == null || !selection) return;
     const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await cropAndSave(monitorId, selection, annotationPng ?? undefined);
+    await cropAndSave(monitorId, selection, annotationPng ?? undefined, cornerRadius);
   };
 
   const handlePin = async () => {
     if (monitorId == null || !selection) return;
     const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await pinImage(monitorId, selection, annotationPng ?? undefined);
+    await pinImage(monitorId, selection, annotationPng ?? undefined, cornerRadius);
   };
 
   const handleScroll = async () => {
