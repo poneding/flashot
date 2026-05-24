@@ -10,6 +10,7 @@ pub mod download;
 pub mod engine;
 pub mod manifest;
 pub mod paths;
+pub mod postprocess;
 pub mod recognizer;
 pub mod types;
 pub use types::{OcrError, OcrInstallStatus, OcrLine, OcrResult, TextBox};
