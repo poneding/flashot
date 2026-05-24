@@ -44,4 +44,16 @@ describe("Homebrew tap workflow", () => {
 
     expect(workflow).toContain('assetNamePattern: "[name]_[version]_[arch][ext]"');
   });
+
+  it("updates only the cask version and sha256 block", () => {
+    for (const workflowPath of [homebrewWorkflowPath, releaseWorkflowPath]) {
+      const workflow = readFileSync(workflowPath, "utf8");
+
+      expect(workflow).toContain("ruby <<'RUBY'");
+      expect(workflow).toContain('content.sub!(/^  version ".*"$/, %(  version "#{version}"))');
+      expect(workflow).toContain('^  sha256 arm:\\s+".*",\\n\\s+intel:\\s+".*"$');
+      expect(workflow).not.toContain('s/arm:   ".*"/arm:');
+      expect(workflow).not.toContain('s/intel: ".*"/intel:');
+    }
+  });
 });

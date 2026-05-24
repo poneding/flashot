@@ -320,9 +320,25 @@ jobs:
         run: |
           CASK_FILE="tap/Casks/flashot.rb"
 
-          sed -i '' "s/version \".*\"/version \"$VERSION\"/" "$CASK_FILE"
-          sed -i '' "s/arm:   \".*\"/arm:   \"$AARCH64_SHA\"/" "$CASK_FILE"
-          sed -i '' "s/intel: \".*\"/intel: \"$X64_SHA\"/" "$CASK_FILE"
+          export CASK_FILE VERSION AARCH64_SHA X64_SHA
+          ruby <<'RUBY'
+          cask_file = ENV.fetch("CASK_FILE")
+          version = ENV.fetch("VERSION")
+          aarch64_sha = ENV.fetch("AARCH64_SHA")
+          x64_sha = ENV.fetch("X64_SHA")
+
+          content = File.read(cask_file)
+          unless content.sub!(/^  version ".*"$/, %(  version "#{version}"))
+            abort "version line not found in #{cask_file}"
+          end
+          unless content.sub!(
+            /^  sha256 arm:\s+".*",\n\s+intel:\s+".*"$/,
+            %(  sha256 arm:   "#{aarch64_sha}",\n         intel: "#{x64_sha}"),
+          )
+            abort "sha256 block not found in #{cask_file}"
+          end
+          File.write(cask_file, content)
+          RUBY
 
           echo "Updated cask to version $VERSION"
           cat "$CASK_FILE"
