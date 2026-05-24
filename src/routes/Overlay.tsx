@@ -22,6 +22,7 @@ import {
   requestColorFormatToggle,
   startScrollSession,
 } from "@/lib/ipc";
+import { computeChromeAnchor } from "@/lib/chrome-anchor";
 import type { Rect } from "@/lib/types";
 import { ColorPicker, formatColorText } from "@/overlay/ColorPicker";
 import { DetectHighlight } from "@/overlay/DetectHighlight";
@@ -30,7 +31,7 @@ import { FrozenLayer } from "@/overlay/FrozenLayer";
 import { SelectionBox } from "@/overlay/SelectionBox";
 import { Toolbar as ScreenshotToolbar } from "@/overlay/Toolbar";
 import { useOverlay } from "@/overlay/state";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWebviewWindow, WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { CursorIcon } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useEffect, useRef, useState } from "react";
@@ -342,6 +343,53 @@ export function OverlayRoute() {
     }
   };
 
+  const handleOcr = async () => {
+    if (monitorId == null || !selection || !monitorRect) return;
+    const ocrSelection = selection;
+    const monitorBounds = monitorRect;
+    const { lastOcrResult } = useOverlay.getState();
+
+    const anchor = computeChromeAnchor(
+      ocrSelection,
+      { x: 0, y: 0, width: monitorBounds.width, height: monitorBounds.height },
+      { width: 400, height: 280 },
+    );
+
+    let cachedResultKey: string | undefined;
+    if (lastOcrResult) {
+      cachedResultKey = `ocr-cache-${Date.now()}`;
+      try {
+        sessionStorage.setItem(cachedResultKey, JSON.stringify(lastOcrResult));
+      } catch {
+        cachedResultKey = undefined;
+      }
+    }
+
+    const sessionId = String(Date.now());
+    const label = `ocr-chrome-${sessionId}`;
+    const params = new URLSearchParams({
+      monitorId: String(monitorId),
+      rect: JSON.stringify(ocrSelection),
+      ...(cachedResultKey ? { cachedResultKey } : {}),
+    });
+    const url = `index.html#/ocr-chrome/${sessionId}?${params.toString()}`;
+
+    const win = new WebviewWindow(label, {
+      url,
+      x: anchor.x,
+      y: anchor.y,
+      width: anchor.width,
+      height: anchor.height,
+      decorations: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: true,
+      title: "OCR",
+    });
+    win.once("tauri://error", (e) => console.error("ocr-chrome window error", e));
+  };
+
   const handleClose = () => {
     cancelCapture();
   };
@@ -485,6 +533,7 @@ export function OverlayRoute() {
             onPin={handlePin}
             onClose={handleClose}
             onScroll={handleScroll}
+            onOcr={handleOcr}
             selectionTooSmall={selection.height < 100}
           />
         </>

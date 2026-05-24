@@ -1,7 +1,7 @@
 import { TooltipBubble } from "@/annotation/Tooltip";
 import { clampToolbarPosition, computeVerticalToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
-import { CopyIcon, GripHorizontal, PinIcon, SaveIcon, XIcon } from "lucide-react";
+import { CopyIcon, GripHorizontal, PinIcon, SaveIcon, TypeIcon, XIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 export const SCREENSHOT_TOOLBAR_RADIUS = 10;
@@ -20,6 +20,7 @@ type Props = {
   onPin: ToolbarAction;
   onClose: ToolbarAction;
   onScroll: ToolbarAction;
+  onOcr: ToolbarAction;
   selectionTooSmall?: boolean;
 };
 
@@ -38,7 +39,7 @@ const ACTION_COLORS: Record<NonNullable<ToolbarButtonProps["tone"]>, string> = {
   success: "#4ade80",
 };
 
-export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose, onScroll, selectionTooSmall }: Props) {
+export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose, onScroll, onOcr, selectionTooSmall }: Props) {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [measuredHeight, setMeasuredHeight] = useState(TOOLBAR_SIZE.height);
   const [busy, setBusy] = useState(false);
@@ -167,6 +168,12 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
           tone="primary"
           onClick={() => runAction(onSave)}
           disabled={busy}
+        />
+        <ToolbarButton
+          label={selectionTooSmall ? "Selection too small" : "Extract text (OCR)"}
+          icon={<TypeIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
+          disabled={selectionTooSmall}
+          onClick={() => runAction(onOcr)}
         />
         <ToolbarButton
           label="Copy"
