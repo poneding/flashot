@@ -13,6 +13,7 @@ import {
   onColorFormatToggleRequested,
   onCaptureEnd,
   onCaptureStart,
+  onOcrResultCached,
   onQuickShotFlash,
   onSelectionClaimed,
   onSelectionReleased,
@@ -146,16 +147,21 @@ export function OverlayRoute() {
   useEffect(() => {
     let unsubClaimed: undefined | (() => void);
     let unsubReleased: undefined | (() => void);
+    let unsubOcrCached: undefined | (() => void);
     onSelectionClaimed((p) => {
       useOverlay.getState().lockToPeer(p.monitorId);
     }).then((u) => (unsubClaimed = u));
     onSelectionReleased((p) => {
       useOverlay.getState().unlockFromPeer(p.monitorId);
     }).then((u) => (unsubReleased = u));
+    onOcrResultCached((result) => {
+      useOverlay.getState().setLastOcrResult(result);
+    }).then((u) => (unsubOcrCached = u));
 
     return () => {
       unsubClaimed?.();
       unsubReleased?.();
+      unsubOcrCached?.();
     };
   }, []);
 

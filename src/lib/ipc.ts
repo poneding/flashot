@@ -171,3 +171,7 @@ export const ocr = {
   onDownloadProgress: (cb: (p: OcrDownloadProgress) => void): Promise<UnlistenFn> =>
     listen<OcrDownloadProgress>("ocr:download-progress", (e) => cb(e.payload)),
 };
+
+export function onOcrResultCached(cb: (result: OcrResult) => void): Promise<UnlistenFn> {
+  return listen<OcrResult>("ocr:result-cached", (e) => cb(e.payload));
+}
