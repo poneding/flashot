@@ -1448,6 +1448,7 @@ mod tests {
             theme: settings_store::Theme::System,
             launch_at_login: false,
             last_save_dir: None,
+            corner_radius: 0,
         };
 
         let registered =

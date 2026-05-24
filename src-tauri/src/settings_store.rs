@@ -57,6 +57,8 @@ pub struct Settings {
     pub launch_at_login: bool,
     #[serde(default)]
     pub last_save_dir: Option<String>,
+    #[serde(default)]
+    pub corner_radius: u32,
 }
 
 impl Default for Settings {
@@ -68,6 +70,7 @@ impl Default for Settings {
             theme: default_theme(),
             launch_at_login: false,
             last_save_dir: None,
+            corner_radius: 0,
         }
     }
 }
@@ -154,6 +157,7 @@ mod tests {
             theme: Theme::Dark,
             launch_at_login: true,
             last_save_dir: Some("/Users/dp/Pictures/Flashot".to_string()),
+            corner_radius: 0,
         };
 
         let value = serde_json::to_value(settings).unwrap();
@@ -165,5 +169,26 @@ mod tests {
         assert_eq!(value["theme"], "dark");
         assert_eq!(value["launchAtLogin"], true);
         assert_eq!(value["lastSaveDir"], "/Users/dp/Pictures/Flashot");
+    }
+
+    #[test]
+    fn default_settings_have_zero_corner_radius() {
+        let settings = Settings::default();
+        assert_eq!(settings.corner_radius, 0);
+    }
+
+    #[test]
+    fn settings_round_trip_corner_radius() {
+        let json = r#"{"cornerRadius":16}"#;
+        let settings: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.corner_radius, 16);
+        let value = serde_json::to_value(settings).unwrap();
+        assert_eq!(value["cornerRadius"], 16);
+    }
+
+    #[test]
+    fn legacy_settings_without_corner_radius_default_to_zero() {
+        let settings: Settings = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(settings.corner_radius, 0);
     }
 }
