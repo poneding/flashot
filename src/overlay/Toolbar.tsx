@@ -1,9 +1,10 @@
 import { TooltipBubble } from "@/annotation/Tooltip";
+import { useAnnotation } from "@/annotation/store";
 import { clampToolbarPosition, computeVerticalToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
 import { CornerRadiusPanel } from "@/overlay/CornerRadiusPanel";
 import { useOverlay } from "@/overlay/state";
-import { CopyIcon, GripHorizontal, PinIcon, SaveIcon, ScanText, SquareRoundCorner, XIcon } from "lucide-react";
+import { CopyIcon, GripHorizontal, PinIcon, Pipette, SaveIcon, ScanText, SquareRoundCorner, XIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 export const SCREENSHOT_TOOLBAR_RADIUS = 10;
@@ -11,8 +12,8 @@ export const SCREENSHOT_TOOLBAR_BACKGROUND = "rgba(30, 30, 30, 0.85)";
 export const SCREENSHOT_TOOLBAR_BORDER = "1px solid rgba(255,255,255,0.1)";
 
 const TOOLBAR_SIZE = { width: 40, height: 264 };
-const RADIUS_PANEL_WIDTH = 220;
-const RADIUS_PANEL_HEIGHT = 48;
+const RADIUS_PANEL_WIDTH = 72;
+const RADIUS_PANEL_HEIGHT = 218;
 const RADIUS_PANEL_GAP = 8;
 
 type ToolbarAction = () => void | Promise<void>;
@@ -36,6 +37,7 @@ type ToolbarButtonProps = {
   onClick: ToolbarAction;
   buttonRef?: RefObject<HTMLButtonElement>;
   disabled?: boolean;
+  active?: boolean;
   tone?: "default" | "danger" | "primary" | "success";
 };
 
@@ -63,6 +65,9 @@ export function Toolbar({
   const radiusButtonRef = useRef<HTMLButtonElement>(null);
   const cornerRadius = useOverlay((s) => s.cornerRadius);
   const setCornerRadius = useOverlay((s) => s.setCornerRadius);
+  const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
+  const toggleColorPicker = useOverlay((s) => s.toggleColorPicker);
+  const setActiveTool = useAnnotation((s) => s.setActiveTool);
   const [measuredHeight, setMeasuredHeight] = useState(TOOLBAR_SIZE.height);
   const [busy, setBusy] = useState(false);
   const [customPos, setCustomPos] = useState<{ x: number; y: number } | null>(null);
@@ -87,6 +92,15 @@ export function Toolbar({
       setBusy(false);
     }
   };
+
+  function handleColorPickerClick() {
+    const willShowPicker = !colorPickerVisible;
+    toggleColorPicker();
+
+    if (willShowPicker) {
+      setActiveTool("select");
+    }
+  }
 
   const startToolbarDrag = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -180,6 +194,18 @@ export function Toolbar({
             disabled={busy}
           />
           <ToolbarButton
+            label="Color Picker"
+            icon={<Pipette size={18} strokeWidth={2.2} aria-hidden="true" />}
+            active={colorPickerVisible}
+            onClick={handleColorPickerClick}
+          />
+          <ToolbarButton
+            label={ocrSelectionTooSmall ? "Selection too small" : "Extract text (OCR)"}
+            icon={<ScanText size={18} strokeWidth={2.2} aria-hidden="true" />}
+            disabled={ocrSelectionTooSmall}
+            onClick={() => runAction(onOcr)}
+          />
+          <ToolbarButton
             label={scrollSelectionTooSmall ? "Selection too small" : "Scrolling screenshot"}
             icon={<ScrollScreenshotIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
             onClick={() => runAction(onScroll)}
@@ -202,12 +228,6 @@ export function Toolbar({
             tone="primary"
             onClick={() => runAction(onSave)}
             disabled={busy}
-          />
-          <ToolbarButton
-            label={ocrSelectionTooSmall ? "Selection too small" : "Extract text (OCR)"}
-            icon={<ScanText size={18} strokeWidth={2.2} aria-hidden="true" />}
-            disabled={ocrSelectionTooSmall}
-            onClick={() => runAction(onOcr)}
           />
           <ToolbarButton
             label="Copy"
@@ -307,6 +327,7 @@ function ToolbarButton({
   onClick,
   buttonRef: providedButtonRef,
   disabled,
+  active,
   tone = "default",
 }: ToolbarButtonProps) {
   const [tooltipVisible, setTooltipVisible] = useState(false);
@@ -343,7 +364,7 @@ function ToolbarButton({
         borderRadius: 6,
         border: "none",
         cursor: disabled ? "default" : "pointer",
-        background: "transparent",
+        background: active ? "rgba(255,255,255,0.16)" : "transparent",
         color,
         flexShrink: 0,
         transition: "background 0.1s, color 0.1s",

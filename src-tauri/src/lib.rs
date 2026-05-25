@@ -18,12 +18,12 @@ pub mod window_mgr;
 pub mod window_probe;
 
 use anyhow::{Context, Result};
+use pin_mgr::PinManager;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Listener, Manager, WindowEvent};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use pin_mgr::PinManager;
 use window_mgr::WindowMgr;
 
 static FRAME_REVISION_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -98,9 +98,13 @@ pub fn run() {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                let Ok(data_dir) = handle.path().app_data_dir() else { return; };
+                let Ok(data_dir) = handle.path().app_data_dir() else {
+                    return;
+                };
                 let install_dir = ocr::paths::install_dir(&data_dir);
-                if !install_dir.exists() { return; }
+                if !install_dir.exists() {
+                    return;
+                }
                 let result = tokio::task::spawn_blocking(move || {
                     let engine = ocr::engine::Engine::global();
                     if let Err(e) = engine.ensure_loaded(&install_dir) {
@@ -111,7 +115,8 @@ pub fn run() {
                     let dummy = vec![128u8; 64 * 64 * 4];
                     let _ = engine.recognize(&dummy, 64, 64);
                     tracing::info!("OCR warm-up complete");
-                }).await;
+                })
+                .await;
                 if let Err(e) = result {
                     tracing::warn!("OCR warm-up join: {e}");
                 }
@@ -283,6 +288,7 @@ pub fn run() {
             commands::scroll_copy,
             commands::scroll_save,
             ocr::commands::ocr_status,
+            ocr::commands::ocr_package_info,
             ocr::commands::ocr_install,
             ocr::commands::open_ocr_chrome,
             ocr::commands::ocr_save_text,

@@ -7,12 +7,12 @@ import type { OcrDownloadProgress, OcrResult, Rect } from "@/lib/types";
 
 type Phase =
   | { kind: "checking" }
-  | { kind: "confirming-download"; sizeBytes: number }
+  | { kind: "confirming-download"; sizeBytes: number | null }
   | {
       kind: "downloading";
       progress: number;
       downloadedBytes: number;
-      totalBytes: number;
+      totalBytes: number | null;
     }
   | { kind: "recognizing" }
   | { kind: "result"; result: OcrResult }
@@ -61,7 +61,27 @@ function parseOcrChromeRoute(): ParsedRoute | null {
   return { monitorId, rect, cachedResult: null };
 }
 
-const FALLBACK_TOTAL_BYTES = 15_000_000;
+export function formatConfirmDownloadMessage(sizeBytes: number | null): string {
+  if (sizeBytes === null) {
+    return "OCR needs model files. Downloaded once.";
+  }
+  const mb = (sizeBytes / 1_000_000).toFixed(0);
+  return `OCR needs a ~${mb} MB model package. Downloaded once.`;
+}
+
+export function formatDownloadProgressLabel(
+  downloadedBytes: number,
+  totalBytes: number | null,
+): string {
+  if (totalBytes === null) {
+    if (downloadedBytes === 0) return "Preparing download...";
+    const done = (downloadedBytes / 1_000_000).toFixed(1);
+    return `${done} MB downloaded`;
+  }
+  const done = (downloadedBytes / 1_000_000).toFixed(1);
+  const total = (totalBytes / 1_000_000).toFixed(1);
+  return `${done} / ${total} MB`;
+}
 
 export function OcrChromeRoute() {
   const [parsed] = useState(() => parseOcrChromeRoute());
@@ -114,8 +134,19 @@ function OcrChrome({ monitorId, rect, cachedResult }: Props) {
         } else {
           setPhase({
             kind: "confirming-download",
-            sizeBytes: FALLBACK_TOTAL_BYTES,
+            sizeBytes: null,
           });
+          try {
+            const info = await ocr.packageInfo();
+            if (cancelled) return;
+            setPhase((cur) =>
+              cur.kind === "confirming-download"
+                ? { kind: "confirming-download", sizeBytes: info.size_bytes }
+                : cur,
+            );
+          } catch {
+            // Leave the prompt usable; install will surface any network error.
+          }
         }
       } catch (e) {
         if (!cancelled) setPhase({ kind: "error", message: errorMessage(e) });
@@ -200,11 +231,13 @@ function OcrChrome({ monitorId, rect, cachedResult }: Props) {
   }, [phase, onCopy, onSave]);
 
   async function onConfirmDownload() {
+    const initialTotal =
+      phase.kind === "confirming-download" ? phase.sizeBytes : null;
     setPhase({
       kind: "downloading",
       progress: 0,
       downloadedBytes: 0,
-      totalBytes: FALLBACK_TOTAL_BYTES,
+      totalBytes: initialTotal,
     });
     try {
       await ocr.install();
@@ -303,14 +336,13 @@ function ConfirmPanel({
   onConfirm,
   onCancel,
 }: {
-  sizeBytes: number;
+  sizeBytes: number | null;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const mb = (sizeBytes / 1_000_000).toFixed(0);
   return (
     <div className="ocr-confirm">
-      <p>OCR needs a ~{mb} MB model file. Downloaded once.</p>
+      <p>{formatConfirmDownloadMessage(sizeBytes)}</p>
       <div className="ocr-confirm__actions">
         <button
           type="button"
@@ -338,10 +370,8 @@ function DownloadPanel({
 }: {
   progress: number;
   downloadedBytes: number;
-  totalBytes: number;
+  totalBytes: number | null;
 }) {
-  const done = (downloadedBytes / 1_000_000).toFixed(1);
-  const total = (totalBytes / 1_000_000).toFixed(1);
   const pct = Math.min(100, Math.max(0, progress * 100));
   return (
     <div className="ocr-download">
@@ -357,9 +387,7 @@ function DownloadPanel({
           style={{ width: `${pct.toFixed(1)}%` }}
         />
       </div>
-      <p>
-        {done} / {total} MB
-      </p>
+      <p>{formatDownloadProgressLabel(downloadedBytes, totalBytes)}</p>
     </div>
   );
 }

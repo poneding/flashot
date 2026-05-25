@@ -107,7 +107,10 @@ describe("annotation object rendering", () => {
     expect(node.x()).toBe(5);
     expect(node.y()).toBe(6);
     expect(label.text()).toBe("50 px");
-    expect(background.fill()).toBe("rgba(20,20,20,0.86)");
+    expect(label.fill()).toBe("#ffffff");
+    expect(background.fill()).toBe("#111827");
+    expect(background.stroke()).toBe("#ff0000");
+    expect(background.strokeWidth()).toBe(1);
   });
 
   it("dispatches measurement objects through renderObject", () => {
@@ -238,6 +241,18 @@ describe("annotation object rendering", () => {
   it("uses at least a 2x mask pixel ratio for smoother highlight edges", () => {
     expect(highlightMaskPixelRatio(1)).toBe(2);
     expect(highlightMaskPixelRatio(2.5)).toBe(2.5);
+  });
+
+  it("passes highlight corner radius through to the mask renderer", () => {
+    const node = renderHighlightObject(object({
+      type: "highlight",
+      points: [0, 0, 80, 0],
+      style: { color: "#ffcc00", strokeWidth: 4, cornerRadius: 12, opacity: 0.35 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    }));
+    const mask = node.findOne(".highlight-mask") as Konva.Shape;
+
+    expect(mask.getAttr("highlightCornerRadius")).toBe(12);
   });
 });
 

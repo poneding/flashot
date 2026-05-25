@@ -58,6 +58,7 @@ impl Engine {
                 return Err(OcrError::ModelNotInstalled);
             }
         }
+        crate::ocr::ensure_ort_dylib_ready()?;
 
         // Load character table.
         let keys_text = std::fs::read_to_string(&keys_path)?;
@@ -99,16 +100,15 @@ impl Engine {
     /// Recognition character table. Used by the CTC decoder in Task 12.
     #[allow(dead_code)]
     pub(crate) fn rec_keys(&self) -> &[String] {
-        self.rec_keys.get().expect("ensure_loaded must be called first")
+        self.rec_keys
+            .get()
+            .expect("ensure_loaded must be called first")
     }
 }
 
 #[cfg(target_os = "macos")]
 fn load_session(path: &Path) -> Result<Session, OcrError> {
-    use ort::execution_providers::CoreMLExecutionProvider;
     Session::builder()
-        .map_err(|e| OcrError::ModelLoadFailed(e.to_string()))?
-        .with_execution_providers([CoreMLExecutionProvider::default().build()])
         .map_err(|e| OcrError::ModelLoadFailed(e.to_string()))?
         .commit_from_file(path)
         .map_err(|e| OcrError::ModelLoadFailed(e.to_string()))
@@ -138,6 +138,8 @@ use std::time::Instant;
 use crate::ocr::types::{OcrLine, OcrResult, TextBox};
 use crate::ocr::{detector, postprocess, recognizer};
 
+const MAX_RECOGNITION_BOXES: usize = 120;
+
 impl Engine {
     /// End-to-end recognition: detect → warp each box → recognise → sort →
     /// filter → concat. CPU-bound; callers must invoke via
@@ -149,7 +151,20 @@ impl Engine {
     pub fn recognize(&self, rgba: &[u8], w: u32, h: u32) -> Result<OcrResult, OcrError> {
         let start = Instant::now();
 
-        let boxes = detector::detect(rgba, w, h)?;
+        let mut boxes = detector::detect(rgba, w, h)?;
+        if boxes.len() > MAX_RECOGNITION_BOXES {
+            tracing::warn!(
+                "OCR detected {} text candidates; limiting recognition to {}",
+                boxes.len(),
+                MAX_RECOGNITION_BOXES
+            );
+            boxes.sort_by(|a, b| {
+                bbox_area(b)
+                    .partial_cmp(&bbox_area(a))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            boxes.truncate(MAX_RECOGNITION_BOXES);
+        }
         let mut lines = Vec::with_capacity(boxes.len());
         for bbox in &boxes {
             let (crop, cw, ch) = match warp_textline(rgba, w, h, bbox) {
@@ -190,11 +205,10 @@ fn warp_textline(
     bbox: &TextBox,
 ) -> Result<(Vec<u8>, u32, u32), OcrError> {
     use image::{Rgba, RgbaImage};
-    use imageproc::geometric_transformations::{warp, Interpolation, Projection};
+    use imageproc::geometric_transformations::{warp_into, Interpolation, Projection};
 
-    let dist = |(x1, y1): (f32, f32), (x2, y2): (f32, f32)| {
-        ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt()
-    };
+    let dist =
+        |(x1, y1): (f32, f32), (x2, y2): (f32, f32)| ((x2 - x1).powi(2) + (y2 - y1).powi(2)).sqrt();
     let top = dist(bbox.points[0], bbox.points[1]);
     let bottom = dist(bbox.points[3], bbox.points[2]);
     let left = dist(bbox.points[0], bbox.points[3]);
@@ -205,27 +219,39 @@ fn warp_textline(
     let src_img = RgbaImage::from_raw(w, h, rgba.to_vec())
         .ok_or_else(|| OcrError::InferenceFailed("source dims mismatch".into()))?;
 
-    // Map output → input quad.
     let proj = Projection::from_control_points(
-        [
-            (0.0, 0.0),
-            (crop_w as f32, 0.0),
-            (crop_w as f32, crop_h as f32),
-            (0.0, crop_h as f32),
-        ],
         [
             bbox.points[0],
             bbox.points[1],
             bbox.points[2],
             bbox.points[3],
         ],
+        [
+            (0.0, 0.0),
+            (crop_w as f32, 0.0),
+            (crop_w as f32, crop_h as f32),
+            (0.0, crop_h as f32),
+        ],
     )
     .ok_or_else(|| OcrError::InferenceFailed("degenerate quad".into()))?;
 
-    let warped = warp(&src_img, &proj, Interpolation::Bilinear, Rgba([0, 0, 0, 255]));
-    // `warp` returns an image sized to the input. Crop to our target.
-    let crop_img = image::imageops::crop_imm(&warped, 0, 0, crop_w, crop_h).to_image();
+    let mut crop_img = RgbaImage::from_pixel(crop_w, crop_h, Rgba([0, 0, 0, 255]));
+    warp_into(
+        &src_img,
+        &proj,
+        Interpolation::Bilinear,
+        Rgba([0, 0, 0, 255]),
+        &mut crop_img,
+    );
     Ok((crop_img.into_raw(), crop_w, crop_h))
+}
+
+fn bbox_area(b: &TextBox) -> f32 {
+    let width =
+        ((b.points[1].0 - b.points[0].0).powi(2) + (b.points[1].1 - b.points[0].1).powi(2)).sqrt();
+    let height =
+        ((b.points[3].0 - b.points[0].0).powi(2) + (b.points[3].1 - b.points[0].1).powi(2)).sqrt();
+    width * height
 }
 
 #[cfg(test)]
@@ -237,5 +263,47 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let err = Engine::global().ensure_loaded(tmp.path()).unwrap_err();
         assert!(matches!(err, OcrError::ModelNotInstalled));
+    }
+
+    #[test]
+    fn warp_textline_handles_boxes_larger_than_the_source_image() {
+        let rgba = vec![255u8; 20 * 12 * 4];
+        let bbox = TextBox {
+            points: [(-5.0, -3.0), (35.0, -3.0), (35.0, 20.0), (-5.0, 20.0)],
+        };
+
+        let (crop, w, h) = warp_textline(&rgba, 20, 12, &bbox).expect("warp should not panic");
+
+        assert_eq!(w, 40);
+        assert_eq!(h, 23);
+        assert_eq!(crop.len(), (w * h * 4) as usize);
+    }
+
+    #[test]
+    fn warp_textline_maps_source_box_into_crop() {
+        let mut rgba = vec![0u8; 12 * 8 * 4];
+        for y in 2..6 {
+            for x in 3..9 {
+                let off = ((y * 12 + x) * 4) as usize;
+                rgba[off..off + 4].copy_from_slice(&[255, 0, 0, 255]);
+            }
+        }
+        let bbox = TextBox {
+            points: [(3.0, 2.0), (9.0, 2.0), (9.0, 6.0), (3.0, 6.0)],
+        };
+
+        let (crop, w, h) = warp_textline(&rgba, 12, 8, &bbox).expect("warp should succeed");
+
+        assert_eq!((w, h), (6, 4));
+        let center = (((h / 2) * w + (w / 2)) * 4) as usize;
+        assert!(
+            crop[center] > 200,
+            "center red channel should come from source box"
+        );
+        assert!(
+            crop[center + 1] < 50,
+            "center green channel should stay low"
+        );
+        assert!(crop[center + 2] < 50, "center blue channel should stay low");
     }
 }

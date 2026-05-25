@@ -78,13 +78,33 @@ describe("measure annotation tool", () => {
     });
 
     const label = node.findOne(".measure-label") as Konva.Text;
+    const labelGroup = node.findOne(".measure-label-group") as Konva.Group;
     const labelBg = node.findOne(".measure-label-bg") as Konva.Rect;
     const ticks = node.find(".measure-tick");
 
     expect(node.x()).toBe(15);
     expect(node.y()).toBe(27);
     expect(label.text()).toBe("100 px");
+    expect(label.fill()).toBe("#ffffff");
+    expect(labelBg.fill()).toBe("#111827");
+    expect(labelBg.stroke()).toBe("#0099ff");
     expect(labelBg.listening()).toBe(true);
+    expect(labelGroup.rotation()).toBe(0);
     expect(ticks).toHaveLength(2);
+  });
+
+  it("keeps the measurement label parallel to the measured line", () => {
+    const node = renderMeasureObject({
+      id: "measure-1",
+      type: "measure",
+      start: { x: 0, y: 0 },
+      end: { x: 30, y: 40 },
+      style: { color: "#0099ff", strokeWidth: 4 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    });
+
+    const labelGroup = node.findOne(".measure-label-group") as Konva.Group;
+
+    expect(labelGroup.rotation()).toBeCloseTo(53.13, 2);
   });
 });

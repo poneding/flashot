@@ -5,6 +5,7 @@ import type {
   CaptureStartPayload,
   OcrDownloadProgress,
   OcrInstallStatus,
+  OcrPackageInfo,
   OcrResult,
   QuickShotFlashPayload,
   Rect,
@@ -182,6 +183,7 @@ export function onScrollMatchFailed(cb: (info: { consecutiveFailures: number; sc
 
 export const ocr = {
   status: () => invoke<OcrInstallStatus>("ocr_status"),
+  packageInfo: () => invoke<OcrPackageInfo>("ocr_package_info"),
   install: () => invoke<void>("ocr_install"),
   recognize: (monitorId: number, rect: Rect) =>
     invoke<OcrResult>("ocr_recognize", { monitorId, rect }),

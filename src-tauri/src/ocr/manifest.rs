@@ -10,9 +10,8 @@ use serde::Deserialize;
 use crate::ocr::types::OcrError;
 
 pub const MODEL_VERSION: &str = "1.0.0";
-pub const ASSET_INDEX_RELEASE_API_URL: &str =
-    "https://api.github.com/repos/poneding/flashot-assets/releases/tags/asset-index-v1";
-pub const ASSET_INDEX_ASSET_NAME: &str = "index.json";
+pub const ASSET_INDEX_URL: &str =
+    "https://github.com/poneding/flashot-assets/releases/download/asset-index-v1/index.json";
 pub const OCR_PACKAGE_ID: &str = "ocr.ppocrv4.zh-en";
 pub const OCR_ENGINE: &str = "paddleocr-ppocrv4";
 const SCHEMA_VERSION: u32 = 1;
@@ -25,17 +24,6 @@ pub struct AssetSpec {
     pub sha256: String,
     #[serde(rename = "sizeBytes")]
     pub size_bytes: u64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct GitHubRelease {
-    assets: Vec<GitHubReleaseAsset>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GitHubReleaseAsset {
-    name: String,
-    browser_download_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,17 +126,6 @@ pub fn total_size_bytes(assets: &[AssetSpec]) -> u64 {
     assets.iter().map(|a| a.size_bytes).sum()
 }
 
-pub fn index_url_from_release(release: &GitHubRelease) -> Result<&str, OcrError> {
-    release
-        .assets
-        .iter()
-        .find(|asset| asset.name == ASSET_INDEX_ASSET_NAME)
-        .map(|asset| asset.browser_download_url.as_str())
-        .ok_or_else(|| {
-            OcrError::ManifestInvalid("latest asset release is missing index.json".into())
-        })
-}
-
 pub async fn fetch_supported_ocr_package() -> Result<PackageManifest, OcrError> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
@@ -156,9 +133,7 @@ pub async fn fetch_supported_ocr_package() -> Result<PackageManifest, OcrError> 
         .build()
         .map_err(|e| OcrError::DownloadFailed(e.to_string()))?;
 
-    let release: GitHubRelease = fetch_json(&client, ASSET_INDEX_RELEASE_API_URL).await?;
-    let index_url = index_url_from_release(&release)?.to_string();
-    let index: AssetIndex = fetch_json(&client, &index_url).await?;
+    let index: AssetIndex = fetch_json(&client, ASSET_INDEX_URL).await?;
     let package = index.supported_ocr_package()?.clone();
     let manifest: PackageManifest = fetch_json(&client, &package.manifest_url).await?;
     manifest.clone().into_supported_ocr_assets()?;
@@ -212,20 +187,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn latest_release_finds_index_asset_download_url() {
-        let body = r#"{
-          "assets": [
-            { "name": "readme.txt", "browser_download_url": "https://example.test/readme.txt" },
-            { "name": "index.json", "browser_download_url": "https://example.test/index.json" }
-          ]
-        }"#;
-
-        let release: GitHubRelease = serde_json::from_str(body).unwrap();
-
+    fn asset_index_url_avoids_github_rest_api_rate_limit() {
         assert_eq!(
-            index_url_from_release(&release).unwrap(),
-            "https://example.test/index.json",
+            ASSET_INDEX_URL,
+            "https://github.com/poneding/flashot-assets/releases/download/asset-index-v1/index.json",
         );
+        assert!(!ASSET_INDEX_URL.contains("api.github.com"));
     }
 
     #[test]

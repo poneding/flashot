@@ -75,7 +75,6 @@ xcb = "1.5"
 core-graphics = "0.23"
 core-foundation = "0.9"
 objc = "0.2"
-ort = { version = "=2.0.0-rc.10", default-features = false, features = ["load-dynamic", "ndarray", "coreml"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [

@@ -5,18 +5,18 @@ the Tauri bundle. Each Flashot release pins a single onnxruntime version.
 
 ## Pinned version
 
-onnxruntime 1.19.2 (matches `ort = "2.0.0-rc.10"` baseline)
+onnxruntime 1.22.0 (matches `ort = "2.0.0-rc.10"` / `ort-sys = "2.0.0-rc.10"`)
 
 ## How to populate
 
 Download the official prebuilt binaries from
-https://github.com/microsoft/onnxruntime/releases/tag/v1.19.2 and copy:
+https://github.com/microsoft/onnxruntime/releases/tag/v1.22.0 and copy:
 
 | Platform | File | Target |
 |---|---|---|
-| macOS (universal) | `libonnxruntime.1.19.2.dylib` | `macos/libonnxruntime.dylib` |
+| macOS (universal) | `libonnxruntime.1.22.0.dylib` | `macos/libonnxruntime.dylib` |
 | Windows x64 | `onnxruntime.dll` | `windows/onnxruntime.dll` |
-| Linux x64 | `libonnxruntime.so.1.19.2` | `linux/libonnxruntime.so` |
+| Linux x64 | `libonnxruntime.so.1.22.0` | `linux/libonnxruntime.so` |
 
 The files are **not** committed to git (see `.gitignore`); CI fetches them on
 demand. Local development requires them to be present before running

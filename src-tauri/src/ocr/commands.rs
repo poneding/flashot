@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::ocr::download::{self, ProgressFn};
 use crate::ocr::manifest;
 use crate::ocr::paths;
-use crate::ocr::types::OcrInstallStatus;
+use crate::ocr::types::{OcrInstallStatus, OcrPackageInfo};
 
 #[tauri::command]
 pub async fn ocr_status(app: AppHandle) -> OcrInstallStatus {
@@ -30,6 +30,22 @@ pub async fn ocr_status(app: AppHandle) -> OcrInstallStatus {
     } else {
         OcrInstallStatus::NotInstalled
     }
+}
+
+#[tauri::command]
+pub async fn ocr_package_info() -> Result<OcrPackageInfo, String> {
+    let package = manifest::fetch_supported_ocr_package()
+        .await
+        .map_err(|e| format!("{e}"))?;
+    let assets = package
+        .clone()
+        .into_supported_ocr_assets()
+        .map_err(|e| format!("{e}"))?;
+
+    Ok(OcrPackageInfo {
+        version: package.version,
+        size_bytes: manifest::total_size_bytes(&assets),
+    })
 }
 
 #[derive(serde::Serialize, Clone)]

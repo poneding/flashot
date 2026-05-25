@@ -959,6 +959,9 @@ pub async fn ocr_recognize(
         .app_data_dir()
         .map_err(|e| format!("app_data_dir: {e}"))?;
     let install_dir = ocr::paths::install_dir(&data_dir);
+    if ocr::ensure_ort_dylib_ready().is_err() {
+        ocr::init_ort_dylib(&app).map_err(|e| format!("{e}"))?;
+    }
 
     // Look up the frozen frame and crop the selection.
     let cropped = state
@@ -969,8 +972,11 @@ pub async fn ocr_recognize(
     let (rgba, w, h) = cropped;
     let result = tokio::task::spawn_blocking(move || {
         let engine = ocr::engine::Engine::global();
-        engine.ensure_loaded(&install_dir)?;
-        engine.recognize(&rgba, w, h)
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            engine.ensure_loaded(&install_dir)?;
+            engine.recognize(&rgba, w, h)
+        }))
+        .map_err(ocr_runtime_panic_error)?
     })
     .await
     .map_err(|e| format!("join error: {e}"))?
@@ -978,6 +984,18 @@ pub async fn ocr_recognize(
 
     Ok(result)
 }
+
+fn ocr_runtime_panic_error(payload: Box<dyn std::any::Any + Send>) -> ocr::types::OcrError {
+    let message = if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else {
+        "unknown panic while loading OCR runtime".to_string()
+    };
+    ocr::types::OcrError::RuntimeUnavailable(message)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -990,6 +1008,16 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn ocr_runtime_panic_becomes_user_facing_runtime_error() {
+        let err = ocr_runtime_panic_error(Box::new(
+            "ort 2.0.0-rc.10 is not compatible with ONNX Runtime 1.19.2",
+        ));
+
+        assert!(matches!(err, ocr::types::OcrError::RuntimeUnavailable(_)));
+        assert!(err.to_string().contains("ONNX Runtime 1.19.2"));
     }
 
     #[test]

@@ -103,6 +103,11 @@ export type OcrInstallStatus =
   | { kind: "not_installed" }
   | { kind: "installed"; size_bytes: number };
 
+export type OcrPackageInfo = {
+  version: string;
+  size_bytes: number;
+};
+
 export type OcrDownloadProgress = {
   progress: number;          // 0..1
   downloaded_bytes: number;

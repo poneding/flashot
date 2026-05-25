@@ -7,6 +7,12 @@ pub struct OcrResult {
     pub elapsed_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OcrPackageInfo {
+    pub version: String,
+    pub size_bytes: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OcrLine {
     pub text: String,
@@ -34,6 +40,8 @@ pub enum OcrError {
     ModelLoadFailed(String),
     #[error("inference failed: {0}")]
     InferenceFailed(String),
+    #[error("OCR runtime unavailable: {0}")]
+    RuntimeUnavailable(String),
     #[error("download failed: {0}")]
     DownloadFailed(String),
     #[error("asset manifest invalid: {0}")]
@@ -82,5 +90,18 @@ mod tests {
         let not = OcrInstallStatus::NotInstalled;
         let json = serde_json::to_string(&not).unwrap();
         assert_eq!(json, r#"{"kind":"not_installed"}"#);
+    }
+
+    #[test]
+    fn package_info_serialises_download_size() {
+        let info = OcrPackageInfo {
+            version: "1.0.0".into(),
+            size_bytes: 15_629_724,
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+
+        assert!(json.contains("\"version\":\"1.0.0\""));
+        assert!(json.contains("\"size_bytes\":15629724"));
     }
 }

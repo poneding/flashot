@@ -24,8 +24,12 @@ pub fn resize_for_det(rgba: &[u8], w: u32, h: u32) -> (Vec<u8>, u32, u32, f32, f
     } else {
         1.0
     };
-    let new_w = ((w as f32 * ratio).round() as u32).next_multiple_of(32).max(32);
-    let new_h = ((h as f32 * ratio).round() as u32).next_multiple_of(32).max(32);
+    let new_w = ((w as f32 * ratio).round() as u32)
+        .next_multiple_of(32)
+        .max(32);
+    let new_h = ((h as f32 * ratio).round() as u32)
+        .next_multiple_of(32)
+        .max(32);
 
     let resized = resize_rgba_bilinear(rgba, w, h, new_w, new_h);
     let scale_x = w as f32 / new_w as f32;
@@ -97,16 +101,24 @@ pub fn detect(rgba: &[u8], w: u32, h: u32) -> Result<Vec<TextBox>, OcrError> {
     let engine = Engine::global();
     let mut session = engine.det();
     let input_name = session.inputs[0].name.clone();
+    let output_name = session
+        .outputs
+        .first()
+        .ok_or_else(|| OcrError::InferenceFailed("detector session has no outputs".into()))?
+        .name
+        .clone();
     let outputs = session
         .run(ort::inputs![input_name => Tensor::from_array(tensor)
             .map_err(|e| OcrError::InferenceFailed(e.to_string()))?])
         .map_err(|e| OcrError::InferenceFailed(e.to_string()))?;
 
-    let (shape, data) = outputs[0]
+    let output = outputs
+        .get(&output_name)
+        .ok_or_else(|| OcrError::InferenceFailed("detector returned no outputs".into()))?;
+    let (shape, data) = output
         .try_extract_tensor::<f32>()
         .map_err(|e| OcrError::InferenceFailed(e.to_string()))?;
-    // Expected shape: [1, 1, rh, rw]
-    debug_assert_eq!(&**shape, &[1i64, 1, rh as i64, rw as i64][..]);
+    validate_det_output_shape(shape, data.len(), rw, rh)?;
 
     let polygons = polygons_from_probability_map(data, rw, rh);
 
@@ -165,10 +177,7 @@ fn polygons_from_probability_map(prob: &[f32], w: u32, h: u32) -> Vec<TextBox> {
     for (x, y, pix) in labels.enumerate_pixels() {
         let label = pix[0];
         if label != 0 {
-            groups
-                .entry(label)
-                .or_default()
-                .push((x as f32, y as f32));
+            groups.entry(label).or_default().push((x as f32, y as f32));
         }
     }
 
@@ -190,6 +199,32 @@ fn polygons_from_probability_map(prob: &[f32], w: u32, h: u32) -> Vec<TextBox> {
         boxes.push(unclipped);
     }
     boxes
+}
+
+fn validate_det_output_shape(
+    shape: &[i64],
+    data_len: usize,
+    expected_w: u32,
+    expected_h: u32,
+) -> Result<(), OcrError> {
+    let expected_shape = [1i64, 1, expected_h as i64, expected_w as i64];
+    if shape != expected_shape {
+        return Err(OcrError::InferenceFailed(format!(
+            "unexpected detector output shape: expected {:?}, got {:?}",
+            expected_shape, shape
+        )));
+    }
+
+    let expected_len = (expected_w as usize)
+        .checked_mul(expected_h as usize)
+        .ok_or_else(|| OcrError::InferenceFailed("detector output dimensions overflow".into()))?;
+    if data_len != expected_len {
+        return Err(OcrError::InferenceFailed(format!(
+            "unexpected detector output length: expected {expected_len}, got {data_len}"
+        )));
+    }
+
+    Ok(())
 }
 
 /// Minimum-area bounding rectangle around a point cloud.
@@ -316,5 +351,15 @@ mod tests {
         // Normalisation makes pure white pixels approximately (1 - mean) / std.
         let expected = (1.0 - MEAN[0]) / STD[0];
         assert!((t[[0, 0, 0, 0]] - expected).abs() < 1e-4);
+    }
+
+    #[test]
+    fn detector_output_shape_validation_rejects_bad_lengths() {
+        let err = validate_det_output_shape(&[1, 1, 32, 32], 1023, 32, 32).unwrap_err();
+
+        assert!(matches!(err, OcrError::InferenceFailed(_)));
+        assert!(err
+            .to_string()
+            .contains("unexpected detector output length"));
     }
 }

@@ -121,12 +121,22 @@ describe("Annotation toolbar", () => {
       "Blur",
       "Highlight",
       "Eraser",
-      "Color Picker",
       "Undo (Cmd+Z)",
       "Redo (Cmd+Shift+Z)",
     ].forEach((title) => {
       expect(screen.getByTitle(title)).not.toBeNull();
     });
+  });
+
+  it("places measure immediately after eraser and omits the color picker", () => {
+    const { container } = renderToolbar();
+    const toolbar = container.querySelector("[data-annotation-toolbar]") as HTMLElement;
+    const labels = Array.from(toolbar.querySelectorAll("button")).map((button) =>
+      button.getAttribute("title"),
+    );
+
+    expect(labels.indexOf("Measure")).toBe(labels.indexOf("Eraser") + 1);
+    expect(labels).not.toContain("Color Picker");
   });
 
   it("selects the measure tool from the toolbar", () => {
@@ -137,47 +147,14 @@ describe("Annotation toolbar", () => {
     expect(useAnnotation.getState().activeTool).toBe("measure");
   });
 
-  it("toggles the committed color picker from the horizontal toolbar", () => {
-    renderToolbar();
-
-    expect(useOverlay.getState().colorPickerVisible).toBe(false);
-
-    fireEvent.click(screen.getByTitle("Color Picker"));
-
-    expect(useOverlay.getState().colorPickerVisible).toBe(true);
-
-    fireEvent.click(screen.getByTitle("Color Picker"));
-
-    expect(useOverlay.getState().colorPickerVisible).toBe(false);
-  });
-
   it("closes the color picker when another annotation tool is selected", () => {
     renderToolbar();
 
-    fireEvent.click(screen.getByTitle("Color Picker"));
-    expect(useOverlay.getState().colorPickerVisible).toBe(true);
+    useOverlay.setState({ colorPickerVisible: true });
 
     fireEvent.click(screen.getByTitle("Rectangle"));
 
     expect(useOverlay.getState().colorPickerVisible).toBe(false);
-  });
-
-  it("turns off annotation tools when the color picker is enabled", () => {
-    const { container } = renderToolbar();
-
-    fireEvent.click(screen.getByTitle("Rectangle"));
-    expect(useAnnotation.getState().activeTool).toBe("rect");
-    expect(propertyPanelElement(container)).not.toBeNull();
-
-    fireEvent.click(screen.getByTitle("Color Picker"));
-
-    expect(useOverlay.getState().colorPickerVisible).toBe(true);
-    expect(useAnnotation.getState().activeTool).toBe("select");
-    expect(
-      Array.from(container.querySelectorAll("div")).some(
-        (el) => (el as HTMLElement).style.zIndex === "10001",
-      ),
-    ).toBe(false);
   });
 
   it("toggles an active annotation tool back to move mode on the second click", () => {

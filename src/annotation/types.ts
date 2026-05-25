@@ -80,9 +80,9 @@ export const PRESET_COLORS = [
   "#000000",
 ];
 
-export const STROKE_WIDTHS = [2, 4, 6, 8, 12];
+export const STROKE_WIDTHS = Array.from({ length: 20 }, (_, index) => index + 1);
 
-export const FONT_SIZES = [14, 18, 24, 32, 48];
+export const FONT_SIZES = Array.from({ length: 72 }, (_, index) => index + 1);
 
 export const DEFAULT_STYLE: AnnotationStyle = {
   color: "#ff0000",

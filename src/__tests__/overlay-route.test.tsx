@@ -218,14 +218,14 @@ describe("OverlayRoute", () => {
     });
   });
 
-  it("cancels capture with Escape even when the corner radius slider is focused", () => {
+  it("cancels capture with Escape even when a corner radius preset is focused", () => {
     const selection = { x: 100, y: 120, width: 240, height: 160 };
     useOverlay.getState().commit(selection);
 
     render(<OverlayRoute />);
     fireEvent.click(screen.getByLabelText(/corner radius/i));
-    const slider = screen.getByRole("slider");
-    slider.focus();
+    const preset = screen.getByRole("button", { name: "Corner radius: 16 px" });
+    preset.focus();
 
     fireEvent.keyDown(window, { key: "Escape" });
 

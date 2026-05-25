@@ -50,14 +50,27 @@ describe("CornerRadiusPanel", () => {
     expect(getByText("16 px")).toBeTruthy();
   });
 
-  it("calls onChange with the slider's numeric value", () => {
+  it("calls onChange from a scrollable 0-60 option list", () => {
     const onChange = vi.fn();
-    const { getByRole } = render(
-      <Harness value={0} onChange={onChange} onDismiss={() => {}} />,
+    const { getByRole, queryByRole, getByTestId } = render(
+      <Harness value={16} onChange={onChange} onDismiss={() => {}} />,
     );
-    const slider = getByRole("slider") as HTMLInputElement;
-    fireEvent.change(slider, { target: { value: "24" } });
-    expect(onChange).toHaveBeenCalledWith(24);
+    expect(queryByRole("combobox", { name: "Corner radius" })).toBeNull();
+    const list = getByTestId("screenshot-corner-radius-list");
+    const firstOption = getByRole("button", { name: "Corner radius: 0 px" });
+    expect(list.className).toContain("flashot-dark-scrollbar");
+    expect(list.style.maxHeight).toBe("200px");
+    expect(firstOption).toBeTruthy();
+    expect(firstOption.style.width).toBe("100%");
+    expect(firstOption.style.display).toBe("flex");
+    expect(firstOption.style.justifyContent).toBe("center");
+    expect(getByRole("button", { name: "Corner radius: 1 px" })).toBeTruthy();
+    expect(getByRole("button", { name: "Corner radius: 60 px" })).toBeTruthy();
+    expect(queryByRole("button", { name: "Corner radius: 61 px" })).toBeNull();
+
+    fireEvent.click(getByRole("button", { name: "Corner radius: 59 px" }));
+
+    expect(onChange).toHaveBeenCalledWith(59);
   });
 
   it("dismisses when the user clicks outside the panel", () => {

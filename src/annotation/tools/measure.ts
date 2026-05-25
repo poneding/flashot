@@ -14,6 +14,9 @@ const LABEL_HEIGHT = 20;
 const LABEL_PADDING_X = 7;
 const LABEL_MIN_WIDTH = 38;
 const LABEL_OFFSET = 18;
+const LABEL_BACKGROUND_FILL = "#111827";
+const LABEL_TEXT_FILL = "#ffffff";
+const LABEL_BORDER_WIDTH = 1;
 
 export function measureLength(start: Point, end: Point): number {
   return Math.round(Math.hypot(end.x - start.x, end.y - start.y));
@@ -47,6 +50,13 @@ function tickPoints(x: number, y: number, normal: Point, halfLength: number): nu
   ];
 }
 
+function labelRotation(dx: number, dy: number): number {
+  let degrees = Math.atan2(dy, dx) * 180 / Math.PI;
+  if (degrees > 90) degrees -= 180;
+  if (degrees < -90) degrees += 180;
+  return degrees;
+}
+
 function buildMeasureObjectChildren(group: Konva.Group, obj: AnnotationObject) {
   group.destroyChildren();
 
@@ -60,8 +70,8 @@ function buildMeasureObjectChildren(group: Konva.Group, obj: AnnotationObject) {
   const label = measureLabel(start, end);
   const labelWidth = estimateLabelWidth(label);
   const labelOffset = Math.max(LABEL_OFFSET, style.strokeWidth * 2 + 10);
-  const labelX = dx / 2 + normal.x * labelOffset - labelWidth / 2;
-  const labelY = dy / 2 + normal.y * labelOffset - LABEL_HEIGHT / 2;
+  const labelCenterX = dx / 2 + normal.x * labelOffset;
+  const labelCenterY = dy / 2 + normal.y * labelOffset;
 
   group.add(new Konva.Line({
     points: [0, 0, dx, dy],
@@ -88,23 +98,32 @@ function buildMeasureObjectChildren(group: Konva.Group, obj: AnnotationObject) {
     name: "measure-tick",
   }));
 
-  group.add(new Konva.Rect({
-    x: labelX,
-    y: labelY,
+  const labelGroup = new Konva.Group({
+    x: labelCenterX,
+    y: labelCenterY,
+    rotation: labelRotation(dx, dy),
+    name: "measure-label-group",
+  });
+
+  labelGroup.add(new Konva.Rect({
+    x: -labelWidth / 2,
+    y: -LABEL_HEIGHT / 2,
     width: labelWidth,
     height: LABEL_HEIGHT,
     cornerRadius: 5,
-    fill: "rgba(20,20,20,0.86)",
+    fill: LABEL_BACKGROUND_FILL,
+    stroke: style.color,
+    strokeWidth: LABEL_BORDER_WIDTH,
     name: "measure-label-bg",
   }));
 
-  group.add(new Konva.Text({
-    x: labelX,
-    y: labelY + 3,
+  labelGroup.add(new Konva.Text({
+    x: -labelWidth / 2,
+    y: -LABEL_HEIGHT / 2 + 3,
     width: labelWidth,
     height: LABEL_HEIGHT,
     text: label,
-    fill: "#ffffff",
+    fill: LABEL_TEXT_FILL,
     fontFamily: "system-ui",
     fontSize: LABEL_FONT_SIZE,
     fontStyle: "bold",
@@ -112,6 +131,8 @@ function buildMeasureObjectChildren(group: Konva.Group, obj: AnnotationObject) {
     listening: false,
     name: "measure-label",
   }));
+
+  group.add(labelGroup);
 }
 
 function makeMeasureObject(x: number, y: number, style: AnnotationStyle, id: string = crypto.randomUUID()): AnnotationObject {
