@@ -191,6 +191,17 @@ function OcrChrome({ monitorId, rect, cachedResult }: Props) {
     }
   }, []);
 
+  const onSave = useCallback(async (text: string) => {
+    try {
+      await ocr.saveText(text);
+      await emitToast("success", "Saved text");
+    } catch (e) {
+      setCopyToast(`Save failed: ${errorMessage(e)}`);
+      window.setTimeout(() => setCopyToast(null), 2500);
+      await emitToast("error", "Save failed");
+    }
+  }, []);
+
   // Keyboard shortcuts.
   useEffect(() => {
     const onKey = async (e: KeyboardEvent) => {
@@ -204,6 +215,9 @@ function OcrChrome({ monitorId, rect, cachedResult }: Props) {
       if (meta && e.key.toLowerCase() === "c") {
         e.preventDefault();
         await onCopy(phase.result.full_text);
+      } else if (meta && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        await onSave(phase.result.full_text);
       } else if (meta && e.key === "Enter") {
         e.preventDefault();
         await onCopy(phase.result.full_text);
@@ -212,7 +226,7 @@ function OcrChrome({ monitorId, rect, cachedResult }: Props) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [phase, onCopy]);
+  }, [phase, onCopy, onSave]);
 
   async function onConfirmDownload() {
     setPhase({
@@ -293,9 +307,13 @@ function OcrChrome({ monitorId, rect, cachedResult }: Props) {
           >
             Copy
           </button>
-          {/* TODO(Save-as-txt): requires @tauri-apps/plugin-dialog +
-              @tauri-apps/plugin-fs (and capability JSON updates). Track in
-              a follow-up task. */}
+          <button
+            type="button"
+            className="ocr-chrome__button"
+            onClick={() => onSave(phase.result.full_text)}
+          >
+            Save as .txt
+          </button>
         </footer>
       )}
     </div>

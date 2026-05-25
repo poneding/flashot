@@ -89,3 +89,31 @@ pub async fn ocr_register_chrome(
     state.set_ocr_chrome(webview);
     Ok(())
 }
+
+/// Prompt the user for a destination and write the OCR text to disk.
+///
+/// Mirrors the [`crate::saver`] pattern used by the screenshot save flow:
+/// `rfd::AsyncFileDialog` to avoid blocking the Tokio runtime, and
+/// `std::fs::write` for the write itself (we deliberately keep `tokio::fs`
+/// off the dependency tree). Returns `Ok(())` for both successful saves and
+/// user cancellation — the frontend distinguishes them via toast feedback.
+#[tauri::command]
+pub async fn ocr_save_text(text: String) -> Result<(), String> {
+    let handle = rfd::AsyncFileDialog::new()
+        .set_file_name("ocr-result.txt")
+        .add_filter("Text", &["txt"])
+        .save_file()
+        .await;
+
+    let Some(handle) = handle else {
+        // User cancelled the dialog; not an error.
+        return Ok(());
+    };
+
+    let path = handle.path().to_path_buf();
+    tokio::task::spawn_blocking(move || std::fs::write(path, text))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
+        .map_err(|e| format!("write failed: {e}"))?;
+    Ok(())
+}

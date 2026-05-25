@@ -186,6 +186,7 @@ export const ocr = {
   recognize: (monitorId: number, rect: Rect) =>
     invoke<OcrResult>("ocr_recognize", { monitorId, rect }),
   registerChrome: () => invoke<void>("ocr_register_chrome"),
+  saveText: (text: string) => invoke<void>("ocr_save_text", { text }),
   onDownloadProgress: (cb: (p: OcrDownloadProgress) => void): Promise<UnlistenFn> =>
     listen<OcrDownloadProgress>("ocr:download-progress", (e) => cb(e.payload)),
 };

@@ -285,6 +285,7 @@ pub fn run() {
             ocr::commands::ocr_status,
             ocr::commands::ocr_install,
             ocr::commands::ocr_register_chrome,
+            ocr::commands::ocr_save_text,
             commands::ocr_recognize,
         ])
         .run(tauri::generate_context!())
