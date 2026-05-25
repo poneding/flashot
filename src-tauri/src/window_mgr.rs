@@ -3,13 +3,17 @@ use crate::types::FrozenFrame;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 /// Active capture session. While `Some(_)`, the overlay is showing.
 /// Drop guarantees `end_capture` runs (RAII invariant from spec §6.4).
 #[derive(Default)]
 pub struct WindowMgr {
     inner: Mutex<Inner>,
+    /// Optional OCR chrome window registered for the current session. Closed
+    /// automatically when the session ends so a stale window cannot survive
+    /// across captures.
+    ocr_chrome: std::sync::Mutex<Option<WebviewWindow>>,
 }
 
 #[derive(Default)]
@@ -68,6 +72,51 @@ impl WindowMgr {
             })
     }
 
+    /// Crop the frozen frame for `monitor_id` to `rect` (logical px) and
+    /// return the raw RGBA bytes plus the cropped dimensions (physical px).
+    /// Returns `None` if no frame exists for that monitor or if the cropped
+    /// rect falls outside the physical frame bounds.
+    ///
+    /// The same frame may be cropped multiple times in a single session (for
+    /// example: crop once for save and once for OCR), so the underlying frame
+    /// data is cloned rather than moved.
+    pub fn crop_frame_rgba(
+        &self,
+        monitor_id: u32,
+        rect: crate::types::Rect,
+    ) -> Option<(Vec<u8>, u32, u32)> {
+        let frame = self.frame(monitor_id)?;
+        let cropped = crate::commands::crop_rgba(
+            &frame.rgba,
+            frame.width,
+            frame.height,
+            rect,
+            frame.scale_factor,
+        )?;
+        Some((cropped.rgba, cropped.width, cropped.height))
+    }
+
+    /// Register an OCR chrome window for the active session. Any previously
+    /// registered window is closed so each session can only own one chrome
+    /// window at a time.
+    pub fn set_ocr_chrome(&self, window: WebviewWindow) {
+        let mut guard = self.ocr_chrome.lock().expect("ocr_chrome mutex");
+        if let Some(prev) = guard.take() {
+            let _ = prev.close();
+        }
+        *guard = Some(window);
+    }
+
+    /// Close and forget the OCR chrome window, if any. Called both explicitly
+    /// when the OCR flow finishes and from `end_session` as part of the
+    /// session-teardown RAII invariant.
+    pub fn clear_ocr_chrome(&self) {
+        let mut guard = self.ocr_chrome.lock().expect("ocr_chrome mutex");
+        if let Some(prev) = guard.take() {
+            let _ = prev.close();
+        }
+    }
+
     pub fn in_session(&self) -> bool {
         self.inner.lock().in_session
     }
@@ -86,6 +135,7 @@ impl WindowMgr {
 
     pub fn end_session(&self, app: &AppHandle) {
         self.clear_session_state();
+        self.clear_ocr_chrome();
         self.hide_overlays(app);
         let _ = app.emit("capture:end", ());
     }

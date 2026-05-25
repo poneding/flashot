@@ -1,5 +1,5 @@
 use crate::{
-    clipboard, overlay_window,
+    clipboard, ocr, overlay_window,
     pin_mgr::{PinEntry, PinManager},
     saver, settings_store,
     settings_store::Settings,
@@ -25,11 +25,16 @@ const SETTINGS_WINDOW_WIDTH: f64 = 560.0;
 const SETTINGS_WINDOW_HEIGHT: f64 = 560.0;
 const UPDATER_WINDOW_WIDTH: f64 = 360.0;
 const UPDATER_WINDOW_HEIGHT: f64 = 280.0;
+const MAX_CORNER_RADIUS: u32 = 60;
 
 /// Extra padding (logical px per side) added to pin windows so the CSS
 /// boxShadow rendered by the frontend has room outside the image.
 /// Must match `PIN_SHADOW_PADDING` in src/routes/Pin.tsx.
 const PIN_SHADOW_PADDING: f64 = 24.0;
+
+fn clamp_corner_radius(radius: u32) -> u32 {
+    radius.min(MAX_CORNER_RADIUS)
+}
 
 fn show_pin_window(window: &WebviewWindow) -> Result<(), String> {
     configure_pin_window_before_show(window)?;
@@ -189,9 +194,11 @@ pub async fn crop_and_copy(
     monitor_id: u32,
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
+    corner_radius: u32,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
+    let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
     let cropped = crop_rgba(
         &frame.rgba,
@@ -201,10 +208,17 @@ pub async fn crop_and_copy(
         frame.scale_factor,
     )
     .ok_or("crop failed")?;
-    let final_image = match annotation_png {
+    let mut final_image = match annotation_png {
         Some(png_data) if !png_data.is_empty() => composite_annotation(&cropped, &png_data)?,
         _ => cropped,
     };
+    crate::mask::apply_rounded_corners(
+        &mut final_image.rgba,
+        final_image.width,
+        final_image.height,
+        corner_radius,
+        frame.scale_factor,
+    );
     clipboard::copy_image(final_image.rgba, final_image.width, final_image.height)
         .map_err(|e| e.to_string())?;
     mgr.end_session(&app);
@@ -216,9 +230,11 @@ pub async fn crop_and_save(
     monitor_id: u32,
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
+    corner_radius: u32,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
+    let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
     let cropped = crop_rgba(
         &frame.rgba,
@@ -228,10 +244,17 @@ pub async fn crop_and_save(
         frame.scale_factor,
     )
     .ok_or("crop failed")?;
-    let final_image = match annotation_png {
+    let mut final_image = match annotation_png {
         Some(png_data) if !png_data.is_empty() => composite_annotation(&cropped, &png_data)?,
         _ => cropped,
     };
+    crate::mask::apply_rounded_corners(
+        &mut final_image.rgba,
+        final_image.width,
+        final_image.height,
+        corner_radius,
+        frame.scale_factor,
+    );
     let mut settings = settings_store::load().unwrap_or_default();
     mgr.end_session(&app);
     let path = saver::save_image_dialog(
@@ -398,12 +421,14 @@ pub async fn pin_image(
     monitor_id: u32,
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
+    corner_radius: u32,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
     pin_mgr: State<'_, Arc<PinManager>>,
 ) -> Result<String, String> {
+    let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
-    let cropped = crop_rgba(
+    let mut cropped = crop_rgba(
         &frame.rgba,
         frame.width,
         frame.height,
@@ -411,6 +436,13 @@ pub async fn pin_image(
         frame.scale_factor,
     )
     .ok_or("crop failed")?;
+    crate::mask::apply_rounded_corners(
+        &mut cropped.rgba,
+        cropped.width,
+        cropped.height,
+        corner_radius,
+        frame.scale_factor,
+    );
 
     let pin_id = Uuid::new_v4().to_string();
     let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
@@ -431,11 +463,18 @@ pub async fn pin_image(
     };
 
     let window_label = format!("pin-{}", pin_id);
-    let route = if annotation_path.is_some() {
+    let mut route = if annotation_path.is_some() {
         format!("index.html#/pin/{}?annotation=1", pin_id)
     } else {
         format!("index.html#/pin/{}", pin_id)
     };
+    if corner_radius > 0 {
+        if route.contains('?') {
+            route.push_str(&format!("&radius={corner_radius}"));
+        } else {
+            route.push_str(&format!("?radius={corner_radius}"));
+        }
+    }
     let url = tauri::WebviewUrl::App(route.into());
 
     let outer_width = rect.width as f64 + 2.0 * PIN_SHADOW_PADDING;
@@ -905,6 +944,58 @@ pub async fn scroll_save(
     let _ = app.emit("settings:changed", ());
     Ok(Some(path.to_string_lossy().to_string()))
 }
+
+#[tauri::command]
+pub async fn ocr_recognize(
+    app: AppHandle,
+    state: State<'_, Arc<WindowMgr>>,
+    monitor_id: u32,
+    rect: Rect,
+) -> Result<ocr::types::OcrResult, String> {
+    // Resolve model paths on the async side, then load the sessions inside the
+    // blocking task so a cold OCR start cannot stall Tauri's IPC worker.
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {e}"))?;
+    let install_dir = ocr::paths::install_dir(&data_dir);
+    if ocr::ensure_ort_dylib_ready().is_err() {
+        ocr::init_ort_dylib(&app).map_err(|e| format!("{e}"))?;
+    }
+
+    // Look up the frozen frame and crop the selection.
+    let cropped = state
+        .crop_frame_rgba(monitor_id, rect)
+        .ok_or_else(|| "frozen frame not available for monitor".to_string())?;
+
+    // Heavy: run on a blocking thread to keep the Tokio runtime responsive.
+    let (rgba, w, h) = cropped;
+    let result = tokio::task::spawn_blocking(move || {
+        let engine = ocr::engine::Engine::global();
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            engine.ensure_loaded(&install_dir)?;
+            engine.recognize(&rgba, w, h)
+        }))
+        .map_err(ocr_runtime_panic_error)?
+    })
+    .await
+    .map_err(|e| format!("join error: {e}"))?
+    .map_err(|e| format!("{e}"))?;
+
+    Ok(result)
+}
+
+fn ocr_runtime_panic_error(payload: Box<dyn std::any::Any + Send>) -> ocr::types::OcrError {
+    let message = if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else {
+        "unknown panic while loading OCR runtime".to_string()
+    };
+    ocr::types::OcrError::RuntimeUnavailable(message)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -917,6 +1008,16 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn ocr_runtime_panic_becomes_user_facing_runtime_error() {
+        let err = ocr_runtime_panic_error(Box::new(
+            "ort 2.0.0-rc.10 is not compatible with ONNX Runtime 1.19.2",
+        ));
+
+        assert!(matches!(err, ocr::types::OcrError::RuntimeUnavailable(_)));
+        assert!(err.to_string().contains("ONNX Runtime 1.19.2"));
     }
 
     #[test]
@@ -992,7 +1093,7 @@ mod tests {
             .unwrap();
         let body = &source[start..end];
 
-        let crop_idx = body.find("let cropped = crop_rgba").unwrap();
+        let crop_idx = body.find("crop_rgba").unwrap();
         let end_session_idx = body.find("mgr.end_session(&app);").unwrap();
         let save_dialog_idx = body.find("saver::save_image_dialog").unwrap();
 
@@ -1004,6 +1105,67 @@ mod tests {
             end_session_idx < save_dialog_idx,
             "native save dialogs must open after overlay windows are hidden",
         );
+    }
+
+    #[test]
+    fn crop_commands_apply_corner_radius_after_compositing() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        for name in ["crop_and_copy", "crop_and_save"] {
+            let body = function_body(&source, name);
+            let composite_idx = body.find("composite_annotation").unwrap();
+            let mask_idx = body
+                .find("apply_rounded_corners")
+                .unwrap_or_else(|| panic!("{name} must call mask::apply_rounded_corners"));
+            assert!(
+                composite_idx < mask_idx,
+                "{name}: mask must be applied after compositing annotations",
+            );
+            assert!(
+                body.contains("corner_radius"),
+                "{name} must accept a corner_radius parameter",
+            );
+        }
+
+        let pin_body = function_body(&source, "pin_image");
+        assert!(
+            pin_body.contains("corner_radius"),
+            "pin_image must accept a corner_radius parameter",
+        );
+        assert!(
+            pin_body.contains("apply_rounded_corners"),
+            "pin_image must call mask::apply_rounded_corners",
+        );
+        assert!(
+            !pin_body.contains("composite_annotation"),
+            "pin_image should keep annotation PNGs as a separate layer",
+        );
+    }
+
+    #[test]
+    fn quick_shot_paths_do_not_apply_corner_radius() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"),
+        )
+        .unwrap()
+        .replace("\r\n", "\n");
+        for name in [
+            "copy_active_display_to_clipboard",
+            "copy_active_window_to_clipboard",
+        ] {
+            let body = function_body(&source, name);
+            assert!(
+                !body.contains("apply_rounded_corners"),
+                "{name}: fullscreen and active-window quick-shots must stay rectangular",
+            );
+        }
+    }
+
+    #[test]
+    fn clamp_corner_radius_caps_backend_command_inputs() {
+        assert_eq!(clamp_corner_radius(0), 0);
+        assert_eq!(clamp_corner_radius(60), 60);
+        assert_eq!(clamp_corner_radius(61), 60);
+        assert_eq!(clamp_corner_radius(u32::MAX), 60);
     }
 
     #[test]
@@ -1190,6 +1352,20 @@ mod tests {
     }
 
     #[test]
+    fn pin_image_appends_radius_to_route_when_nonzero() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "pin_image");
+        assert!(
+            body.contains("&radius="),
+            "pin_image must forward corner_radius to the pin route URL when > 0",
+        );
+        assert!(
+            body.contains("if corner_radius > 0"),
+            "pin_image must only append the radius query param when nonzero",
+        );
+    }
+
+    #[test]
     fn pin_window_starts_hidden_without_native_shadow() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let start = source.find("pub async fn pin_image").unwrap();
@@ -1210,6 +1386,30 @@ mod tests {
         assert!(
             body.contains("show_pin_window(&window)"),
             "the backend must show hidden pin windows instead of relying on frontend JS",
+        );
+    }
+
+    #[test]
+    fn ocr_recognize_loads_engine_inside_blocking_task() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "ocr_recognize");
+        let blocking_idx = body
+            .find("spawn_blocking")
+            .expect("OCR recognition must run in a blocking task");
+        let before_blocking = &body[..blocking_idx];
+        let blocking_body = &body[blocking_idx..];
+
+        assert!(
+            !before_blocking.contains("ensure_loaded"),
+            "cold OCR model loading must not block the async IPC worker",
+        );
+        assert!(
+            blocking_body.contains("ensure_loaded"),
+            "the blocking task must load the OCR engine before recognition",
+        );
+        assert!(
+            blocking_body.contains("recognize(&rgba, w, h)"),
+            "the blocking task still performs recognition on the cropped image",
         );
     }
 

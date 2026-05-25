@@ -12,9 +12,9 @@ import {
   GripVertical,
   Highlighter,
   MoveUpRight,
-  Pipette,
   Pencil,
   Redo2,
+  Ruler,
   Square,
   Type,
   Undo2,
@@ -40,6 +40,7 @@ const TOOLS: ToolDef[] = [
   { id: "blur", icon: <Droplets size={18} />, label: "Blur" },
   { id: "highlight", icon: <Highlighter size={18} />, label: "Highlight" },
   { id: "eraser", icon: <Eraser size={18} />, label: "Eraser" },
+  { id: "measure", icon: <Ruler size={18} />, label: "Measure" },
 ];
 
 function shortcutTitle(action: string, key: string, options: { shift?: boolean } = {}): string {
@@ -55,8 +56,6 @@ type Props = {
 
 export function Toolbar({ selection, monitorRect }: Props) {
   const { activeTool, setActiveTool, canUndo, canRedo, undo, redo } = useAnnotation();
-  const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
-  const toggleColorPicker = useOverlay((s) => s.toggleColorPicker);
   const hideColorPicker = useOverlay((s) => s.hideColorPicker);
   const objects = useAnnotation((s) => s.objects);
   const selectedObjectId = useAnnotation((s) => s.selectedObjectId);
@@ -94,16 +93,6 @@ export function Toolbar({ selection, monitorRect }: Props) {
 
     setActiveTool(tool);
     setShowPanel(tool !== "eraser");
-  }
-
-  function handleColorPickerClick() {
-    const willShowPicker = !colorPickerVisible;
-    toggleColorPicker();
-
-    if (willShowPicker) {
-      setActiveTool("select");
-      setShowPanel(false);
-    }
   }
 
   const startToolbarDrag = (e: React.MouseEvent) => {
@@ -212,12 +201,6 @@ export function Toolbar({ selection, monitorRect }: Props) {
             onClick={() => handleToolClick(tool.id)}
           />
         ))}
-        <ToolButton
-          icon={<Pipette size={18} />}
-          label="Color Picker"
-          active={colorPickerVisible}
-          onClick={handleColorPickerClick}
-        />
 
         <Separator />
 

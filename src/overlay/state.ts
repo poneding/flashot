@@ -7,11 +7,27 @@ import {
   type HandleId,
 } from "@/lib/geometry";
 import { hitTestWindow } from "@/lib/hit-test";
-import type { CaptureStartPayload, Mode, Point, Rect, WindowRect } from "@/lib/types";
+import { getSettings, setSettings } from "@/lib/ipc";
+import type { CaptureStartPayload, Mode, OcrResult, Point, Rect, WindowRect } from "@/lib/types";
 
 type SelectionInteraction =
   | { kind: "move"; origin: Point; startRect: Rect }
   | { kind: "resize"; handle: HandleId; startRect: Rect };
+
+export type HoverTarget = "window" | "monitor" | null;
+
+type HoverHit = {
+  rect: Rect;
+  target: Exclude<HoverTarget, null>;
+};
+
+export type OcrPhase =
+  | { kind: "idle" }
+  | { kind: "confirming-download"; sizeBytes: number }
+  | { kind: "downloading"; progress: number; downloadedBytes: number; totalBytes: number }
+  | { kind: "recognizing" }
+  | { kind: "result"; result: OcrResult }
+  | { kind: "error"; message: string };
 
 type State = {
   mode: Mode;
@@ -22,6 +38,7 @@ type State = {
   windows: WindowRect[];
   cursor: Point | null;
   hoverRect: Rect | null;
+  hoverTarget: HoverTarget;
   selection: Rect | null;
   dragStart: Point | null;
   selectionInteraction: SelectionInteraction | null;
@@ -29,12 +46,15 @@ type State = {
   colorPickerVisible: boolean;
   colorCopied: boolean;
   currentColor: { r: number; g: number; b: number } | null;
+  ocr: OcrPhase;
+  lastOcrResult: OcrResult | null;
+  cornerRadius: number;
 };
 
 type Actions = {
   start: (p: CaptureStartPayload) => void;
   setCursor: (p: Point) => void;
-  setHover: (r: Rect | null) => void;
+  setHover: (r: Rect | null, target?: HoverTarget) => void;
   clearHover: () => void;
   updateHoverAt: (p: Point) => void;
   lockToPeer: (monitorId: number) => void;
@@ -56,7 +76,38 @@ type Actions = {
   hideColorPicker: () => void;
   setColorCopied: (v: boolean) => void;
   setCurrentColor: (c: { r: number; g: number; b: number } | null) => void;
+  setOcrPhase: (phase: OcrPhase) => void;
+  setLastOcrResult: (result: OcrResult | null) => void;
+  setCornerRadius: (n: number) => void;
 };
+
+let cornerRadiusPersistTimer: ReturnType<typeof setTimeout> | null = null;
+let cornerRadiusPersistVersion = 0;
+
+function normalizeCornerRadius(n: number): number {
+  const finite = Number.isFinite(n) ? n : 0;
+  return Math.max(0, Math.min(60, Math.round(finite)));
+}
+
+function persistCornerRadiusDebounced(next: number) {
+  const version = ++cornerRadiusPersistVersion;
+  if (cornerRadiusPersistTimer != null) clearTimeout(cornerRadiusPersistTimer);
+  cornerRadiusPersistTimer = setTimeout(() => {
+    cornerRadiusPersistTimer = null;
+    void getSettings()
+      .then((s) => {
+        if (version !== cornerRadiusPersistVersion) return undefined;
+        return setSettings({ ...s, cornerRadius: next });
+      })
+      .catch((err) => console.warn("Failed to persist cornerRadius", err));
+  }, 150);
+}
+
+export function __resetCornerRadiusPersistenceForTests() {
+  if (cornerRadiusPersistTimer != null) clearTimeout(cornerRadiusPersistTimer);
+  cornerRadiusPersistTimer = null;
+  cornerRadiusPersistVersion += 1;
+}
 
 function localMonitorBounds(monitor: Rect | null): Rect {
   return {
@@ -67,12 +118,28 @@ function localMonitorBounds(monitor: Rect | null): Rect {
   };
 }
 
-function targetRectAtPoint(p: Point, windows: WindowRect[], monitor: Rect | null): Rect | null {
+function samePoint(a: Point | null, b: Point | null): boolean {
+  return a === b || (!!a && !!b && a.x === b.x && a.y === b.y);
+}
+
+function sameRect(a: Rect | null, b: Rect | null): boolean {
+  return (
+    a === b ||
+    (!!a &&
+      !!b &&
+      a.x === b.x &&
+      a.y === b.y &&
+      a.width === b.width &&
+      a.height === b.height)
+  );
+}
+
+function targetRectAtPoint(p: Point, windows: WindowRect[], monitor: Rect | null): HoverHit | null {
   const windowRect = hitTestWindow(p, windows)?.rect;
-  if (windowRect) return windowRect;
+  if (windowRect) return { rect: windowRect, target: "window" };
 
   const bounds = localMonitorBounds(monitor);
-  return rectContainsPoint(bounds, p) ? bounds : null;
+  return rectContainsPoint(bounds, p) ? { rect: bounds, target: "monitor" } : null;
 }
 
 export const useOverlay = create<State & Actions>((set, get) => ({
@@ -84,6 +151,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   windows: [],
   cursor: null,
   hoverRect: null,
+  hoverTarget: null,
   selection: null,
   dragStart: null,
   selectionInteraction: null,
@@ -91,6 +159,9 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   colorPickerVisible: false,
   colorCopied: false,
   currentColor: null,
+  ocr: { kind: "idle" },
+  lastOcrResult: null,
+  cornerRadius: 0,
 
   start: (p) =>
     set({
@@ -102,21 +173,46 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       windows: p.windows,
       cursor: null,
       hoverRect: null,
+      hoverTarget: null,
       selection: null,
       dragStart: null,
       selectionInteraction: null,
       colorPickerVisible: false,
       colorCopied: false,
       currentColor: null,
+      cornerRadius: normalizeCornerRadius(p.cornerRadius ?? 0),
     }),
 
-  setCursor: (p) => set({ cursor: p }),
-  setHover: (r) => set({ hoverRect: r }),
-  clearHover: () => set({ cursor: null, hoverRect: null }),
+  setCursor: (p) => {
+    if (samePoint(get().cursor, p)) return;
+    set({ cursor: p });
+  },
+  setHover: (r, target = r ? "window" : null) => {
+    const nextTarget = r ? target ?? "window" : null;
+    const state = get();
+    if (sameRect(state.hoverRect, r) && state.hoverTarget === nextTarget) return;
+    set({ hoverRect: r, hoverTarget: nextTarget });
+  },
+  clearHover: () => {
+    const state = get();
+    if (!state.cursor && !state.hoverRect && !state.hoverTarget) return;
+    set({ cursor: null, hoverRect: null, hoverTarget: null });
+  },
   updateHoverAt: (p) => {
     const { mode, windows, monitorRect } = get();
-    const hover = mode === "hover" ? targetRectAtPoint(p, windows, monitorRect) : get().hoverRect;
-    set({ cursor: p, hoverRect: hover });
+    if (mode === "hover") {
+      const hover = targetRectAtPoint(p, windows, monitorRect);
+      const nextRect = hover?.rect ?? null;
+      const nextTarget = hover?.target ?? null;
+      const state = get();
+      if (samePoint(state.cursor, p) && sameRect(state.hoverRect, nextRect) && state.hoverTarget === nextTarget) {
+        return;
+      }
+      set({ cursor: p, hoverRect: nextRect, hoverTarget: nextTarget });
+      return;
+    }
+    if (samePoint(get().cursor, p)) return;
+    set({ cursor: p });
   },
   lockToPeer: (ownerMonitorId) => {
     const { monitorId } = get();
@@ -125,6 +221,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       mode: "locked",
       cursor: null,
       hoverRect: null,
+      hoverTarget: null,
       selection: null,
       dragStart: null,
       selectionInteraction: null,
@@ -138,6 +235,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       mode: "hover",
       cursor: null,
       hoverRect: null,
+      hoverTarget: null,
       selection: null,
       dragStart: null,
       selectionInteraction: null,
@@ -149,13 +247,15 @@ export const useOverlay = create<State & Actions>((set, get) => ({
     const { mode: currentMode, windows, monitorRect, hoverRect } = get();
     if (currentMode !== "hover" && currentMode !== "committed") return;
     const keepHover = currentMode === "hover";
+    const detectedHover = keepHover && !hoverRect ? targetRectAtPoint(p, windows, monitorRect) : null;
     set({
       mode: "dragging",
       dragStart: p,
       selection: null,
       selectionInteraction: null,
       colorPickerVisible: false,
-      hoverRect: keepHover ? hoverRect ?? targetRectAtPoint(p, windows, monitorRect) : null,
+      hoverRect: keepHover ? hoverRect ?? detectedHover?.rect ?? null : null,
+      hoverTarget: keepHover ? get().hoverTarget ?? detectedHover?.target ?? null : null,
     });
   },
   updateDrag: (p) => {
@@ -168,13 +268,27 @@ export const useOverlay = create<State & Actions>((set, get) => ({
     if (!sel || sel.width < 4 || sel.height < 4) {
       // tiny drag → take hovered window if any, else stay in hover
       const r = get().hoverRect;
-      if (r) set({ selection: r, mode: "committed", dragStart: null, colorPickerVisible: false });
-      else set({ mode: "hover", selection: null, dragStart: null, colorPickerVisible: false });
+      if (r) {
+        set({
+          selection: r,
+          mode: "committed",
+          dragStart: null,
+          hoverTarget: null,
+          colorPickerVisible: false,
+        });
+      } else set({ mode: "hover", selection: null, dragStart: null, hoverTarget: null, colorPickerVisible: false });
       return;
     }
-    set({ mode: "committed", dragStart: null, colorPickerVisible: false });
+    set({ mode: "committed", dragStart: null, hoverTarget: null, colorPickerVisible: false });
   },
-  commit: (r) => set({ mode: "committed", selection: r, selectionInteraction: null, colorPickerVisible: false }),
+  commit: (r) =>
+    set({
+      mode: "committed",
+      selection: r,
+      hoverTarget: null,
+      selectionInteraction: null,
+      colorPickerVisible: false,
+    }),
   startScroll: () => {
     if (get().mode !== "committed") return;
     set({
@@ -229,6 +343,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       windows: [],
       cursor: null,
       hoverRect: null,
+      hoverTarget: null,
       selection: null,
       dragStart: null,
       selectionInteraction: null,
@@ -248,4 +363,11 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   hideColorPicker: () => set({ colorPickerVisible: false, colorCopied: false }),
   setColorCopied: (v) => set({ colorCopied: v }),
   setCurrentColor: (c) => set({ currentColor: c }),
+  setOcrPhase: (phase) => set({ ocr: phase }),
+  setLastOcrResult: (result) => set({ lastOcrResult: result }),
+  setCornerRadius: (n) => {
+    const clamped = normalizeCornerRadius(n);
+    set({ cornerRadius: clamped });
+    persistCornerRadiusDebounced(clamped);
+  },
 }));

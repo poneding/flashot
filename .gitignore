@@ -36,3 +36,11 @@ yarn-debug.log*
 .env
 .env.local
 .env.*.local
+
+# onnxruntime libraries are downloaded out-of-band, not committed
+src-tauri/lib/onnxruntime/macos/*.dylib
+src-tauri/lib/onnxruntime/windows/*.dll
+src-tauri/lib/onnxruntime/linux/*.so
+
+# OCR integration test fixtures (engineer-created, not in CI)
+src-tauri/tests/fixtures/ocr/*.png

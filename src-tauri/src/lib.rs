@@ -2,6 +2,8 @@ pub mod capture;
 pub mod clipboard;
 pub mod commands;
 pub mod hotkey;
+pub mod mask;
+pub mod ocr;
 pub mod overlay_window;
 pub mod permission;
 pub mod pin_mgr;
@@ -16,12 +18,12 @@ pub mod window_mgr;
 pub mod window_probe;
 
 use anyhow::{Context, Result};
+use pin_mgr::PinManager;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Listener, Manager, WindowEvent};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use pin_mgr::PinManager;
 use window_mgr::WindowMgr;
 
 static FRAME_REVISION_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -86,6 +88,40 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            if let Err(e) = ocr::init_ort_dylib(app.handle()) {
+                tracing::warn!("OCR will be unavailable: {e:?}");
+            }
+
+            // Background OCR warm-up: 2s delay, then load + dummy inference if models
+            // are installed. Errors are swallowed; OCR-via-command will surface them
+            // again on real use.
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let Ok(data_dir) = handle.path().app_data_dir() else {
+                    return;
+                };
+                let install_dir = ocr::paths::install_dir(&data_dir);
+                if !install_dir.exists() {
+                    return;
+                }
+                let result = tokio::task::spawn_blocking(move || {
+                    let engine = ocr::engine::Engine::global();
+                    if let Err(e) = engine.ensure_loaded(&install_dir) {
+                        tracing::warn!("OCR warm-up: load failed: {e}");
+                        return;
+                    }
+                    // 64×64 grey dummy image. Just exercises the session caches.
+                    let dummy = vec![128u8; 64 * 64 * 4];
+                    let _ = engine.recognize(&dummy, 64, 64);
+                    tracing::info!("OCR warm-up complete");
+                })
+                .await;
+                if let Err(e) = result {
+                    tracing::warn!("OCR warm-up join: {e}");
+                }
+            });
+
             configure_capture_app_shell(app.handle())?;
 
             // Create shared WindowMgr state
@@ -251,6 +287,12 @@ pub fn run() {
             commands::stop_scroll_session,
             commands::scroll_copy,
             commands::scroll_save,
+            ocr::commands::ocr_status,
+            ocr::commands::ocr_package_info,
+            ocr::commands::ocr_install,
+            ocr::commands::open_ocr_chrome,
+            ocr::commands::ocr_save_text,
+            commands::ocr_recognize,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -448,6 +490,8 @@ struct CaptureStartPayload {
     monitor_rect: types::Rect,
     #[serde(rename = "scaleFactor")]
     scale_factor: f32,
+    #[serde(rename = "cornerRadius")]
+    corner_radius: u32,
     windows: Vec<types::WindowRect>,
 }
 
@@ -568,6 +612,9 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
                 mon.id
             );
 
+            let corner_radius = settings_store::load()
+                .map(|s| s.corner_radius.min(60))
+                .unwrap_or(0);
             tracing::info!("run_capture: emitting capture:start event");
             app.emit_to(
                 capture_start_target(&label),
@@ -577,6 +624,7 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
                     frame_url: asset_url,
                     monitor_rect: mon.rect,
                     scale_factor: mon.scale_factor,
+                    corner_radius,
                     windows: local_windows,
                 },
             )
@@ -1396,6 +1444,22 @@ mod tests {
     }
 
     #[test]
+    fn capture_start_payload_includes_corner_radius() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let start = source.find("struct CaptureStartPayload").unwrap();
+        let end = source[start..].find("}\n").map(|idx| start + idx).unwrap();
+        let body = &source[start..end];
+        assert!(
+            body.contains("corner_radius"),
+            "CaptureStartPayload must carry the persisted corner radius to the frontend",
+        );
+        assert!(
+            body.contains("cornerRadius"),
+            "CaptureStartPayload must serialize as camelCase cornerRadius",
+        );
+    }
+
+    #[test]
     fn startup_hotkey_registration_failure_is_nonfatal() {
         let registered = register_startup_hotkey("F1", |accelerator| {
             assert_eq!(accelerator, "F1");
@@ -1414,6 +1478,7 @@ mod tests {
             theme: settings_store::Theme::System,
             launch_at_login: false,
             last_save_dir: None,
+            corner_radius: 0,
         };
 
         let registered =

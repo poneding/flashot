@@ -116,3 +116,160 @@
     @apply border-border;
   }
 }
+
+/* OCR chrome window styles. Rendered inside the dedicated
+   ocr-chrome-{session_id} webview via `OcrChromeRoute`. */
+.ocr-chrome {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  border-radius: 8px;
+  background: rgba(20, 20, 22, 0.95);
+  color: #e5e5e5;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+.ocr-chrome__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ocr-chrome__title {
+  flex: 1;
+  font-weight: 600;
+}
+.ocr-chrome__elapsed {
+  font-size: 11px;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+.ocr-chrome__close {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.ocr-chrome__close:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+}
+.ocr-chrome__body {
+  flex: 1;
+  padding: 12px;
+  overflow: auto;
+  display: flex;
+  min-height: 0;
+}
+.ocr-chrome__textarea {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 8px;
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: none;
+  outline: none;
+}
+.ocr-chrome__textarea:focus {
+  border-color: rgba(96, 165, 250, 0.6);
+}
+.ocr-chrome__footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ocr-chrome__toast {
+  margin-right: auto;
+  font-size: 12px;
+  opacity: 0.75;
+}
+.ocr-chrome__button {
+  padding: 6px 12px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.ocr-chrome__button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+.ocr-chrome__button--primary {
+  background: #2563eb;
+  color: white;
+}
+.ocr-chrome__button--primary:hover {
+  background: #1d4ed8;
+}
+.ocr-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  align-self: center;
+}
+.ocr-confirm__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.ocr-download {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  align-self: center;
+}
+.ocr-download__bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ocr-download__fill {
+  height: 100%;
+  background: #2563eb;
+  transition: width 200ms ease-out;
+}
+.ocr-download p {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+.ocr-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  width: 100%;
+  opacity: 0.7;
+}
+.ocr-error {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-self: center;
+  width: 100%;
+}
+.ocr-error p {
+  margin: 0;
+  color: #fca5a5;
+}

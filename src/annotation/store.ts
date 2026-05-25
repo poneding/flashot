@@ -11,6 +11,7 @@ import {
 } from "@/annotation/types";
 
 const STYLE_STORAGE_KEY = "flashot:annotation-style";
+const TOOL_STYLE_STORAGE_KEY = "flashot:annotation-tool-style";
 
 function loadPersistedStyle(): AnnotationStyle {
   try {
@@ -26,9 +27,19 @@ function persistStyle(style: AnnotationStyle) {
   } catch { /* ignore */ }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
 type ToolStyleMemory = {
   line: Pick<AnnotationStyle, "lineShape" | "lineStyle">;
   arrow: Pick<AnnotationStyle, "lineStyle" | "arrowStyle">;
+  measure: Pick<AnnotationStyle, "color" | "strokeWidth">;
+  highlight: Pick<AnnotationStyle, "strokeWidth" | "cornerRadius">;
 };
 
 function lineToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["line"] {
@@ -46,11 +57,72 @@ function arrowToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["arrow
   };
 }
 
+function measureToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["measure"] {
+  return {
+    color: style.color ?? DEFAULT_STYLE.color,
+    strokeWidth: style.strokeWidth ?? DEFAULT_STYLE.strokeWidth,
+  };
+}
+
+function highlightToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["highlight"] {
+  return {
+    strokeWidth: style.strokeWidth ?? DEFAULT_STYLE.strokeWidth,
+    cornerRadius: style.cornerRadius ?? DEFAULT_STYLE.cornerRadius,
+  };
+}
+
 function createToolStyleMemory(style: AnnotationStyle): ToolStyleMemory {
   return {
     line: lineToolStyle(style),
     arrow: arrowToolStyle(style),
+    measure: measureToolStyle(style),
+    highlight: highlightToolStyle(style),
   };
+}
+
+function loadPersistedToolStyleMemory(style: AnnotationStyle): {
+  memory: ToolStyleMemory;
+  hasRememberedMeasure: boolean;
+  hasRememberedHighlight: boolean;
+} {
+  const memory = createToolStyleMemory(style);
+  let hasRememberedMeasure = false;
+  let hasRememberedHighlight = false;
+
+  try {
+    const raw = localStorage.getItem(TOOL_STYLE_STORAGE_KEY);
+    if (!raw) return { memory, hasRememberedMeasure, hasRememberedHighlight };
+
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return { memory, hasRememberedMeasure, hasRememberedHighlight };
+
+    if (isRecord(parsed.measure)) {
+      memory.measure = {
+        color: typeof parsed.measure.color === "string" ? parsed.measure.color : memory.measure.color,
+        strokeWidth: finiteNumber(parsed.measure.strokeWidth, memory.measure.strokeWidth),
+      };
+      hasRememberedMeasure = true;
+    }
+
+    if (isRecord(parsed.highlight)) {
+      memory.highlight = {
+        strokeWidth: finiteNumber(parsed.highlight.strokeWidth, memory.highlight.strokeWidth),
+        cornerRadius: finiteNumber(parsed.highlight.cornerRadius, memory.highlight.cornerRadius ?? 0),
+      };
+      hasRememberedHighlight = true;
+    }
+  } catch { /* ignore */ }
+
+  return { memory, hasRememberedMeasure, hasRememberedHighlight };
+}
+
+function persistToolStyleMemory() {
+  try {
+    localStorage.setItem(TOOL_STYLE_STORAGE_KEY, JSON.stringify({
+      measure: toolStyleMemory.measure,
+      highlight: toolStyleMemory.highlight,
+    }));
+  } catch { /* ignore */ }
 }
 
 function normalizeActiveStyleForTool(tool: ToolType, style: AnnotationStyle): AnnotationStyle {
@@ -61,6 +133,18 @@ function normalizeActiveStyleForTool(tool: ToolType, style: AnnotationStyle): An
   if (tool === "arrow") {
     return { ...style, lineShape: "straight", ...arrowToolStyle(style) };
   }
+  if (tool === "measure") {
+    return {
+      ...style,
+      ...measureToolStyle(style),
+      lineShape: "straight",
+      lineStyle: "solid",
+      arrow: "none",
+    };
+  }
+  if (tool === "highlight") {
+    return { ...style, ...highlightToolStyle(style) };
+  }
   return style;
 }
 
@@ -69,6 +153,14 @@ function rememberToolStyle(tool: ToolType, style: AnnotationStyle) {
     toolStyleMemory.line = lineToolStyle(style);
   } else if (tool === "arrow") {
     toolStyleMemory.arrow = arrowToolStyle(style);
+  } else if (tool === "measure") {
+    toolStyleMemory.measure = measureToolStyle(style);
+    hasRememberedMeasureToolStyle = true;
+    persistToolStyleMemory();
+  } else if (tool === "highlight") {
+    toolStyleMemory.highlight = highlightToolStyle(style);
+    hasRememberedHighlightToolStyle = true;
+    persistToolStyleMemory();
   }
 }
 
@@ -78,6 +170,18 @@ function styleForTool(tool: ToolType, baseStyle: AnnotationStyle): AnnotationSty
   }
   if (tool === "arrow") {
     return normalizeActiveStyleForTool(tool, { ...baseStyle, ...toolStyleMemory.arrow });
+  }
+  if (tool === "measure") {
+    if (!hasRememberedMeasureToolStyle) {
+      return normalizeActiveStyleForTool(tool, baseStyle);
+    }
+    return normalizeActiveStyleForTool(tool, { ...baseStyle, ...toolStyleMemory.measure });
+  }
+  if (tool === "highlight") {
+    if (!hasRememberedHighlightToolStyle) {
+      return normalizeActiveStyleForTool(tool, baseStyle);
+    }
+    return normalizeActiveStyleForTool(tool, { ...baseStyle, ...toolStyleMemory.highlight });
   }
   return baseStyle;
 }
@@ -111,7 +215,10 @@ type AnnotationActions = {
 
 let commandStack: CommandStack = createCommandStack();
 const initialActiveStyle = loadPersistedStyle();
-let toolStyleMemory = createToolStyleMemory(initialActiveStyle);
+const initialToolStyleMemory = loadPersistedToolStyleMemory(initialActiveStyle);
+let toolStyleMemory = initialToolStyleMemory.memory;
+let hasRememberedMeasureToolStyle = initialToolStyleMemory.hasRememberedMeasure;
+let hasRememberedHighlightToolStyle = initialToolStyleMemory.hasRememberedHighlight;
 
 const initialState: AnnotationState = {
   objects: [],

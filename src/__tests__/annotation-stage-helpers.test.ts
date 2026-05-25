@@ -47,9 +47,24 @@ describe("annotation stage helpers", () => {
     expect(shouldReplaceRenderedObject(before, restyled)).toBe(true);
   });
 
-  it("excludes lines and arrows from transformer resize/rotate editing", () => {
+  it("excludes lines, arrows, and measurements from transformer resize/rotate editing", () => {
     expect(transformerConfigForObject(object({ type: "line" })).useTransformer).toBe(false);
     expect(transformerConfigForObject(object({ type: "arrow" })).useTransformer).toBe(false);
+    expect(transformerConfigForObject(object({ type: "measure" })).useTransformer).toBe(false);
+  });
+
+  it("replaces rendered measurements when endpoints change", () => {
+    const before = object({
+      type: "measure",
+      start: { x: 0, y: 0 },
+      end: { x: 30, y: 40 },
+    });
+    const after = {
+      ...before,
+      end: { x: 60, y: 80 },
+    };
+
+    expect(shouldReplaceRenderedObject(before, after)).toBe(true);
   });
 
   it("allows hand-drawn objects to drag and rotate without resize anchors", () => {
