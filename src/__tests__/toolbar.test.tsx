@@ -123,6 +123,16 @@ describe("Toolbar", () => {
       expect(handle.nextElementSibling).toBe(radiusGroup);
     });
 
+    it("uses the Lucide square-round-corner icon", () => {
+      renderToolbar();
+
+      const icon = screen
+        .getByRole("button", { name: "Corner radius: 0 px" })
+        .querySelector("svg");
+
+      expect(icon?.classList.contains("lucide-square-round-corner")).toBe(true);
+    });
+
     it("opens the slider panel when clicked", () => {
       renderToolbar();
 

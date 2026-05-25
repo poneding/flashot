@@ -92,6 +92,31 @@ describe("overlay hover detection", () => {
 
     expect(useOverlay.getState().cursor).toEqual({ x: 80, y: 90 });
     expect(useOverlay.getState().hoverRect).toEqual(windowRect);
+    expect(useOverlay.getState().hoverTarget).toBe("window");
+  });
+
+  it("does not notify subscribers when hover polling repeats the same point and target", () => {
+    const windowRect = { x: 20, y: 30, width: 240, height: 160 };
+    useOverlay.getState().start({
+      ...capture,
+      windows: [{ rect: windowRect, title: "Editor", appName: "Code", pid: 7 }],
+    });
+
+    let notifications = 0;
+    const unsubscribe = useOverlay.subscribe(() => {
+      notifications += 1;
+    });
+
+    try {
+      useOverlay.getState().updateHoverAt({ x: 80, y: 90 });
+      const afterFirstUpdate = notifications;
+
+      useOverlay.getState().updateHoverAt({ x: 80, y: 90 });
+
+      expect(notifications).toBe(afterFirstUpdate);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("falls back to the full monitor when the cursor leaves detected windows", () => {
@@ -111,6 +136,16 @@ describe("overlay hover detection", () => {
     useOverlay.getState().updateHoverAt({ x: 700, y: 500 });
 
     expect(useOverlay.getState().hoverRect).toEqual({ x: 0, y: 0, width: 800, height: 600 });
+    expect(useOverlay.getState().hoverTarget).toBe("monitor");
+  });
+
+  it("clears hover target with hover", () => {
+    useOverlay.getState().setHover({ x: 20, y: 30, width: 240, height: 160 });
+
+    useOverlay.getState().clearHover();
+
+    expect(useOverlay.getState().hoverRect).toBeNull();
+    expect(useOverlay.getState().hoverTarget).toBeNull();
   });
 
   it("commits the full monitor on a zero-size click outside detected windows", () => {

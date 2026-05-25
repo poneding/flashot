@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::ocr::download::{self, ProgressFn};
-use crate::ocr::manifest::{self, ASSETS};
+use crate::ocr::manifest;
 use crate::ocr::paths;
 use crate::ocr::types::OcrInstallStatus;
 
@@ -17,9 +17,15 @@ pub async fn ocr_status(app: AppHandle) -> OcrInstallStatus {
         return OcrInstallStatus::NotInstalled;
     };
     let dir = paths::install_dir(&data_dir);
-    let all_present = ASSETS.iter().all(|a| dir.join(a.name).exists());
+    let all_present = manifest::required_asset_names()
+        .iter()
+        .all(|name| dir.join(name).exists());
     if all_present {
-        let size = ASSETS.iter().map(|a| a.size_bytes).sum();
+        let size = manifest::required_asset_names()
+            .iter()
+            .filter_map(|name| std::fs::metadata(dir.join(name)).ok())
+            .map(|metadata| metadata.len())
+            .sum();
         OcrInstallStatus::Installed { size_bytes: size }
     } else {
         OcrInstallStatus::NotInstalled
@@ -39,9 +45,16 @@ pub async fn ocr_install(app: AppHandle) -> Result<(), String> {
         .path()
         .app_data_dir()
         .map_err(|e| format!("app_data_dir unavailable: {e}"))?;
-    let install_dir = paths::install_dir(&data_dir);
+    let package = manifest::fetch_supported_ocr_package()
+        .await
+        .map_err(|e| format!("{e}"))?;
+    let install_dir = paths::install_dir_for_version(&data_dir, &package.version);
+    let assets = package
+        .clone()
+        .into_supported_ocr_assets()
+        .map_err(|e| format!("{e}"))?;
 
-    let total = manifest::total_size_bytes();
+    let total = manifest::total_size_bytes(&assets);
     let app_for_progress = app.clone();
     let progress: ProgressFn = Arc::new(move |done, _total| {
         let payload = DownloadProgressPayload {
@@ -52,17 +65,25 @@ pub async fn ocr_install(app: AppHandle) -> Result<(), String> {
         let _ = app_for_progress.emit("ocr:download-progress", payload);
     });
 
-    download::download_all(ASSETS, &install_dir, Arc::new(AtomicBool::new(false)), progress)
+    download::download_all(
+        &assets,
+        &install_dir,
+        Arc::new(AtomicBool::new(false)),
+        progress,
+    )
+    .await
+    .map_err(|e| format!("{e}"))?;
+    tokio::fs::write(paths::active_version_path(&data_dir), &package.version)
         .await
-        .map_err(|e| format!("{e}"))?;
+        .map_err(|e| format!("write active OCR version: {e}"))?;
 
     // Best-effort cleanup of other versions.
-    let parent = install_dir.parent().unwrap().to_path_buf();
-    let current_version = manifest::MODEL_VERSION;
+    let parent = paths::root_dir(&data_dir);
+    let current_version = package.version.clone();
     tauri::async_runtime::spawn(async move {
         if let Ok(mut entries) = tokio::fs::read_dir(&parent).await {
             while let Ok(Some(entry)) = entries.next_entry().await {
-                if entry.file_name() != current_version {
+                if entry.file_name().to_string_lossy() != current_version {
                     download::uninstall_version(&entry.path()).await;
                 }
             }
@@ -139,21 +160,23 @@ pub async fn open_ocr_chrome(
         urlencoding::encode(&rect_json)
     );
 
-    let window = tauri::WebviewWindowBuilder::new(
-        &app,
-        &chrome_label,
-        tauri::WebviewUrl::App(url.into()),
-    )
-    .transparent(true)
-    .decorations(false)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .resizable(true)
-    .title("OCR")
-    .inner_size(chrome_w, chrome_h)
-    .position(x, y)
-    .build()
-    .map_err(|e| e.to_string())?;
+    let window =
+        tauri::WebviewWindowBuilder::new(&app, &chrome_label, tauri::WebviewUrl::App(url.into()))
+            .transparent(true)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(true)
+            .title("OCR")
+            .inner_size(chrome_w, chrome_h)
+            .position(x, y)
+            .build()
+            .map_err(|e| e.to_string())?;
+
+    if let Err(e) = crate::overlay_window::configure_ocr_chrome_window(&window) {
+        let _ = window.close();
+        return Err(e.to_string());
+    }
 
     // Register so SessionGuard tears it down with the session.
     state.set_ocr_chrome(window);
@@ -186,4 +209,41 @@ pub async fn ocr_save_text(text: String) -> Result<(), String> {
         .map_err(|e| format!("join error: {e}"))?
         .map_err(|e| format!("write failed: {e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    fn function_body<'a>(source: &'a str, name: &str) -> &'a str {
+        let start = source
+            .find(&format!("pub async fn {name}"))
+            .unwrap_or_else(|| panic!("missing function {name}"));
+        let next = source[start + 1..]
+            .find("\n#[")
+            .map(|idx| start + 1 + idx)
+            .unwrap_or(source.len());
+        &source[start..next]
+    }
+
+    #[test]
+    fn open_ocr_chrome_configures_window_before_registering_it() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "open_ocr_chrome");
+
+        let build_idx = body.find(".build()").expect("window must be built");
+        let configure_idx = body
+            .find("configure_ocr_chrome_window(&window)")
+            .expect("OCR chrome must be configured above capture overlays");
+        let register_idx = body
+            .find("state.set_ocr_chrome(window)")
+            .expect("OCR chrome must be registered with the session");
+
+        assert!(
+            build_idx < configure_idx,
+            "configure the native window after building it",
+        );
+        assert!(
+            configure_idx < register_idx,
+            "raise/focus the OCR window before SessionGuard can own it",
+        );
+    }
 }

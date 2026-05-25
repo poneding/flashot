@@ -952,15 +952,13 @@ pub async fn ocr_recognize(
     monitor_id: u32,
     rect: Rect,
 ) -> Result<ocr::types::OcrResult, String> {
-    // Ensure the engine is loaded. Reuses cached sessions on subsequent calls.
+    // Resolve model paths on the async side, then load the sessions inside the
+    // blocking task so a cold OCR start cannot stall Tauri's IPC worker.
     let data_dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("app_data_dir: {e}"))?;
     let install_dir = ocr::paths::install_dir(&data_dir);
-    ocr::engine::Engine::global()
-        .ensure_loaded(&install_dir)
-        .map_err(|e| format!("{e}"))?;
 
     // Look up the frozen frame and crop the selection.
     let cropped = state
@@ -970,7 +968,9 @@ pub async fn ocr_recognize(
     // Heavy: run on a blocking thread to keep the Tokio runtime responsive.
     let (rgba, w, h) = cropped;
     let result = tokio::task::spawn_blocking(move || {
-        ocr::engine::Engine::global().recognize(&rgba, w, h)
+        let engine = ocr::engine::Engine::global();
+        engine.ensure_loaded(&install_dir)?;
+        engine.recognize(&rgba, w, h)
     })
     .await
     .map_err(|e| format!("join error: {e}"))?
@@ -1358,6 +1358,30 @@ mod tests {
         assert!(
             body.contains("show_pin_window(&window)"),
             "the backend must show hidden pin windows instead of relying on frontend JS",
+        );
+    }
+
+    #[test]
+    fn ocr_recognize_loads_engine_inside_blocking_task() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "ocr_recognize");
+        let blocking_idx = body
+            .find("spawn_blocking")
+            .expect("OCR recognition must run in a blocking task");
+        let before_blocking = &body[..blocking_idx];
+        let blocking_body = &body[blocking_idx..];
+
+        assert!(
+            !before_blocking.contains("ensure_loaded"),
+            "cold OCR model loading must not block the async IPC worker",
+        );
+        assert!(
+            blocking_body.contains("ensure_loaded"),
+            "the blocking task must load the OCR engine before recognition",
+        );
+        assert!(
+            blocking_body.contains("recognize(&rgba, w, h)"),
+            "the blocking task still performs recognition on the cropped image",
         );
     }
 

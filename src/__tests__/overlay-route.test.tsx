@@ -32,6 +32,11 @@ const clipboardMock = vi.hoisted(() => ({
   writeText: vi.fn().mockResolvedValue(undefined),
 }));
 
+const coreMock = vi.hoisted(() => ({
+  invoke: vi.fn().mockResolvedValue(undefined),
+  convertFileSrc: vi.fn((path: string) => `mock://asset/${path}`),
+}));
+
 vi.mock("@/annotation/Stage", () => ({
   AnnotationStage: () => null,
 }));
@@ -74,6 +79,11 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
   getCurrentWebviewWindow: () => webviewWindowMock,
 }));
 
+vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: coreMock.convertFileSrc,
+  invoke: coreMock.invoke,
+}));
+
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
   writeText: clipboardMock.writeText,
 }));
@@ -101,6 +111,9 @@ describe("OverlayRoute", () => {
     webviewWindowMock.setFocus.mockClear();
     webviewWindowMock.setCursorIcon.mockClear();
     clipboardMock.writeText.mockClear();
+    coreMock.convertFileSrc.mockClear();
+    coreMock.invoke.mockClear();
+    coreMock.invoke.mockResolvedValue(undefined);
     vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => {}));
     useAnnotation.getState().reset();
     useOverlay.getState().end();
@@ -262,6 +275,24 @@ describe("OverlayRoute", () => {
         expect(useOverlay.getState().selection).toEqual(selection);
       });
       expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("shows a visible OCR status when the OCR chrome window cannot open", async () => {
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    coreMock.invoke.mockRejectedValueOnce(new Error("window hidden behind overlay"));
+    useOverlay.getState().commit(selection);
+
+    try {
+      render(<OverlayRoute />);
+      fireEvent.click(screen.getByRole("button", { name: "Extract text (OCR)" }));
+
+      const status = await screen.findByRole("status");
+      expect(status.textContent).toContain("OCR");
+      expect(coreMock.invoke).toHaveBeenCalledWith("open_ocr_chrome", { monitorId: 1, rect: selection });
     } finally {
       warn.mockRestore();
     }

@@ -3,7 +3,7 @@ import { clampToolbarPosition, computeVerticalToolbarPosition } from "@/lib/geom
 import type { Rect } from "@/lib/types";
 import { CornerRadiusPanel } from "@/overlay/CornerRadiusPanel";
 import { useOverlay } from "@/overlay/state";
-import { CopyIcon, GripHorizontal, PinIcon, SaveIcon, ScanText, XIcon } from "lucide-react";
+import { CopyIcon, GripHorizontal, PinIcon, SaveIcon, ScanText, SquareRoundCorner, XIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 export const SCREENSHOT_TOOLBAR_RADIUS = 10;
@@ -165,7 +165,7 @@ export function Toolbar({
           <ToolbarButton
             buttonRef={radiusButtonRef}
             label={`Corner radius: ${cornerRadius} px`}
-            icon={<CornerRadiusIcon radius={cornerRadius} size={18} strokeWidth={2.2} aria-hidden="true" />}
+            icon={<SquareRoundCorner size={18} strokeWidth={2.2} aria-hidden="true" />}
             onClick={() => setRadiusPanelOpen((open) => !open)}
           />
         </ToolbarGroup>
@@ -270,34 +270,6 @@ function computeRadiusPanelPosition(
       monitorBottom - RADIUS_PANEL_HEIGHT - RADIUS_PANEL_GAP,
     ),
   };
-}
-
-function CornerRadiusIcon({ radius, size = 24, strokeWidth = 2, ...props }: {
-  radius: number;
-  size?: number | string;
-  strokeWidth?: number | string;
-  "aria-hidden"?: "true";
-}) {
-  const rx = Math.round((Math.max(0, Math.min(radius, 60)) / 60) * 6);
-
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      data-corner-radius-icon
-      {...props}
-    >
-      <rect x="5" y="5" width="14" height="14" rx={rx} />
-      <path d="M9 5H7a2 2 0 0 0-2 2v2" />
-    </svg>
-  );
 }
 
 function ScrollScreenshotIcon({ size = 24, strokeWidth = 2, ...props }: {

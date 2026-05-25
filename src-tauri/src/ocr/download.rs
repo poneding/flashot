@@ -28,7 +28,7 @@ pub async fn download_one(
     cancel: Arc<AtomicBool>,
     on_chunk: &(dyn Fn(u64, u64) + Send + Sync),
 ) -> Result<(), OcrError> {
-    let final_path: PathBuf = install_dir.join(asset.name);
+    let final_path: PathBuf = install_dir.join(&asset.name);
     let partial_path: PathBuf = install_dir.join(format!("{}.partial", asset.name));
 
     fs::create_dir_all(install_dir).await?;
@@ -36,7 +36,7 @@ pub async fn download_one(
     let _ = fs::remove_file(&partial_path).await;
 
     let result = async {
-        let response = reqwest::get(asset.url)
+        let response = reqwest::get(&asset.url)
             .await
             .map_err(|e| OcrError::DownloadFailed(e.to_string()))?
             .error_for_status()
@@ -61,8 +61,8 @@ pub async fn download_one(
         let digest = hex::encode(hasher.finalize());
         if digest != asset.sha256 {
             return Err(OcrError::ChecksumMismatch {
-                asset: asset.name.into(),
-                expected: asset.sha256.into(),
+                asset: asset.name.clone(),
+                expected: asset.sha256.clone(),
                 got: digest,
             });
         }
@@ -102,10 +102,15 @@ pub async fn download_all(
     for asset in assets {
         let downloaded = downloaded.clone();
         let on_progress = on_progress.clone();
-        download_one(asset, install_dir, cancel.clone(), &move |chunk, _per_asset_total| {
-            let now = downloaded.fetch_add(chunk, Ordering::Relaxed) + chunk;
-            on_progress(now, grand_total);
-        })
+        download_one(
+            asset,
+            install_dir,
+            cancel.clone(),
+            &move |chunk, _per_asset_total| {
+                let now = downloaded.fetch_add(chunk, Ordering::Relaxed) + chunk;
+                on_progress(now, grand_total);
+            },
+        )
         .await?;
     }
     Ok(())
@@ -125,10 +130,14 @@ mod tests {
 
     fn make_asset(server: &MockServer, name: &'static str, body: &[u8]) -> (AssetSpec, String) {
         let digest = hex::encode(Sha256::digest(body));
-        let url: &'static str = Box::leak(format!("{}/{}", server.uri(), name).into_boxed_str());
-        let sha: &'static str = Box::leak(digest.clone().into_boxed_str());
+        let url = format!("{}/{}", server.uri(), name);
         (
-            AssetSpec { name, url, sha256: sha, size_bytes: body.len() as u64 },
+            AssetSpec {
+                name: name.into(),
+                url,
+                sha256: digest.clone(),
+                size_bytes: body.len() as u64,
+            },
             digest,
         )
     }
@@ -146,7 +155,9 @@ mod tests {
 
         let tmp = tempfile::tempdir().unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
-        download_one(&asset, tmp.path(), cancel, &|_, _| {}).await.unwrap();
+        download_one(&asset, tmp.path(), cancel, &|_, _| {})
+            .await
+            .unwrap();
 
         let final_path = tmp.path().join("test.bin");
         let partial = tmp.path().join("test.bin.partial");
@@ -163,20 +174,25 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_bytes(b"bad".to_vec()))
             .mount(&server)
             .await;
-        let url: &'static str = Box::leak(format!("{}/bad.bin", server.uri()).into_boxed_str());
+        let url = format!("{}/bad.bin", server.uri());
         // 64-char hex string that won't match Sha256("bad")
-        let bad_sha: &'static str = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+        let bad_sha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
         let asset = AssetSpec {
-            name: "bad.bin",
+            name: "bad.bin".into(),
             url,
-            sha256: bad_sha,
+            sha256: bad_sha.into(),
             size_bytes: 3,
         };
 
         let tmp = tempfile::tempdir().unwrap();
-        let err = download_one(&asset, tmp.path(), Arc::new(AtomicBool::new(false)), &|_, _| {})
-            .await
-            .unwrap_err();
+        let err = download_one(
+            &asset,
+            tmp.path(),
+            Arc::new(AtomicBool::new(false)),
+            &|_, _| {},
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(err, OcrError::ChecksumMismatch { .. }));
         assert!(!tmp.path().join("bad.bin").exists());
         assert!(!tmp.path().join("bad.bin.partial").exists());
@@ -205,7 +221,9 @@ mod tests {
             cancel_clone.store(true, Ordering::Relaxed);
         });
 
-        let err = download_one(&asset, tmp.path(), cancel, &|_, _| {}).await.unwrap_err();
+        let err = download_one(&asset, tmp.path(), cancel, &|_, _| {})
+            .await
+            .unwrap_err();
         assert!(matches!(err, OcrError::Cancelled));
         assert!(!tmp.path().join("slow.bin").exists());
         assert!(!tmp.path().join("slow.bin.partial").exists());
@@ -218,12 +236,16 @@ mod tests {
         let body_b = b"bbbbbbbb".to_vec(); // 8 bytes
         let (asset_a, _) = make_asset(&server, "a.bin", &body_a);
         let (asset_b, _) = make_asset(&server, "b.bin", &body_b);
-        Mock::given(method("GET")).and(path("/a.bin"))
+        Mock::given(method("GET"))
+            .and(path("/a.bin"))
             .respond_with(ResponseTemplate::new(200).set_body_bytes(body_a.clone()))
-            .mount(&server).await;
-        Mock::given(method("GET")).and(path("/b.bin"))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/b.bin"))
             .respond_with(ResponseTemplate::new(200).set_body_bytes(body_b.clone()))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
 
         let tmp = tempfile::tempdir().unwrap();
         let progress_log: Arc<std::sync::Mutex<Vec<(u64, u64)>>> = Arc::default();
@@ -237,7 +259,9 @@ mod tests {
             tmp.path(),
             Arc::new(AtomicBool::new(false)),
             progress,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         let log = progress_log.lock().unwrap();
         assert!(!log.is_empty());

@@ -36,6 +36,8 @@ pub enum OcrError {
     InferenceFailed(String),
     #[error("download failed: {0}")]
     DownloadFailed(String),
+    #[error("asset manifest invalid: {0}")]
+    ManifestInvalid(String),
     #[error("checksum mismatch for {asset}: expected {expected}, got {got}")]
     ChecksumMismatch {
         asset: String,
