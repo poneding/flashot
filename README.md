@@ -30,6 +30,7 @@
 - **Flexible selection** — Click-drag to select region, resize with handles
 - **Quick shots** — Copy the active screen or window instantly
 - **Copy or save** — Send to clipboard or save as PNG
+- **Extract text (OCR)** — Offline OCR for Chinese and English text. The ~15 MB PaddleOCR PP-OCRv4 model is downloaded once on first use; recognition then runs locally with no network calls. Trigger via the Toolbar's `Type` button after making a selection.
 - **Customizable shortcuts** — Change capture and quick-shot keys in settings
 - **Native performance** — Rust backend for speed, React frontend for polish
 
