@@ -5,16 +5,6 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ocr } from "@/lib/ipc";
 import type { OcrDownloadProgress, OcrResult, Rect } from "@/lib/types";
 
-const TOAST_CHANNEL = "toast:show";
-
-async function emitToast(kind: "success" | "error", message: string): Promise<void> {
-  try {
-    await emit(TOAST_CHANNEL, { kind, message });
-  } catch {
-    // Best-effort; never block the user flow on a toast failure.
-  }
-}
-
 type Phase =
   | { kind: "checking" }
   | { kind: "confirming-download"; sizeBytes: number }
@@ -115,7 +105,6 @@ function OcrChrome({ monitorId, rect, cachedResult }: Props) {
       await emit("ocr:result-cached", result);
       setPhase({ kind: "result", result });
     } catch (e) {
-      await emitToast("error", "OCR engine failed");
       setPhase({ kind: "error", message: errorMessage(e) });
     }
   }, [monitorId, rect]);
@@ -184,7 +173,6 @@ function OcrChrome({ monitorId, rect, cachedResult }: Props) {
       await writeText(text);
       setCopyToast("Copied");
       window.setTimeout(() => setCopyToast(null), 1500);
-      await emitToast("success", "Copied to clipboard");
     } catch (e) {
       setCopyToast(`Copy failed: ${errorMessage(e)}`);
       window.setTimeout(() => setCopyToast(null), 2500);
@@ -194,11 +182,9 @@ function OcrChrome({ monitorId, rect, cachedResult }: Props) {
   const onSave = useCallback(async (text: string) => {
     try {
       await ocr.saveText(text);
-      await emitToast("success", "Saved text");
     } catch (e) {
       setCopyToast(`Save failed: ${errorMessage(e)}`);
       window.setTimeout(() => setCopyToast(null), 2500);
-      await emitToast("error", "Save failed");
     }
   }, []);
 
@@ -237,7 +223,6 @@ function OcrChrome({ monitorId, rect, cachedResult }: Props) {
     });
     try {
       await ocr.install();
-      await emitToast("success", "OCR model installed");
       await runRecognize();
     } catch (e) {
       setPhase({ kind: "error", message: errorMessage(e) });
