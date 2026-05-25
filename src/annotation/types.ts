@@ -6,6 +6,7 @@ export type ToolType =
   | "select"
   | "draw"
   | "line"
+  | "measure"
   | "arrow"
   | "rect"
   | "ellipse"
@@ -42,7 +43,7 @@ export type AnnotationStyle = {
 
 export type AnnotationObject = {
   id: AnnotationId;
-  type: "draw" | "line" | "arrow" | "rect" | "ellipse" | "text" | "blur" | "highlight";
+  type: "draw" | "line" | "measure" | "arrow" | "rect" | "ellipse" | "text" | "blur" | "highlight";
   points?: number[];
   start?: Point;
   end?: Point;

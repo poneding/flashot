@@ -8,7 +8,9 @@ import {
 } from "@/annotation/fonts";
 import { highlightMaskPixelRatio, renderHighlightObject } from "@/annotation/tools/highlight";
 import { lineControlPoint, renderLineObject } from "@/annotation/tools/line";
+import { renderMeasureObject } from "@/annotation/tools/measure";
 import { renderRectObject } from "@/annotation/tools/rect";
+import { renderObject } from "@/annotation/render";
 import { renderTextObject } from "@/annotation/tools/text";
 import type { AnnotationObject } from "@/annotation/types";
 
@@ -86,6 +88,41 @@ describe("annotation object rendering", () => {
     expect(node.draggable()).toBe(false);
     expect(mainLine?.points().length).toBeGreaterThan(6);
     expect(mainLine?.points().some((value, index) => index % 2 === 1 && value > 0)).toBe(true);
+  });
+
+  it("renders measurement labels from logical endpoint distance", () => {
+    const measure = object({
+      type: "measure",
+      start: { x: 0, y: 0 },
+      end: { x: 30, y: 40 },
+      style: { color: "#ff0000", strokeWidth: 4 },
+      transform: { x: 5, y: 6, scaleX: 1, scaleY: 1, rotation: 0 },
+    });
+
+    const node = renderMeasureObject(measure);
+    const label = node.findOne(".measure-label") as Konva.Text;
+    const background = node.findOne(".measure-label-bg") as Konva.Rect;
+
+    expect(node.draggable()).toBe(false);
+    expect(node.x()).toBe(5);
+    expect(node.y()).toBe(6);
+    expect(label.text()).toBe("50 px");
+    expect(background.fill()).toBe("rgba(20,20,20,0.86)");
+  });
+
+  it("dispatches measurement objects through renderObject", () => {
+    const measure = object({
+      type: "measure",
+      start: { x: 0, y: 0 },
+      end: { x: 30, y: 40 },
+      style: { color: "#ff0000", strokeWidth: 4 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    });
+
+    const node = renderObject(measure) as Konva.Group;
+    const label = node.findOne(".measure-label") as Konva.Text;
+
+    expect(label.text()).toBe("50 px");
   });
 
   it("keeps wavy lines wavy after center control-point edits", () => {

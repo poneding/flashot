@@ -20,6 +20,31 @@ describe("useAnnotation store", () => {
     expect(useAnnotation.getState().selectedObjectId).toBeNull();
   });
 
+  it("sets the measure tool as the active tool", () => {
+    useAnnotation.getState().setActiveTool("measure");
+
+    expect(useAnnotation.getState().activeTool).toBe("measure");
+    expect(useAnnotation.getState().selectedObjectId).toBeNull();
+  });
+
+  it("normalizes measure style to straight solid non-arrow measurements", () => {
+    useAnnotation.getState().setActiveStyle({
+      color: "#0099ff",
+      strokeWidth: 6,
+      lineShape: "wavy",
+      lineStyle: "dashed",
+      arrow: "both",
+    });
+
+    useAnnotation.getState().setActiveTool("measure");
+
+    expect(useAnnotation.getState().activeStyle.color).toBe("#0099ff");
+    expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(6);
+    expect(useAnnotation.getState().activeStyle.lineShape).toBe("straight");
+    expect(useAnnotation.getState().activeStyle.lineStyle).toBe("solid");
+    expect(useAnnotation.getState().activeStyle.arrow).toBe("none");
+  });
+
   it("keeps line and arrow line styles independent when switching tools", () => {
     useAnnotation.getState().setActiveTool("line");
     useAnnotation.getState().setActiveStyle({ lineShape: "wavy", lineStyle: "solid" });

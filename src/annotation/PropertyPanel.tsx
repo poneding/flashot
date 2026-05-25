@@ -931,6 +931,22 @@ function LineSection({
   );
 }
 
+function MeasureSection({
+  style,
+  set,
+}: {
+  style: AnnotationStyle;
+  set: (p: Partial<AnnotationStyle>) => void;
+}) {
+  return (
+    <>
+      <ColorPicker value={style.color} onChange={(color) => set({ color })} />
+      <Separator />
+      <NumberStepper label="Stroke" title="Stroke width" value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
+    </>
+  );
+}
+
 function ArrowSection({
   style,
   set,
@@ -1305,6 +1321,7 @@ export function PropertyPanel({ tool, style: containerStyle, object, panelRef }:
     >
       {tool === "draw" && <PenSection style={style} set={set} />}
       {tool === "line" && <LineSection style={style} set={set} />}
+      {tool === "measure" && <MeasureSection style={style} set={set} />}
       {tool === "arrow" && <ArrowSection style={style} set={set} />}
       {tool === "rect" && <RectSection style={style} set={set} />}
       {tool === "ellipse" && <EllipseSection style={style} set={set} />}

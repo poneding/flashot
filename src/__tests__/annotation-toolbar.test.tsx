@@ -113,6 +113,7 @@ describe("Annotation toolbar", () => {
     [
       "Pen",
       "Line",
+      "Measure",
       "Arrow",
       "Rectangle",
       "Ellipse",
@@ -126,6 +127,14 @@ describe("Annotation toolbar", () => {
     ].forEach((title) => {
       expect(screen.getByTitle(title)).not.toBeNull();
     });
+  });
+
+  it("selects the measure tool from the toolbar", () => {
+    renderToolbar();
+
+    fireEvent.click(screen.getByTitle("Measure"));
+
+    expect(useAnnotation.getState().activeTool).toBe("measure");
   });
 
   it("toggles the committed color picker from the horizontal toolbar", () => {
