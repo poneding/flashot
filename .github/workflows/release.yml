@@ -144,7 +144,36 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libpipewire-0.3-dev libwayland-dev libgbm-dev libegl-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libpipewire-0.3-dev libwayland-dev libgbm-dev libegl-dev
+
+      - name: Download onnxruntime runtime library
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORT_VERSION="1.22.0"
+          mkdir -p src-tauri/lib/onnxruntime/macos src-tauri/lib/onnxruntime/linux src-tauri/lib/onnxruntime/windows
+
+          case "${{ runner.os }}" in
+            macOS)
+              archive="$RUNNER_TEMP/onnxruntime-macos.tgz"
+              curl --fail --location --retry 5 --output "$archive" \
+                "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-universal2-${ORT_VERSION}.tgz"
+              tar -xzf "$archive" -C "$RUNNER_TEMP"
+              cp "$RUNNER_TEMP/onnxruntime-osx-universal2-${ORT_VERSION}/lib/libonnxruntime.${ORT_VERSION}.dylib" \
+                src-tauri/lib/onnxruntime/macos/libonnxruntime.dylib
+              ;;
+            Linux)
+              archive="$RUNNER_TEMP/onnxruntime-linux.tgz"
+              curl --fail --location --retry 5 --output "$archive" \
+                "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz"
+              tar -xzf "$archive" -C "$RUNNER_TEMP"
+              cp "$RUNNER_TEMP/onnxruntime-linux-x64-${ORT_VERSION}/lib/libonnxruntime.so.${ORT_VERSION}" \
+                src-tauri/lib/onnxruntime/linux/libonnxruntime.so
+              ;;
+            Windows)
+              echo "Windows release uses ort's copy-dylibs output; no bundled file copy is required here."
+              ;;
+          esac
 
       - name: Install macOS signing certificate
         if: runner.os == 'macOS'
