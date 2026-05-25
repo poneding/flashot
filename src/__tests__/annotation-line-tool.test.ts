@@ -24,10 +24,16 @@ describe("line drawing tool", () => {
   });
 
   beforeEach(() => {
+    localStorage.clear();
     layer.add.mockClear();
     layer.batchDraw.mockClear();
     useAnnotation.getState().reset();
-    useAnnotation.getState().setActiveStyle({ color: "#ff0000", strokeWidth: 4 });
+    useAnnotation.getState().setActiveStyle({
+      color: "#ff0000",
+      strokeWidth: 4,
+      lineShape: "straight",
+      lineStyle: "solid",
+    });
   });
 
   it("normalizes the preview node to the persisted local-coordinate model", () => {

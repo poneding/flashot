@@ -4,6 +4,7 @@ import { FLOATING_LABEL_BACKGROUND } from "@/lib/floating-surface";
 import { SELECTION_COLOR } from "@/lib/colors";
 
 const COLOR = SELECTION_COLOR;
+const STROKE_WIDTH = 1.5;
 
 const handleStyle: React.CSSProperties = {
   position: "absolute",
@@ -18,34 +19,48 @@ const handleStyle: React.CSSProperties = {
 export function SelectionBox() {
   const r = useOverlay((s) => s.selection);
   const mode = useOverlay((s) => s.mode);
+  const cornerRadius = useOverlay((s) => s.cornerRadius);
+  const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
   if (!r) return null;
 
+  const effectiveRadius = mode === "scrollStarting" || mode === "scrolling" ? 0 : cornerRadius;
+  const halfStroke = STROKE_WIDTH / 2;
   const hx = (x: number) => x - 4;
   const hy = (y: number) => y - 4;
+  const handleCursor = (id: HandleId) => colorPickerVisible ? "crosshair" : cursorForHandle(id);
   const handle = (id: HandleId, left: number, top: number) => (
     <div
-      style={{ ...handleStyle, left, top, cursor: cursorForHandle(id) }}
+      style={{ ...handleStyle, left, top, cursor: handleCursor(id) }}
       data-handle={id}
     />
   );
 
-  // Use `outline` instead of `border` so the line never paints INSIDE the
-  // selection rect — critical for scrolling capture, which would otherwise
-  // pick up the outline as static content in the captured top ROI.
   return (
     <>
-      <div
+      <svg
         style={{
           position: "absolute",
           left: r.x,
           top: r.y,
           width: r.width,
           height: r.height,
-          outline: `1.5px solid ${COLOR}`,
-          outlineOffset: 0,
           pointerEvents: "none",
+          overflow: "visible",
         }}
-      />
+      >
+        <rect
+          x={-halfStroke}
+          y={-halfStroke}
+          width={r.width + STROKE_WIDTH}
+          height={r.height + STROKE_WIDTH}
+          rx={effectiveRadius}
+          ry={effectiveRadius}
+          fill="none"
+          stroke={COLOR}
+          strokeWidth={STROKE_WIDTH}
+          shapeRendering="geometricPrecision"
+        />
+      </svg>
       {mode !== "scrollStarting" && mode !== "scrolling" && (
         <div
           style={{

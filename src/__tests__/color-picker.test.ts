@@ -13,6 +13,7 @@ const capture: CaptureStartPayload = {
   monitorRect: { x: 0, y: 0, width: 800, height: 600 },
   scaleFactor: 2,
   windows: [],
+  cornerRadius: 0,
 };
 
 describe("ColorPicker format conversion", () => {

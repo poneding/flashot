@@ -70,6 +70,7 @@ pnpm tauri build      # Build production bundle (.dmg, .msi, .AppImage)
 - **`hotkey.rs`**: Global hotkey registration with live updates on settings change
 - **`commands.rs`**: Tauri command handlers. All commands receive `State<Arc<WindowMgr>>` to access frozen frames.
 - **`pin_mgr.rs`**: Pin image lifecycle manager. Tracks active pin windows and their associated PNG files in app cache. Each pin gets a UUID, an independent always-on-top transparent window, and is removed via `close_pin`.
+- **`ocr/`**: Offline OCR via PaddleOCR PP-OCRv4 ONNX models served by `ort`. Sub-modules: `engine.rs` (singleton with per-session mutexes, lazy loading), `download.rs` (model download with sha256 + atomic install + cancel), `detector.rs` (DBNet preprocessing + polygon extraction), `recognizer.rs` (CRNN + CTC greedy decode), `postprocess.rs` (reading-order sort, line concatenation), `paths.rs` / `manifest.rs` (asset constants), `commands.rs` (Tauri IPC: `ocr_status`, `ocr_install`, `ocr_register_chrome`). The onnxruntime dynamic library is bundled at build time and discovered via `ORT_DYLIB_PATH` set in `init_ort_dylib` at app startup. Model files are downloaded on first user request to `{app_data}/dev.flashot.app/ocr/{MODEL_VERSION}/`, not bundled.
 
 ### Key Frontend Modules
 
@@ -80,6 +81,8 @@ pnpm tauri build      # Build production bundle (.dmg, .msi, .AppImage)
 - **`src/lib/ipc.ts`**: Typed wrappers around Tauri IPC (commands + events). Use these instead of raw `invoke()`.
 - **`src/routes/Pin.tsx`**: Pin window route. Displays a pinned screenshot in an always-on-top borderless window. Mouse drag moves the window via `startDragging()`, scroll wheel scales (50%–300%), double-click and Escape close the pin.
 - **`src/overlay/ColorPicker.tsx`**: Snipaste-style color picker overlay. Loads the frozen frame into an offscreen canvas, reads a 15×15 pixel block around the cursor on each move, renders a 120×120 magnifier with grid lines and center highlight. X toggles HEX/RGB format; C copies the color value.
+- **`src/routes/OcrChrome.tsx`**: Chrome window for OCR. State machine: `checking → confirming-download → downloading → recognizing → result | error`. Window label: `ocr-chrome-{session_id}`, hash route `#/ocr-chrome/{session_id}`. Registers itself with `WindowMgr` via `ocr_register_chrome` so `SessionGuard::drop` tears it down when the originating capture session ends. Emits `ocr:result-cached` on success and toast events on copy/install.
+- **`src/lib/chrome-anchor.ts`**: Pure positioning helper used by OcrChrome. Decides below/above/overlap placement relative to the selection.
 
 ### Multi-Monitor Handling
 
@@ -163,6 +166,13 @@ This allows live hotkey updates without app restart.
 - **Never** manually hide overlays or clear frames — always use `SessionGuard`
 - Frozen frames are cloned on retrieval (see `WindowMgr::frame`) to prevent mutation
 - Scale factor must be applied when cropping (see `commands.rs:crop_rgba`)
+
+### Adding an OCR-related Rust command
+
+1. Add to `src-tauri/src/ocr/commands.rs` if it's OCR-specific install/status/UI, or `src-tauri/src/commands.rs` if it shares the WindowMgr crop path.
+2. Register in `tauri::generate_handler![]` in `lib.rs`.
+3. Heavy synchronous work goes inside `tokio::task::spawn_blocking` to keep the runtime responsive.
+4. The Engine singleton serialises inference per session; never hold both `det()` and `rec()` guards simultaneously.
 
 ## CI/CD
 

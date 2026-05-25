@@ -20,7 +20,7 @@ const PIN_GLOW = [
   `0 0 22px ${SELECTION_COLOR}33`,
 ].join(", ");
 
-function parsePinRoute(): { id: string; hasAnnotation: boolean } | null {
+function parsePinRoute(): { id: string; hasAnnotation: boolean; radius: number } | null {
   const h = window.location.hash || "";
   const prefix = "#/pin/";
   if (!h.startsWith(prefix)) return null;
@@ -30,9 +30,13 @@ function parsePinRoute(): { id: string; hasAnnotation: boolean } | null {
   const id = idPart.split(/[/?#]/)[0];
   if (!id) return null;
   const query = queryPart.split("#")[0];
+  const params = new URLSearchParams(query);
+  const radiusRaw = Number(params.get("radius") ?? "0");
+  const radius = Number.isFinite(radiusRaw) ? Math.max(0, Math.min(60, radiusRaw)) : 0;
   return {
     id,
-    hasAnnotation: new URLSearchParams(query).get("annotation") === "1",
+    hasAnnotation: params.get("annotation") === "1",
+    radius,
   };
 }
 
@@ -40,6 +44,7 @@ export function PinRoute() {
   const [pinRoute] = useState(() => parsePinRoute());
   const id = pinRoute?.id ?? null;
   const hasAnnotation = pinRoute?.hasAnnotation ?? false;
+  const radius = pinRoute?.radius ?? 0;
   const [scale, setScale] = useState(1.0);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [annotationUrl, setAnnotationUrl] = useState<string | null>(null);
@@ -150,6 +155,18 @@ export function PinRoute() {
     userSelect: "none",
     pointerEvents: "none",
     boxShadow: PIN_GLOW,
+    borderRadius: radius,
+  };
+
+  const annotationStyle: CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    userSelect: "none",
+    pointerEvents: "none",
+    borderRadius: radius,
   };
 
   if (!id || !imageUrl) return null;
@@ -187,14 +204,4 @@ const imageStackStyle: CSSProperties = {
   position: "relative",
   width: "100%",
   height: "100%",
-};
-
-const annotationStyle: CSSProperties = {
-  position: "absolute",
-  inset: 0,
-  width: "100%",
-  height: "100%",
-  objectFit: "contain",
-  userSelect: "none",
-  pointerEvents: "none",
 };

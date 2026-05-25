@@ -13,6 +13,7 @@ import {
   onColorFormatToggleRequested,
   onCaptureEnd,
   onCaptureStart,
+  onOcrResultCached,
   onQuickShotFlash,
   onSelectionClaimed,
   onSelectionReleased,
@@ -31,6 +32,7 @@ import { SelectionBox } from "@/overlay/SelectionBox";
 import { Toolbar as ScreenshotToolbar } from "@/overlay/Toolbar";
 import { useOverlay } from "@/overlay/state";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { invoke } from "@tauri-apps/api/core";
 import type { CursorIcon } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useEffect, useRef, useState } from "react";
@@ -98,10 +100,13 @@ export function OverlayRoute() {
   const selection = useOverlay((s) => s.selection);
   const cursor = useOverlay((s) => s.cursor);
   const selectionInteraction = useOverlay((s) => s.selectionInteraction);
+  const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
   const frameUrl = useOverlay((s) => s.frameUrl);
   const scaleFactor = useOverlay((s) => s.scaleFactor);
+  const cornerRadius = useOverlay((s) => s.cornerRadius);
   const monitorRect = useOverlay((s) => s.monitorRect);
   const [flashRect, setFlashRect] = useState<Rect | null>(null);
+  const [ocrStatus, setOcrStatus] = useState<string | null>(null);
   const flashTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -113,10 +118,12 @@ export function OverlayRoute() {
     // they appear. The cursor-owner polling below keeps the focused
     // overlay aligned with the monitor under the pointer.
     onCaptureStart((payload) => {
+      setOcrStatus(null);
       start(payload);
       focusCurrentOverlay();
     }).then((u) => (unsubStart = u));
     onCaptureEnd(() => {
+      setOcrStatus(null);
       useAnnotation.getState().reset();
       end();
     }).then((u) => (unsubEnd = u));
@@ -144,16 +151,21 @@ export function OverlayRoute() {
   useEffect(() => {
     let unsubClaimed: undefined | (() => void);
     let unsubReleased: undefined | (() => void);
+    let unsubOcrCached: undefined | (() => void);
     onSelectionClaimed((p) => {
       useOverlay.getState().lockToPeer(p.monitorId);
     }).then((u) => (unsubClaimed = u));
     onSelectionReleased((p) => {
       useOverlay.getState().unlockFromPeer(p.monitorId);
     }).then((u) => (unsubReleased = u));
+    onOcrResultCached((result) => {
+      useOverlay.getState().setLastOcrResult(result);
+    }).then((u) => (unsubOcrCached = u));
 
     return () => {
       unsubClaimed?.();
       unsubReleased?.();
+      unsubOcrCached?.();
     };
   }, []);
 
@@ -204,9 +216,10 @@ export function OverlayRoute() {
   // Keyboard: Esc cancels; Cmd/Ctrl+C copies when committed
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Don't intercept keys when editing text annotations
+      // Don't intercept editing shortcuts while text-like fields own focus.
+      // Range sliders are tool controls: Escape should still cancel capture.
       const active = document.activeElement;
-      if (active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")) return;
+      if (isTextInputLike(active)) return;
 
       if (e.key === "Escape") { e.preventDefault(); cancelCapture(); return; }
 
@@ -272,7 +285,7 @@ export function OverlayRoute() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mode, selection, monitorId]);
+  }, [mode, selection, monitorId, cornerRadius]);
 
   useEffect(() => {
     if (mode !== "hover" || !frameUrl) return;
@@ -312,19 +325,19 @@ export function OverlayRoute() {
   const handleCopy = async () => {
     if (monitorId == null || !selection) return;
     const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await cropAndCopy(monitorId, selection, annotationPng ?? undefined);
+    await cropAndCopy(monitorId, selection, annotationPng ?? undefined, cornerRadius);
   };
 
   const handleSave = async () => {
     if (monitorId == null || !selection) return;
     const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await cropAndSave(monitorId, selection, annotationPng ?? undefined);
+    await cropAndSave(monitorId, selection, annotationPng ?? undefined, cornerRadius);
   };
 
   const handlePin = async () => {
     if (monitorId == null || !selection) return;
     const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await pinImage(monitorId, selection, annotationPng ?? undefined);
+    await pinImage(monitorId, selection, annotationPng ?? undefined, cornerRadius);
   };
 
   const handleScroll = async () => {
@@ -338,6 +351,17 @@ export function OverlayRoute() {
     } catch (error) {
       useOverlay.getState().commit(scrollSelection);
       console.warn("Failed to start scrolling screenshot", error);
+    }
+  };
+
+  const handleOcr = async () => {
+    if (monitorId == null || !selection) return;
+    setOcrStatus(null);
+    try {
+      await invoke("open_ocr_chrome", { monitorId, rect: selection });
+    } catch (e) {
+      console.warn("Failed to open OCR chrome window", e);
+      setOcrStatus("OCR window could not open");
     }
   };
 
@@ -421,6 +445,7 @@ export function OverlayRoute() {
 
   const overlayCursor = (() => {
     if (mode === "hover" || mode === "dragging") return "crosshair";
+    if (mode === "committed" && colorPickerVisible) return "crosshair";
     if (selectionInteraction?.kind === "resize") return cursorForHandle(selectionInteraction.handle);
     if (selectionInteraction?.kind === "move") return "move";
     if (mode === "committed" && selection && cursor) {
@@ -441,7 +466,7 @@ export function OverlayRoute() {
 
   return (
     <div
-      className={mode === "hover" || mode === "dragging" ? "overlay-crosshair" : undefined}
+      className={overlayCursor === "crosshair" ? "overlay-crosshair" : undefined}
       onMouseMove={onMouseMove}
       onMouseEnter={onMouseMove}
       onMouseDown={onMouseDown}
@@ -483,13 +508,29 @@ export function OverlayRoute() {
             onPin={handlePin}
             onClose={handleClose}
             onScroll={handleScroll}
-            selectionTooSmall={selection.height < 100}
+            onOcr={handleOcr}
+            scrollSelectionTooSmall={selection.height < 100}
+            ocrSelectionTooSmall={selection.height < 16 || selection.width < 40}
           />
+          {ocrStatus && (
+            <OcrStatus
+              message={ocrStatus}
+              selection={selection}
+              monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
+            />
+          )}
         </>
       )}
       {flashRect && <QuickShotFlash rect={flashRect} />}
     </div>
   );
+}
+
+function isTextInputLike(element: Element | null): boolean {
+  if (!element) return false;
+  if (element.tagName === "TEXTAREA") return true;
+  if (element.tagName !== "INPUT") return false;
+  return (element as HTMLInputElement).type !== "range";
 }
 
 function waitForOverlayPaint(): Promise<void> {
@@ -558,6 +599,64 @@ function ScrollStartupStatus({ selection, monitorRect }: { selection: Rect; moni
       }}
     >
       Starting...
+    </div>
+  );
+}
+
+function OcrStatus({ message, selection, monitorRect }: { message: string; selection: Rect; monitorRect: Rect }) {
+  const width = 184;
+  const height = 30;
+  const gap = 10;
+  const horizontalLeft = Math.min(
+    Math.max(selection.x, 8),
+    Math.max(8, monitorRect.width - width - 8),
+  );
+  const above = selection.y - height - gap;
+  const below = selection.y + selection.height + gap;
+  const right = selection.x + selection.width + gap;
+  const left = selection.x - width - gap;
+  const verticalTop = Math.min(
+    Math.max(selection.y, 8),
+    Math.max(8, monitorRect.height - height - 8),
+  );
+
+  const pos =
+    below + height <= monitorRect.height - 8
+      ? { left: horizontalLeft, top: below }
+      : above >= 8
+        ? { left: horizontalLeft, top: above }
+        : right + width <= monitorRect.width - 8
+          ? { left: right, top: verticalTop }
+          : left >= 8
+            ? { left, top: verticalTop }
+            : null;
+
+  if (!pos) return null;
+
+  return (
+    <div
+      role="status"
+      style={{
+        position: "fixed",
+        left: pos.left,
+        top: pos.top,
+        width,
+        height,
+        boxSizing: "border-box",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 6,
+        background: "rgba(20,20,20,0.88)",
+        border: "1px solid rgba(255,255,255,0.12)",
+        color: "rgba(255,255,255,0.88)",
+        fontSize: 12,
+        fontWeight: 500,
+        pointerEvents: "none",
+        zIndex: 10000,
+      }}
+    >
+      {message}
     </div>
   );
 }

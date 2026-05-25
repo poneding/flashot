@@ -1,5 +1,5 @@
 use crate::{
-    clipboard, overlay_window,
+    clipboard, ocr, overlay_window,
     pin_mgr::{PinEntry, PinManager},
     saver, settings_store,
     settings_store::Settings,
@@ -25,17 +25,116 @@ const SETTINGS_WINDOW_WIDTH: f64 = 560.0;
 const SETTINGS_WINDOW_HEIGHT: f64 = 560.0;
 const UPDATER_WINDOW_WIDTH: f64 = 360.0;
 const UPDATER_WINDOW_HEIGHT: f64 = 280.0;
+const MAX_CORNER_RADIUS: u32 = 60;
 
 /// Extra padding (logical px per side) added to pin windows so the CSS
 /// boxShadow rendered by the frontend has room outside the image.
 /// Must match `PIN_SHADOW_PADDING` in src/routes/Pin.tsx.
 const PIN_SHADOW_PADDING: f64 = 24.0;
 
+fn clamp_corner_radius(radius: u32) -> u32 {
+    radius.min(MAX_CORNER_RADIUS)
+}
+
 fn show_pin_window(window: &WebviewWindow) -> Result<(), String> {
     configure_pin_window_before_show(window)?;
     window
         .show()
         .map_err(|e| format!("Failed to show pin window: {e}"))
+}
+
+fn show_app_window(window: &WebviewWindow) -> Result<(), String> {
+    window
+        .unminimize()
+        .map_err(|e| format!("Failed to unminimize app window: {e}"))?;
+    window
+        .show()
+        .map_err(|e| format!("Failed to show app window: {e}"))?;
+    bring_app_window_to_front(window)
+}
+
+#[cfg(target_os = "macos")]
+fn bring_app_window_to_front(window: &WebviewWindow) -> Result<(), String> {
+    if macos_is_main_thread() {
+        return bring_macos_app_window_to_front(window);
+    }
+
+    let task_window = window.clone();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+
+    window
+        .run_on_main_thread(move || {
+            let result = bring_macos_app_window_to_front(&task_window);
+            let _ = tx.send(result);
+        })
+        .map_err(|e| e.to_string())?;
+
+    rx.recv()
+        .map_err(|_| "bring app window to front did not return from the main thread".to_string())?
+}
+
+#[cfg(target_os = "macos")]
+fn macos_is_main_thread() -> bool {
+    use objc::{
+        runtime::{Class, Sel, BOOL, YES},
+        Message,
+    };
+
+    unsafe {
+        let Some(thread_class) = Class::get("NSThread") else {
+            return false;
+        };
+        match thread_class.send_message::<_, BOOL>(Sel::register("isMainThread"), ()) {
+            Ok(is_main) => is_main == YES,
+            Err(e) => {
+                tracing::warn!("NSThread isMainThread failed: {e}");
+                false
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn bring_macos_app_window_to_front(window: &WebviewWindow) -> Result<(), String> {
+    use objc::{
+        runtime::{Class, Object, Sel, YES},
+        Message,
+    };
+
+    let ns_window = window.ns_window().map_err(|e| e.to_string())? as *mut Object;
+    unsafe {
+        let ns_window = &*ns_window;
+        ns_window
+            .send_message::<_, ()>(Sel::register("orderFrontRegardless"), ())
+            .map_err(|e| e.to_string())?;
+
+        if let Some(app_class) = Class::get("NSApplication") {
+            let app: *mut Object = app_class
+                .send_message(Sel::register("sharedApplication"), ())
+                .map_err(|e| e.to_string())?;
+            if !app.is_null() {
+                (*app)
+                    .send_message::<_, ()>(Sel::register("activateIgnoringOtherApps:"), (YES,))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+
+        ns_window
+            .send_message::<_, ()>(
+                Sel::register("makeKeyAndOrderFront:"),
+                (std::ptr::null_mut::<Object>(),),
+            )
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn bring_app_window_to_front(window: &WebviewWindow) -> Result<(), String> {
+    window
+        .set_focus()
+        .map_err(|e| format!("Failed to focus app window: {e}"))
 }
 
 #[cfg(target_os = "macos")]
@@ -95,9 +194,11 @@ pub async fn crop_and_copy(
     monitor_id: u32,
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
+    corner_radius: u32,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
+    let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
     let cropped = crop_rgba(
         &frame.rgba,
@@ -107,10 +208,17 @@ pub async fn crop_and_copy(
         frame.scale_factor,
     )
     .ok_or("crop failed")?;
-    let final_image = match annotation_png {
+    let mut final_image = match annotation_png {
         Some(png_data) if !png_data.is_empty() => composite_annotation(&cropped, &png_data)?,
         _ => cropped,
     };
+    crate::mask::apply_rounded_corners(
+        &mut final_image.rgba,
+        final_image.width,
+        final_image.height,
+        corner_radius,
+        frame.scale_factor,
+    );
     clipboard::copy_image(final_image.rgba, final_image.width, final_image.height)
         .map_err(|e| e.to_string())?;
     mgr.end_session(&app);
@@ -122,9 +230,11 @@ pub async fn crop_and_save(
     monitor_id: u32,
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
+    corner_radius: u32,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
+    let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
     let cropped = crop_rgba(
         &frame.rgba,
@@ -134,10 +244,17 @@ pub async fn crop_and_save(
         frame.scale_factor,
     )
     .ok_or("crop failed")?;
-    let final_image = match annotation_png {
+    let mut final_image = match annotation_png {
         Some(png_data) if !png_data.is_empty() => composite_annotation(&cropped, &png_data)?,
         _ => cropped,
     };
+    crate::mask::apply_rounded_corners(
+        &mut final_image.rgba,
+        final_image.width,
+        final_image.height,
+        corner_radius,
+        frame.scale_factor,
+    );
     let mut settings = settings_store::load().unwrap_or_default();
     mgr.end_session(&app);
     let path = saver::save_image_dialog(
@@ -211,18 +328,18 @@ fn apply_launch_at_login(
 #[tauri::command]
 pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("settings") {
-        let _ = w.show();
-        let _ = w.set_focus();
+        show_app_window(&w)?;
         return Ok(());
     }
     let url = tauri::WebviewUrl::App("index.html#/settings".into());
     let (width, height) = settings_window_size();
-    tauri::WebviewWindowBuilder::new(&app, "settings", url)
+    let window = tauri::WebviewWindowBuilder::new(&app, "settings", url)
         .title("Flashot Settings")
         .inner_size(width, height)
         .resizable(false)
         .build()
         .map_err(|e| e.to_string())?;
+    show_app_window(&window)?;
     Ok(())
 }
 
@@ -239,35 +356,35 @@ pub fn end_text_input_session(window: WebviewWindow) -> Result<(), String> {
 #[tauri::command]
 pub fn open_about_window(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("about") {
-        let _ = w.show();
-        let _ = w.set_focus();
+        show_app_window(&w)?;
         return Ok(());
     }
     let url = tauri::WebviewUrl::App("index.html#/about".into());
     let (width, height) = about_window_size();
-    tauri::WebviewWindowBuilder::new(&app, "about", url)
+    let window = tauri::WebviewWindowBuilder::new(&app, "about", url)
         .title("About Flashot")
         .inner_size(width, height)
         .resizable(false)
         .build()
         .map_err(|e| e.to_string())?;
+    show_app_window(&window)?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn open_updater_window(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("updater") {
-        let _ = w.show();
-        let _ = w.set_focus();
+        show_app_window(&w)?;
         return Ok(());
     }
     let url = tauri::WebviewUrl::App("index.html#/updater".into());
-    tauri::WebviewWindowBuilder::new(&app, "updater", url)
+    let window = tauri::WebviewWindowBuilder::new(&app, "updater", url)
         .title("Check for Updates")
         .inner_size(UPDATER_WINDOW_WIDTH, UPDATER_WINDOW_HEIGHT)
         .resizable(false)
         .build()
         .map_err(|e| e.to_string())?;
+    show_app_window(&window)?;
     Ok(())
 }
 
@@ -304,12 +421,14 @@ pub async fn pin_image(
     monitor_id: u32,
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
+    corner_radius: u32,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
     pin_mgr: State<'_, Arc<PinManager>>,
 ) -> Result<String, String> {
+    let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
-    let cropped = crop_rgba(
+    let mut cropped = crop_rgba(
         &frame.rgba,
         frame.width,
         frame.height,
@@ -317,6 +436,13 @@ pub async fn pin_image(
         frame.scale_factor,
     )
     .ok_or("crop failed")?;
+    crate::mask::apply_rounded_corners(
+        &mut cropped.rgba,
+        cropped.width,
+        cropped.height,
+        corner_radius,
+        frame.scale_factor,
+    );
 
     let pin_id = Uuid::new_v4().to_string();
     let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
@@ -337,11 +463,18 @@ pub async fn pin_image(
     };
 
     let window_label = format!("pin-{}", pin_id);
-    let route = if annotation_path.is_some() {
+    let mut route = if annotation_path.is_some() {
         format!("index.html#/pin/{}?annotation=1", pin_id)
     } else {
         format!("index.html#/pin/{}", pin_id)
     };
+    if corner_radius > 0 {
+        if route.contains('?') {
+            route.push_str(&format!("&radius={corner_radius}"));
+        } else {
+            route.push_str(&format!("?radius={corner_radius}"));
+        }
+    }
     let url = tauri::WebviewUrl::App(route.into());
 
     let outer_width = rect.width as f64 + 2.0 * PIN_SHADOW_PADDING;
@@ -811,6 +944,58 @@ pub async fn scroll_save(
     let _ = app.emit("settings:changed", ());
     Ok(Some(path.to_string_lossy().to_string()))
 }
+
+#[tauri::command]
+pub async fn ocr_recognize(
+    app: AppHandle,
+    state: State<'_, Arc<WindowMgr>>,
+    monitor_id: u32,
+    rect: Rect,
+) -> Result<ocr::types::OcrResult, String> {
+    // Resolve model paths on the async side, then load the sessions inside the
+    // blocking task so a cold OCR start cannot stall Tauri's IPC worker.
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {e}"))?;
+    let install_dir = ocr::paths::install_dir(&data_dir);
+    if ocr::ensure_ort_dylib_ready().is_err() {
+        ocr::init_ort_dylib(&app).map_err(|e| format!("{e}"))?;
+    }
+
+    // Look up the frozen frame and crop the selection.
+    let cropped = state
+        .crop_frame_rgba(monitor_id, rect)
+        .ok_or_else(|| "frozen frame not available for monitor".to_string())?;
+
+    // Heavy: run on a blocking thread to keep the Tokio runtime responsive.
+    let (rgba, w, h) = cropped;
+    let result = tokio::task::spawn_blocking(move || {
+        let engine = ocr::engine::Engine::global();
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            engine.ensure_loaded(&install_dir)?;
+            engine.recognize(&rgba, w, h)
+        }))
+        .map_err(ocr_runtime_panic_error)?
+    })
+    .await
+    .map_err(|e| format!("join error: {e}"))?
+    .map_err(|e| format!("{e}"))?;
+
+    Ok(result)
+}
+
+fn ocr_runtime_panic_error(payload: Box<dyn std::any::Any + Send>) -> ocr::types::OcrError {
+    let message = if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else {
+        "unknown panic while loading OCR runtime".to_string()
+    };
+    ocr::types::OcrError::RuntimeUnavailable(message)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -823,6 +1008,16 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn ocr_runtime_panic_becomes_user_facing_runtime_error() {
+        let err = ocr_runtime_panic_error(Box::new(
+            "ort 2.0.0-rc.10 is not compatible with ONNX Runtime 1.19.2",
+        ));
+
+        assert!(matches!(err, ocr::types::OcrError::RuntimeUnavailable(_)));
+        assert!(err.to_string().contains("ONNX Runtime 1.19.2"));
     }
 
     #[test]
@@ -898,7 +1093,7 @@ mod tests {
             .unwrap();
         let body = &source[start..end];
 
-        let crop_idx = body.find("let cropped = crop_rgba").unwrap();
+        let crop_idx = body.find("crop_rgba").unwrap();
         let end_session_idx = body.find("mgr.end_session(&app);").unwrap();
         let save_dialog_idx = body.find("saver::save_image_dialog").unwrap();
 
@@ -910,6 +1105,67 @@ mod tests {
             end_session_idx < save_dialog_idx,
             "native save dialogs must open after overlay windows are hidden",
         );
+    }
+
+    #[test]
+    fn crop_commands_apply_corner_radius_after_compositing() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        for name in ["crop_and_copy", "crop_and_save"] {
+            let body = function_body(&source, name);
+            let composite_idx = body.find("composite_annotation").unwrap();
+            let mask_idx = body
+                .find("apply_rounded_corners")
+                .unwrap_or_else(|| panic!("{name} must call mask::apply_rounded_corners"));
+            assert!(
+                composite_idx < mask_idx,
+                "{name}: mask must be applied after compositing annotations",
+            );
+            assert!(
+                body.contains("corner_radius"),
+                "{name} must accept a corner_radius parameter",
+            );
+        }
+
+        let pin_body = function_body(&source, "pin_image");
+        assert!(
+            pin_body.contains("corner_radius"),
+            "pin_image must accept a corner_radius parameter",
+        );
+        assert!(
+            pin_body.contains("apply_rounded_corners"),
+            "pin_image must call mask::apply_rounded_corners",
+        );
+        assert!(
+            !pin_body.contains("composite_annotation"),
+            "pin_image should keep annotation PNGs as a separate layer",
+        );
+    }
+
+    #[test]
+    fn quick_shot_paths_do_not_apply_corner_radius() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"),
+        )
+        .unwrap()
+        .replace("\r\n", "\n");
+        for name in [
+            "copy_active_display_to_clipboard",
+            "copy_active_window_to_clipboard",
+        ] {
+            let body = function_body(&source, name);
+            assert!(
+                !body.contains("apply_rounded_corners"),
+                "{name}: fullscreen and active-window quick-shots must stay rectangular",
+            );
+        }
+    }
+
+    #[test]
+    fn clamp_corner_radius_caps_backend_command_inputs() {
+        assert_eq!(clamp_corner_radius(0), 0);
+        assert_eq!(clamp_corner_radius(60), 60);
+        assert_eq!(clamp_corner_radius(61), 60);
+        assert_eq!(clamp_corner_radius(u32::MAX), 60);
     }
 
     #[test]
@@ -1096,6 +1352,20 @@ mod tests {
     }
 
     #[test]
+    fn pin_image_appends_radius_to_route_when_nonzero() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "pin_image");
+        assert!(
+            body.contains("&radius="),
+            "pin_image must forward corner_radius to the pin route URL when > 0",
+        );
+        assert!(
+            body.contains("if corner_radius > 0"),
+            "pin_image must only append the radius query param when nonzero",
+        );
+    }
+
+    #[test]
     fn pin_window_starts_hidden_without_native_shadow() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let start = source.find("pub async fn pin_image").unwrap();
@@ -1116,6 +1386,30 @@ mod tests {
         assert!(
             body.contains("show_pin_window(&window)"),
             "the backend must show hidden pin windows instead of relying on frontend JS",
+        );
+    }
+
+    #[test]
+    fn ocr_recognize_loads_engine_inside_blocking_task() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "ocr_recognize");
+        let blocking_idx = body
+            .find("spawn_blocking")
+            .expect("OCR recognition must run in a blocking task");
+        let before_blocking = &body[..blocking_idx];
+        let blocking_body = &body[blocking_idx..];
+
+        assert!(
+            !before_blocking.contains("ensure_loaded"),
+            "cold OCR model loading must not block the async IPC worker",
+        );
+        assert!(
+            blocking_body.contains("ensure_loaded"),
+            "the blocking task must load the OCR engine before recognition",
+        );
+        assert!(
+            blocking_body.contains("recognize(&rgba, w, h)"),
+            "the blocking task still performs recognition on the cropped image",
         );
     }
 
@@ -1171,6 +1465,54 @@ mod tests {
         assert_eq!(settings_window_size(), (560.0, 560.0));
     }
 
+    #[test]
+    fn reopened_menu_windows_are_explicitly_brought_to_front() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        for name in [
+            "open_settings_window",
+            "open_about_window",
+            "open_updater_window",
+        ] {
+            let body = function_body(&source, name);
+            assert!(
+                body.contains("show_app_window(&w)?;"),
+                "{name} must raise an already-open window instead of only focusing it",
+            );
+        }
+    }
+
+    #[test]
+    fn macos_menu_window_fronting_activates_before_keying_window() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "bring_macos_app_window_to_front");
+
+        let order_idx = body.find("orderFrontRegardless").unwrap();
+        let activate_idx = body.find("activateIgnoringOtherApps:").unwrap();
+        let key_idx = body.find("makeKeyAndOrderFront:").unwrap();
+
+        assert!(
+            order_idx < activate_idx && activate_idx < key_idx,
+            "macOS menu windows must be ordered front, then app-activated, then made key",
+        );
+    }
+
+    #[test]
+    fn macos_menu_window_fronting_runs_directly_on_main_thread() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "bring_app_window_to_front");
+
+        let main_thread_idx = body.find("macos_is_main_thread()").unwrap();
+        let direct_front_idx = body
+            .find("bring_macos_app_window_to_front(window)")
+            .unwrap();
+        let dispatch_idx = body.find("run_on_main_thread").unwrap();
+
+        assert!(
+            main_thread_idx < direct_front_idx && direct_front_idx < dispatch_idx,
+            "menu event callbacks already run on the main thread and must not synchronously requeue",
+        );
+    }
+
     #[derive(Default)]
     struct FakeLaunchAtLogin {
         calls: std::cell::RefCell<Vec<&'static str>>,
@@ -1223,5 +1565,27 @@ mod tests {
             apply_idx < save_idx,
             "login startup must be applied before settings are persisted",
         );
+    }
+
+    fn function_body<'a>(source: &'a str, name: &str) -> &'a str {
+        let needle = format!("fn {name}");
+        let start = source
+            .find(&needle)
+            .unwrap_or_else(|| panic!("{name} not found"));
+        let body_start = source[start..].find('{').map(|idx| start + idx).unwrap();
+        let mut depth = 0usize;
+        for (idx, ch) in source[body_start..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &source[body_start..body_start + idx + 1];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("{name} body did not close");
     }
 }

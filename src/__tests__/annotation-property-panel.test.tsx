@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PropertyPanel } from "@/annotation/PropertyPanel";
 import { useAnnotation } from "@/annotation/store";
@@ -70,13 +70,15 @@ describe("Annotation property panel", () => {
     expect(ellipseFilledIcon.querySelector("rect")).toBeNull();
   });
 
-  it("uses a numeric corner radius control for rectangles", () => {
+  it("uses a dropdown corner radius control for rectangles", () => {
     render(<PropertyPanel tool="rect" />);
 
     expect(screen.queryByTitle("Sharp corners")).toBeNull();
     expect(screen.queryByTitle("Rounded corners")).toBeNull();
     expect(screen.getByTitle("Corner radius")).not.toBeNull();
     expect(screen.getByText("0px")).not.toBeNull();
+    expect(screen.queryByTitle("Decrease Corner radius")).toBeNull();
+    expect(screen.queryByTitle("Increase Corner radius")).toBeNull();
   });
 
   it("keeps numeric control names in tooltips instead of visible labels", () => {
@@ -90,6 +92,28 @@ describe("Annotation property panel", () => {
     expect(screen.getByTitle("Corner radius")).not.toBeNull();
   });
 
+  it("renders measurement controls without decorative line style choices", () => {
+    render(<PropertyPanel tool="measure" />);
+
+    expect(screen.getByTitle("Stroke width")).not.toBeNull();
+    expect(screen.getByTitle("#ff0000")).not.toBeNull();
+    expect(screen.queryByTitle("Decrease Stroke width")).toBeNull();
+    expect(screen.queryByTitle("Increase Stroke width")).toBeNull();
+    expect(screen.queryByLabelText("Line style: Solid")).toBeNull();
+    expect(screen.queryByLabelText("Arrowhead: Open")).toBeNull();
+  });
+
+  it("renders highlight stroke and corner radius as dropdown controls", () => {
+    render(<PropertyPanel tool="highlight" />);
+
+    expect(screen.getByTitle("Stroke width")).not.toBeNull();
+    expect(screen.getByTitle("Corner radius")).not.toBeNull();
+    expect(screen.queryByTitle("Decrease Stroke width")).toBeNull();
+    expect(screen.queryByTitle("Increase Stroke width")).toBeNull();
+    expect(screen.queryByTitle("Decrease Corner radius")).toBeNull();
+    expect(screen.queryByTitle("Increase Corner radius")).toBeNull();
+  });
+
   it("shows immediate custom tooltips for numeric controls on hover", () => {
     render(<PropertyPanel tool="rect" />);
 
@@ -98,6 +122,40 @@ describe("Annotation property panel", () => {
     const tooltip = screen.getByRole("tooltip");
     expect(tooltip.textContent).toBe("Stroke width");
     expect(tooltip.getAttribute("style")).toContain("background: rgba(18, 18, 18, 0.72)");
+  });
+
+  it("selects stroke, radius, and font size values from continuous scrollable lists", () => {
+    const { rerender } = render(<PropertyPanel tool="rect" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stroke width: 4px" }));
+    const strokeList = screen.getByTestId("annotation-number-list-stroke-width");
+    expect(strokeList.className).toContain("flashot-dark-scrollbar");
+    expect(strokeList.style.maxHeight).toBe("200px");
+    expect(within(strokeList).getByRole("button", { name: "Stroke width: 1px" })).not.toBeNull();
+    expect(within(strokeList).getByRole("button", { name: "Stroke width: 20px" })).not.toBeNull();
+    expect(within(strokeList).queryByRole("button", { name: "Stroke width: 21px" })).toBeNull();
+    fireEvent.click(within(strokeList).getByRole("button", { name: "Stroke width: 19px" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Corner radius: 0px" }));
+    const radiusList = screen.getByTestId("annotation-number-list-corner-radius");
+    expect(radiusList.className).toContain("flashot-dark-scrollbar");
+    expect(within(radiusList).getByRole("button", { name: "Corner radius: 0px" })).not.toBeNull();
+    expect(within(radiusList).getByRole("button", { name: "Corner radius: 60px" })).not.toBeNull();
+    expect(within(radiusList).queryByRole("button", { name: "Corner radius: 61px" })).toBeNull();
+    fireEvent.click(within(radiusList).getByRole("button", { name: "Corner radius: 57px" }));
+
+    rerender(<PropertyPanel tool="text" />);
+    fireEvent.click(screen.getByRole("button", { name: "Font size: 24px" }));
+    const fontSizeList = screen.getByTestId("annotation-number-list-font-size");
+    expect(fontSizeList.className).toContain("flashot-dark-scrollbar");
+    expect(within(fontSizeList).getByRole("button", { name: "Font size: 1px" })).not.toBeNull();
+    expect(within(fontSizeList).getByRole("button", { name: "Font size: 72px" })).not.toBeNull();
+    expect(within(fontSizeList).queryByRole("button", { name: "Font size: 73px" })).toBeNull();
+    fireEvent.click(within(fontSizeList).getByRole("button", { name: "Font size: 71px" }));
+
+    expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(19);
+    expect(useAnnotation.getState().activeStyle.cornerRadius).toBe(57);
+    expect(useAnnotation.getState().activeStyle.fontSize).toBe(71);
   });
 
   it("positions numeric tooltips from the property panel edge", () => {
@@ -124,8 +182,9 @@ describe("Annotation property panel", () => {
   it("adds hover tooltips to property panel operations", () => {
     render(<PropertyPanel tool="line" />);
 
-    expect(screen.getByTitle("Decrease Stroke width")).not.toBeNull();
-    expect(screen.getByTitle("Increase Stroke width")).not.toBeNull();
+    expect(screen.getByTitle("Stroke width")).not.toBeNull();
+    expect(screen.queryByTitle("Decrease Stroke width")).toBeNull();
+    expect(screen.queryByTitle("Increase Stroke width")).toBeNull();
     const lineStyleButton = screen.getByLabelText("Line style: Solid");
     expect(lineStyleButton.getAttribute("title")).toBeNull();
     fireEvent.mouseEnter(lineStyleButton);

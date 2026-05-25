@@ -4,7 +4,15 @@ import { clearMocks, mockConvertFileSrc } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportAnnotationLayer } from "@/annotation/export";
 import { useAnnotation } from "@/annotation/store";
-import { pinImage, requestColorCopy, requestColorFormatToggle, startScrollSession } from "@/lib/ipc";
+import {
+  cancelCapture,
+  cropAndCopy,
+  cropAndSave,
+  pinImage,
+  requestColorCopy,
+  requestColorFormatToggle,
+  startScrollSession,
+} from "@/lib/ipc";
 import { OverlayRoute } from "@/routes/Overlay";
 import { currentCursorPointInWindow } from "@/lib/cursor";
 import { useOverlay } from "@/overlay/state";
@@ -22,6 +30,11 @@ const webviewWindowMock = vi.hoisted(() => ({
 
 const clipboardMock = vi.hoisted(() => ({
   writeText: vi.fn().mockResolvedValue(undefined),
+}));
+
+const coreMock = vi.hoisted(() => ({
+  invoke: vi.fn().mockResolvedValue(undefined),
+  convertFileSrc: vi.fn((path: string) => `mock://asset/${path}`),
 }));
 
 vi.mock("@/annotation/Stage", () => ({
@@ -50,6 +63,7 @@ vi.mock("@/lib/ipc", () => ({
   }),
   onSelectionClaimed: vi.fn().mockResolvedValue(vi.fn()),
   onSelectionReleased: vi.fn().mockResolvedValue(vi.fn()),
+  onOcrResultCached: vi.fn().mockResolvedValue(vi.fn()),
   pinImage: vi.fn().mockResolvedValue("pin-1"),
   requestColorCopy: vi.fn().mockResolvedValue(undefined),
   requestColorFormatToggle: vi.fn().mockResolvedValue(undefined),
@@ -65,6 +79,11 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
   getCurrentWebviewWindow: () => webviewWindowMock,
 }));
 
+vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: coreMock.convertFileSrc,
+  invoke: coreMock.invoke,
+}));
+
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
   writeText: clipboardMock.writeText,
 }));
@@ -75,6 +94,7 @@ const capture: CaptureStartPayload = {
   monitorRect: { x: 0, y: 0, width: 800, height: 600 },
   scaleFactor: 2,
   windows: [],
+  cornerRadius: 0,
 };
 
 function resetColorFormat() {
@@ -91,6 +111,9 @@ describe("OverlayRoute", () => {
     webviewWindowMock.setFocus.mockClear();
     webviewWindowMock.setCursorIcon.mockClear();
     clipboardMock.writeText.mockClear();
+    coreMock.convertFileSrc.mockClear();
+    coreMock.invoke.mockClear();
+    coreMock.invoke.mockResolvedValue(undefined);
     vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => {}));
     useAnnotation.getState().reset();
     useOverlay.getState().end();
@@ -172,8 +195,41 @@ describe("OverlayRoute", () => {
 
     await waitFor(() => {
       expect(exportAnnotationLayer).toHaveBeenCalledWith(2);
-      expect(pinImage).toHaveBeenCalledWith(1, selection, annotationPng);
+      expect(pinImage).toHaveBeenCalledWith(1, selection, annotationPng, 0);
     });
+  });
+
+  it.each([
+    ["Copy", cropAndCopy],
+    ["Save As", cropAndSave],
+    ["Pin", pinImage],
+  ])("passes the live corner radius when using %s", async (buttonTitle, action) => {
+    const annotationPng = new Uint8Array([137, 80, 78, 71]).buffer;
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    vi.mocked(exportAnnotationLayer).mockResolvedValue(annotationPng);
+    useOverlay.getState().commit(selection);
+    useOverlay.setState({ cornerRadius: 18 });
+
+    render(<OverlayRoute />);
+    fireEvent.click(screen.getByTitle(buttonTitle));
+
+    await waitFor(() => {
+      expect(action).toHaveBeenCalledWith(1, selection, annotationPng, 18);
+    });
+  });
+
+  it("cancels capture with Escape even when a corner radius preset is focused", () => {
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    useOverlay.getState().commit(selection);
+
+    render(<OverlayRoute />);
+    fireEvent.click(screen.getByLabelText(/corner radius/i));
+    const preset = screen.getByRole("button", { name: "Corner radius: 16 px" });
+    preset.focus();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(cancelCapture).toHaveBeenCalledTimes(1);
   });
 
   it("shows a startup state before the backend captures the initial scroll frame", async () => {
@@ -224,6 +280,24 @@ describe("OverlayRoute", () => {
     }
   });
 
+  it("shows a visible OCR status when the OCR chrome window cannot open", async () => {
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    coreMock.invoke.mockRejectedValueOnce(new Error("window hidden behind overlay"));
+    useOverlay.getState().commit(selection);
+
+    try {
+      render(<OverlayRoute />);
+      fireEvent.click(screen.getByRole("button", { name: "Extract text (OCR)" }));
+
+      const status = await screen.findByRole("status");
+      expect(status.textContent).toContain("OCR");
+      expect(coreMock.invoke).toHaveBeenCalledWith("open_ocr_chrome", { monitorId: 1, rect: selection });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("sets the native overlay cursor to crosshair while hovering", async () => {
     render(<OverlayRoute />);
 
@@ -240,6 +314,33 @@ describe("OverlayRoute", () => {
       useOverlay.getState().commit({ x: 100, y: 120, width: 200, height: 160 });
     });
 
+    await waitFor(() => {
+      expect(webviewWindowMock.setCursorIcon).toHaveBeenCalledWith("default");
+    });
+  });
+
+  it("uses the native crosshair cursor while the committed color picker is visible", async () => {
+    render(<OverlayRoute />);
+
+    act(() => {
+      useOverlay.getState().commit({ x: 100, y: 120, width: 200, height: 160 });
+    });
+    await waitFor(() => {
+      expect(webviewWindowMock.setCursorIcon).toHaveBeenCalledWith("default");
+    });
+
+    webviewWindowMock.setCursorIcon.mockClear();
+    act(() => {
+      useOverlay.getState().toggleColorPicker();
+    });
+    await waitFor(() => {
+      expect(webviewWindowMock.setCursorIcon).toHaveBeenCalledWith("crosshair");
+    });
+
+    webviewWindowMock.setCursorIcon.mockClear();
+    act(() => {
+      useOverlay.getState().toggleColorPicker();
+    });
     await waitFor(() => {
       expect(webviewWindowMock.setCursorIcon).toHaveBeenCalledWith("default");
     });

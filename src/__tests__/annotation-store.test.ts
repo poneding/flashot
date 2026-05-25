@@ -20,6 +20,31 @@ describe("useAnnotation store", () => {
     expect(useAnnotation.getState().selectedObjectId).toBeNull();
   });
 
+  it("sets the measure tool as the active tool", () => {
+    useAnnotation.getState().setActiveTool("measure");
+
+    expect(useAnnotation.getState().activeTool).toBe("measure");
+    expect(useAnnotation.getState().selectedObjectId).toBeNull();
+  });
+
+  it("normalizes measure style to straight solid non-arrow measurements", () => {
+    useAnnotation.getState().setActiveStyle({
+      color: "#0099ff",
+      strokeWidth: 6,
+      lineShape: "wavy",
+      lineStyle: "dashed",
+      arrow: "both",
+    });
+
+    useAnnotation.getState().setActiveTool("measure");
+
+    expect(useAnnotation.getState().activeStyle.color).toBe("#0099ff");
+    expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(6);
+    expect(useAnnotation.getState().activeStyle.lineShape).toBe("straight");
+    expect(useAnnotation.getState().activeStyle.lineStyle).toBe("solid");
+    expect(useAnnotation.getState().activeStyle.arrow).toBe("none");
+  });
+
   it("keeps line and arrow line styles independent when switching tools", () => {
     useAnnotation.getState().setActiveTool("line");
     useAnnotation.getState().setActiveStyle({ lineShape: "wavy", lineStyle: "solid" });
@@ -33,6 +58,52 @@ describe("useAnnotation store", () => {
 
     expect(useAnnotation.getState().activeStyle.lineShape).toBe("wavy");
     expect(useAnnotation.getState().activeStyle.lineStyle).toBe("solid");
+  });
+
+  it("keeps measure color and stroke width independent from other tools", () => {
+    useAnnotation.getState().setActiveStyle({ color: "#0099ff", strokeWidth: 6 });
+    useAnnotation.getState().setActiveTool("measure");
+    useAnnotation.getState().setActiveStyle({ color: "#ffcc00", strokeWidth: 2 });
+
+    useAnnotation.getState().setActiveTool("rect");
+    useAnnotation.getState().setActiveStyle({ color: "#33cc33", strokeWidth: 12 });
+
+    useAnnotation.getState().setActiveTool("measure");
+
+    expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(2);
+    expect(useAnnotation.getState().activeStyle.color).toBe("#ffcc00");
+  });
+
+  it("stores measure color and stroke width separately from the shared annotation style", () => {
+    useAnnotation.getState().setActiveTool("measure");
+    useAnnotation.getState().setActiveStyle({ color: "#0099ff", strokeWidth: 2 });
+
+    const stored = JSON.parse(localStorage.getItem("flashot:annotation-tool-style") ?? "{}");
+
+    expect(stored.measure).toEqual({ color: "#0099ff", strokeWidth: 2 });
+  });
+
+  it("keeps highlight stroke width and corner radius independent from other tools", () => {
+    useAnnotation.getState().setActiveStyle({ strokeWidth: 6, cornerRadius: 4 });
+    useAnnotation.getState().setActiveTool("highlight");
+    useAnnotation.getState().setActiveStyle({ strokeWidth: 2, cornerRadius: 16 });
+
+    useAnnotation.getState().setActiveTool("rect");
+    useAnnotation.getState().setActiveStyle({ strokeWidth: 12, cornerRadius: 32 });
+
+    useAnnotation.getState().setActiveTool("highlight");
+
+    expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(2);
+    expect(useAnnotation.getState().activeStyle.cornerRadius).toBe(16);
+  });
+
+  it("stores highlight stroke width and corner radius separately", () => {
+    useAnnotation.getState().setActiveTool("highlight");
+    useAnnotation.getState().setActiveStyle({ strokeWidth: 2, cornerRadius: 16 });
+
+    const stored = JSON.parse(localStorage.getItem("flashot:annotation-tool-style") ?? "{}");
+
+    expect(stored.highlight).toEqual({ strokeWidth: 2, cornerRadius: 16 });
   });
 
   it("normalizes legacy handwriting font values to system-ui", () => {

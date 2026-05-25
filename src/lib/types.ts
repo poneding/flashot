@@ -26,6 +26,7 @@ export type CaptureStartPayload = {
   monitorRect: Rect;
   scaleFactor: number;
   windows: WindowRect[];     // already translated to monitor-local coords
+  cornerRadius: number;
 };
 
 export type QuickShotFlashPayload = {
@@ -55,6 +56,7 @@ export type Settings = {
   theme: "system" | "light" | "dark";
   launchAtLogin: boolean;
   lastSaveDir: string | null;
+  cornerRadius: number;
 };
 
 export type PinInfo = {
@@ -79,4 +81,35 @@ export type ScrollResult = {
   width: number;
   height: number;
   frameCount: number;
+};
+
+export type OcrTextBox = {
+  points: [[number, number], [number, number], [number, number], [number, number]];
+};
+
+export type OcrLine = {
+  text: string;
+  bbox: OcrTextBox;
+  confidence: number;
+};
+
+export type OcrResult = {
+  full_text: string;
+  lines: OcrLine[];
+  elapsed_ms: number;
+};
+
+export type OcrInstallStatus =
+  | { kind: "not_installed" }
+  | { kind: "installed"; size_bytes: number };
+
+export type OcrPackageInfo = {
+  version: string;
+  size_bytes: number;
+};
+
+export type OcrDownloadProgress = {
+  progress: number;          // 0..1
+  downloaded_bytes: number;
+  total_bytes: number;
 };

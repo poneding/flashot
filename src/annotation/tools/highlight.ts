@@ -31,6 +31,10 @@ function highlightStrokeWidth(style: AnnotationStyle): number {
   return style.strokeWidth * 4;
 }
 
+function highlightCornerRadius(style: AnnotationStyle): number {
+  return Math.max(0, style.cornerRadius ?? 0);
+}
+
 export function highlightMaskPixelRatio(pixelRatio: number): number {
   if (!Number.isFinite(pixelRatio)) return MIN_HIGHLIGHT_MASK_PIXEL_RATIO;
   return Math.max(MIN_HIGHLIGHT_MASK_PIXEL_RATIO, pixelRatio);
@@ -141,6 +145,54 @@ function traceHighlightPath(ctx: CanvasRenderingContext2D, points: number[]) {
   ctx.lineTo(points[points.length - 2], points[points.length - 1]);
 }
 
+function traceRoundedSegment(
+  ctx: CanvasRenderingContext2D,
+  points: number[],
+  strokeWidth: number,
+  cornerRadius: number,
+) {
+  if (points.length < 4) return;
+  const [x1, y1, x2, y2] = points;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const length = Math.hypot(dx, dy);
+  if (length < 0.0001) return;
+
+  const half = strokeWidth / 2;
+  const radius = Math.max(0, Math.min(cornerRadius, half, length / 2));
+  ctx.save();
+  ctx.translate(x1, y1);
+  ctx.rotate(Math.atan2(dy, dx));
+  ctx.beginPath();
+  ctx.moveTo(radius, -half);
+  ctx.lineTo(length - radius, -half);
+  if (radius > 0) {
+    ctx.quadraticCurveTo(length, -half, length, -half + radius);
+  } else {
+    ctx.lineTo(length, -half);
+  }
+  ctx.lineTo(length, half - radius);
+  if (radius > 0) {
+    ctx.quadraticCurveTo(length, half, length - radius, half);
+  } else {
+    ctx.lineTo(length, half);
+  }
+  ctx.lineTo(radius, half);
+  if (radius > 0) {
+    ctx.quadraticCurveTo(0, half, 0, half - radius);
+  } else {
+    ctx.lineTo(0, half);
+  }
+  ctx.lineTo(0, -half + radius);
+  if (radius > 0) {
+    ctx.quadraticCurveTo(0, -half, radius, -half);
+  } else {
+    ctx.lineTo(0, -half);
+  }
+  ctx.closePath();
+  ctx.restore();
+}
+
 function drawHighlightScene(context: Konva.Context, shape: Konva.Shape) {
   const points = shape.getAttr("highlightPoints") as number[] | undefined;
   if (!points?.length) return;
@@ -162,8 +214,14 @@ function drawHighlightScene(context: Konva.Context, shape: Konva.Shape) {
   mask.lineWidth = shape.strokeWidth();
   mask.strokeStyle = "#000";
   mask.globalAlpha = 1;
-  traceHighlightPath(mask, points);
-  mask.stroke();
+  if (points.length === 4) {
+    mask.fillStyle = "#000";
+    traceRoundedSegment(mask, points, shape.strokeWidth(), shape.getAttr("highlightCornerRadius") as number);
+    mask.fill();
+  } else {
+    traceHighlightPath(mask, points);
+    mask.stroke();
+  }
 
   mask.globalCompositeOperation = "source-in";
   mask.globalAlpha = shape.getAttr("highlightOpacity") as number;
@@ -183,8 +241,14 @@ function drawHighlightHit(context: Konva.Context, shape: Konva.Shape) {
   ctx.lineJoin = "round";
   ctx.lineWidth = shape.strokeWidth();
   ctx.strokeStyle = shape.colorKey;
-  traceHighlightPath(ctx, points);
-  ctx.stroke();
+  if (points.length === 4) {
+    ctx.fillStyle = shape.colorKey;
+    traceRoundedSegment(ctx, points, shape.strokeWidth(), shape.getAttr("highlightCornerRadius") as number);
+    ctx.fill();
+  } else {
+    traceHighlightPath(ctx, points);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -212,6 +276,7 @@ function updateHighlightNode(
     highlightPoints: geometry.relativePoints,
     highlightColor: style.color,
     highlightOpacity: highlightOpacity(style),
+    highlightCornerRadius: highlightCornerRadius(style),
   });
 }
 
@@ -248,6 +313,7 @@ function createHighlightNode(
     highlightPoints: geometry.relativePoints,
     highlightColor: style.color,
     highlightOpacity: highlightOpacity(style),
+    highlightCornerRadius: highlightCornerRadius(style),
     sceneFunc: drawHighlightScene,
     hitFunc: drawHighlightHit,
   }));

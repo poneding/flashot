@@ -15,6 +15,7 @@ const capture: CaptureStartPayload = {
   monitorRect,
   scaleFactor: 2,
   windows: [],
+  cornerRadius: 0,
 };
 
 const selectedRect: AnnotationObject = {
@@ -112,6 +113,7 @@ describe("Annotation toolbar", () => {
     [
       "Pen",
       "Line",
+      "Measure",
       "Arrow",
       "Rectangle",
       "Ellipse",
@@ -119,7 +121,6 @@ describe("Annotation toolbar", () => {
       "Blur",
       "Highlight",
       "Eraser",
-      "Color Picker",
       "Undo (Cmd+Z)",
       "Redo (Cmd+Shift+Z)",
     ].forEach((title) => {
@@ -127,25 +128,29 @@ describe("Annotation toolbar", () => {
     });
   });
 
-  it("toggles the committed color picker from the horizontal toolbar", () => {
+  it("places measure immediately after eraser and omits the color picker", () => {
+    const { container } = renderToolbar();
+    const toolbar = container.querySelector("[data-annotation-toolbar]") as HTMLElement;
+    const labels = Array.from(toolbar.querySelectorAll("button")).map((button) =>
+      button.getAttribute("title"),
+    );
+
+    expect(labels.indexOf("Measure")).toBe(labels.indexOf("Eraser") + 1);
+    expect(labels).not.toContain("Color Picker");
+  });
+
+  it("selects the measure tool from the toolbar", () => {
     renderToolbar();
 
-    expect(useOverlay.getState().colorPickerVisible).toBe(false);
+    fireEvent.click(screen.getByTitle("Measure"));
 
-    fireEvent.click(screen.getByTitle("Color Picker"));
-
-    expect(useOverlay.getState().colorPickerVisible).toBe(true);
-
-    fireEvent.click(screen.getByTitle("Color Picker"));
-
-    expect(useOverlay.getState().colorPickerVisible).toBe(false);
+    expect(useAnnotation.getState().activeTool).toBe("measure");
   });
 
   it("closes the color picker when another annotation tool is selected", () => {
     renderToolbar();
 
-    fireEvent.click(screen.getByTitle("Color Picker"));
-    expect(useOverlay.getState().colorPickerVisible).toBe(true);
+    useOverlay.setState({ colorPickerVisible: true });
 
     fireEvent.click(screen.getByTitle("Rectangle"));
 

@@ -8,11 +8,14 @@ import {
 import { useAnnotation } from "@/annotation/store";
 import { TooltipBubble } from "@/annotation/Tooltip";
 import {
+  FONT_SIZES,
   PRESET_COLORS,
+  STROKE_WIDTHS,
   type AnnotationObject,
   type AnnotationStyle,
   type ToolType,
 } from "@/annotation/types";
+import { useDismissOnOutsideMouseDown } from "@/lib/useDismissOnOutsideMouseDown";
 import {
   ChevronDown,
   Circle,
@@ -21,13 +24,14 @@ import {
   Square,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
 const PROPERTY_PANEL_HEIGHT = 34;
 const PROPERTY_CONTROL_HEIGHT = 22;
 const OVERLAY_SURFACE_BACKGROUND = "rgba(30, 30, 30, 0.95)";
+const CORNER_RADIUS_OPTIONS = range(0, 60);
 
 const panelStyle: CSSProperties = {
   display: "flex",
@@ -76,19 +80,8 @@ const darkScrollbarStyle: CSSProperties = {
   borderRadius: 4,
 };
 
-function useDismissOnOutsideMouseDown<T extends HTMLElement>(
-  open: boolean,
-  ref: RefObject<T>,
-  onDismiss: () => void,
-) {
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onDismiss();
-    };
-    document.addEventListener("mousedown", close, true);
-    return () => document.removeEventListener("mousedown", close, true);
-  }, [open, ref, onDismiss]);
+function range(min: number, max: number): number[] {
+  return Array.from({ length: max - min + 1 }, (_, index) => min + index);
 }
 
 // ─── Separator ────────────────────────────────────────────────────────────────
@@ -517,6 +510,168 @@ function NumberStepper({
   );
 }
 
+function numberListId(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function NumberDropdown({
+  value,
+  onChange,
+  options,
+  suffix = "px",
+  title,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  options: number[];
+  suffix?: string;
+  title: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const formattedValue = `${value}${suffix}`;
+  const listId = `annotation-number-list-${numberListId(title)}`;
+
+  useDismissOnOutsideMouseDown(open, ref, () => setOpen(false));
+
+  const handleOpen = () => {
+    if (!open && ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      const dropdownHeight = Math.min(options.length * 26, 200) + 8;
+      setFlipUp(rect.bottom + dropdownHeight + 8 > window.innerHeight);
+    }
+    setOpen(!open);
+  };
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        ref={triggerRef}
+        type="button"
+        title={title}
+        aria-label={`${title}: ${formattedValue}`}
+        onMouseEnter={() => setTooltipVisible(true)}
+        onMouseLeave={() => setTooltipVisible(false)}
+        style={{ ...btnBase, gap: 4, minWidth: 54 }}
+        onClick={handleOpen}
+      >
+        <span style={{ color: "#fff", fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
+          {formattedValue}
+        </span>
+        <ChevronDown size={12} style={{ opacity: 0.6 }} />
+      </button>
+      {tooltipVisible && <TooltipBubble label={title} anchorRef={triggerRef} />}
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            ...(flipUp
+              ? { bottom: "calc(100% + 4px)" }
+              : { top: "calc(100% + 4px)" }),
+            left: 0,
+            minWidth: 62,
+            width: "max-content",
+            background: OVERLAY_SURFACE_BACKGROUND,
+            border: "1px solid rgba(255,255,255,0.15)",
+            borderRadius: 6,
+            padding: 4,
+            zIndex: 10010,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+          }}
+        >
+          <div
+            data-testid={listId}
+            className="flashot-dark-scrollbar"
+            style={{
+              maxHeight: 200,
+              overflowY: "auto",
+              overflowX: "hidden",
+              ...darkScrollbarStyle,
+            }}
+          >
+            {options.map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-label={`${title}: ${option}${suffix}`}
+                onClick={() => {
+                  onChange(option);
+                  setOpen(false);
+                }}
+                style={{
+                  ...btnBase,
+                  width: "100%",
+                  justifyContent: "center",
+                  color: "#fff",
+                  background: option === value ? "rgba(255,255,255,0.15)" : "transparent",
+                  fontSize: 11,
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {option}{suffix}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StrokeWidthDropdown({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <NumberDropdown
+      title="Stroke width"
+      value={value}
+      options={STROKE_WIDTHS}
+      onChange={onChange}
+    />
+  );
+}
+
+function CornerRadiusDropdown({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <NumberDropdown
+      title="Corner radius"
+      value={value}
+      options={CORNER_RADIUS_OPTIONS}
+      onChange={onChange}
+    />
+  );
+}
+
+function FontSizeDropdown({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <NumberDropdown
+      title="Font size"
+      value={value}
+      options={FONT_SIZES}
+      onChange={onChange}
+    />
+  );
+}
+
 // ─── Icons ───────────────────────────────────────────────────────────────────
 
 function PanelIcon(Icon: LucideIcon): ReactNode {
@@ -906,7 +1061,7 @@ function PenSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <NumberStepper label="Stroke" title="Stroke width" value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
+      <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
     </>
   );
 }
@@ -922,7 +1077,7 @@ function LineSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <NumberStepper label="Stroke" title="Stroke width" value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
+      <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
       <Separator />
       <DropdownSelect
         title="Line style"
@@ -945,6 +1100,22 @@ function LineSection({
   );
 }
 
+function MeasureSection({
+  style,
+  set,
+}: {
+  style: AnnotationStyle;
+  set: (p: Partial<AnnotationStyle>) => void;
+}) {
+  return (
+    <>
+      <ColorPicker value={style.color} onChange={(color) => set({ color })} />
+      <Separator />
+      <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
+    </>
+  );
+}
+
 function ArrowSection({
   style,
   set,
@@ -956,7 +1127,7 @@ function ArrowSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <NumberStepper label="Stroke" title="Stroke width" value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
+      <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
       <Separator />
       <DropdownSelect
         title="Line style"
@@ -993,7 +1164,7 @@ function RectSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <NumberStepper label="Stroke" title="Stroke width" value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
+      <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
       <Separator />
       <ToggleGroup
         options={[
@@ -1004,13 +1175,9 @@ function RectSection({
         onChange={(fill) => set({ fill })}
       />
       <Separator />
-      <NumberStepper
-        label="Radius"
-        title="Corner radius"
+      <CornerRadiusDropdown
         value={style.cornerRadius ?? 0}
         onChange={(cornerRadius) => set({ cornerRadius })}
-        min={0}
-        max={48}
       />
     </>
   );
@@ -1027,7 +1194,7 @@ function EllipseSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <NumberStepper label="Stroke" title="Stroke width" value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
+      <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
       <Separator />
       <ToggleGroup
         options={[
@@ -1218,7 +1385,7 @@ function TextSection({
         onChange={(fontFamily) => set({ fontFamily })}
       />
       <Separator />
-      <NumberStepper label="Size" title="Font size" value={style.fontSize ?? 24} onChange={(fontSize) => set({ fontSize })} min={10} max={72} step={2} />
+      <FontSizeDropdown value={style.fontSize ?? 24} onChange={(fontSize) => set({ fontSize })} />
     </>
   );
 }
@@ -1272,7 +1439,12 @@ function HighlightSection({
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
-      <NumberStepper label="Stroke" title="Stroke width" value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} min={1} max={20} />
+      <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
+      <Separator />
+      <CornerRadiusDropdown
+        value={style.cornerRadius ?? 0}
+        onChange={(cornerRadius) => set({ cornerRadius })}
+      />
       <Separator />
       <ToggleGroup
         options={[
@@ -1319,6 +1491,7 @@ export function PropertyPanel({ tool, style: containerStyle, object, panelRef }:
     >
       {tool === "draw" && <PenSection style={style} set={set} />}
       {tool === "line" && <LineSection style={style} set={set} />}
+      {tool === "measure" && <MeasureSection style={style} set={set} />}
       {tool === "arrow" && <ArrowSection style={style} set={set} />}
       {tool === "rect" && <RectSection style={style} set={set} />}
       {tool === "ellipse" && <EllipseSection style={style} set={set} />}

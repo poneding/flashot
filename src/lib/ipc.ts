@@ -3,6 +3,10 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type {
   CaptureStartPayload,
+  OcrDownloadProgress,
+  OcrInstallStatus,
+  OcrPackageInfo,
+  OcrResult,
   QuickShotFlashPayload,
   Rect,
   ScrollEndReason,
@@ -18,18 +22,30 @@ export type SelectionClaimPayload = {
 const COLOR_FORMAT_TOGGLE_REQUESTED = "capture:color-format-toggle-requested";
 const COLOR_COPY_REQUESTED = "capture:color-copy-requested";
 
-export async function cropAndCopy(monitorId: number, rect: Rect, annotationPng?: ArrayBuffer): Promise<void> {
+export async function cropAndCopy(
+  monitorId: number,
+  rect: Rect,
+  annotationPng?: ArrayBuffer,
+  cornerRadius: number = 0,
+): Promise<void> {
   await invoke("crop_and_copy", {
     monitorId,
     rect,
     annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
+    cornerRadius,
   });
 }
-export async function cropAndSave(monitorId: number, rect: Rect, annotationPng?: ArrayBuffer): Promise<string | null> {
+export async function cropAndSave(
+  monitorId: number,
+  rect: Rect,
+  annotationPng?: ArrayBuffer,
+  cornerRadius: number = 0,
+): Promise<string | null> {
   return await invoke<string | null>("crop_and_save", {
     monitorId,
     rect,
     annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
+    cornerRadius,
   });
 }
 export async function cancelCapture(): Promise<void> {
@@ -53,11 +69,17 @@ export async function endTextInputSession(): Promise<void> {
 export async function listSystemFonts(): Promise<string[]> {
   return await invoke<string[]>("list_system_fonts");
 }
-export async function pinImage(monitorId: number, rect: Rect, annotationPng?: ArrayBuffer): Promise<string> {
+export async function pinImage(
+  monitorId: number,
+  rect: Rect,
+  annotationPng?: ArrayBuffer,
+  cornerRadius: number = 0,
+): Promise<string> {
   return await invoke<string>("pin_image", {
     monitorId,
     rect,
     annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
+    cornerRadius,
   });
 }
 export async function closePin(pinId: string): Promise<void> {
@@ -157,4 +179,19 @@ export function onScrollMatchFailed(cb: (info: { consecutiveFailures: number; sc
   return listen<{ consecutive_failures: number; score: number }>("scroll:match-failed", (e) =>
     cb({ consecutiveFailures: e.payload.consecutive_failures, score: e.payload.score }),
   );
+}
+
+export const ocr = {
+  status: () => invoke<OcrInstallStatus>("ocr_status"),
+  packageInfo: () => invoke<OcrPackageInfo>("ocr_package_info"),
+  install: () => invoke<void>("ocr_install"),
+  recognize: (monitorId: number, rect: Rect) =>
+    invoke<OcrResult>("ocr_recognize", { monitorId, rect }),
+  saveText: (text: string) => invoke<void>("ocr_save_text", { text }),
+  onDownloadProgress: (cb: (p: OcrDownloadProgress) => void): Promise<UnlistenFn> =>
+    listen<OcrDownloadProgress>("ocr:download-progress", (e) => cb(e.payload)),
+};
+
+export function onOcrResultCached(cb: (result: OcrResult) => void): Promise<UnlistenFn> {
+  return listen<OcrResult>("ocr:result-cached", (e) => cb(e.payload));
 }
