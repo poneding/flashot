@@ -55,18 +55,10 @@ function parseOcrChromeRoute(): ParsedRoute | null {
     // ignore — falls back to zero rect; recognize will surface a backend error.
   }
 
-  let cachedResult: OcrResult | null = null;
-  const cachedKey = params.get("cachedResultKey");
-  if (cachedKey) {
-    try {
-      const raw = sessionStorage.getItem(cachedKey);
-      if (raw) cachedResult = JSON.parse(raw) as OcrResult;
-    } catch {
-      cachedResult = null;
-    }
-  }
-
-  return { monitorId, rect, cachedResult };
+  // sessionStorage is per-window in Tauri 2, so it cannot carry a cached
+  // result from the overlay window to this chrome window. Always recognize
+  // freshly here; the producer-side cache is left in place for future work.
+  return { monitorId, rect, cachedResult: null };
 }
 
 const FALLBACK_TOTAL_BYTES = 15_000_000;
@@ -108,13 +100,6 @@ function OcrChrome({ monitorId, rect, cachedResult }: Props) {
       setPhase({ kind: "error", message: errorMessage(e) });
     }
   }, [monitorId, rect]);
-
-  // Register with WindowMgr so SessionGuard can clean us up. Best-effort.
-  useEffect(() => {
-    ocr.registerChrome().catch(() => {
-      /* best-effort */
-    });
-  }, []);
 
   // Initial flow: check install → confirm OR recognize.
   useEffect(() => {

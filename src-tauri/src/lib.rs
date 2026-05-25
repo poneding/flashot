@@ -284,7 +284,7 @@ pub fn run() {
             commands::scroll_save,
             ocr::commands::ocr_status,
             ocr::commands::ocr_install,
-            ocr::commands::ocr_register_chrome,
+            ocr::commands::open_ocr_chrome,
             ocr::commands::ocr_save_text,
             commands::ocr_recognize,
         ])

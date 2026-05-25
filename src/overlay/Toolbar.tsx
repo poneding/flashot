@@ -3,7 +3,7 @@ import { clampToolbarPosition, computeVerticalToolbarPosition } from "@/lib/geom
 import type { Rect } from "@/lib/types";
 import { CornerRadiusPanel } from "@/overlay/CornerRadiusPanel";
 import { useOverlay } from "@/overlay/state";
-import { CopyIcon, GripHorizontal, PinIcon, SaveIcon, TypeIcon, XIcon } from "lucide-react";
+import { CopyIcon, GripHorizontal, PinIcon, SaveIcon, ScanText, XIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 export const SCREENSHOT_TOOLBAR_RADIUS = 10;
@@ -26,7 +26,8 @@ type Props = {
   onClose: ToolbarAction;
   onScroll: ToolbarAction;
   onOcr: ToolbarAction;
-  selectionTooSmall?: boolean;
+  scrollSelectionTooSmall?: boolean;
+  ocrSelectionTooSmall?: boolean;
 };
 
 type ToolbarButtonProps = {
@@ -45,7 +46,18 @@ const ACTION_COLORS: Record<NonNullable<ToolbarButtonProps["tone"]>, string> = {
   success: "#4ade80",
 };
 
-export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose, onScroll, onOcr, selectionTooSmall }: Props) {
+export function Toolbar({
+  selection,
+  monitorRect,
+  onCopy,
+  onSave,
+  onPin,
+  onClose,
+  onScroll,
+  onOcr,
+  scrollSelectionTooSmall,
+  ocrSelectionTooSmall,
+}: Props) {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const radiusPanelRef = useRef<HTMLDivElement>(null);
   const radiusButtonRef = useRef<HTMLButtonElement>(null);
@@ -168,10 +180,10 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
             disabled={busy}
           />
           <ToolbarButton
-            label={selectionTooSmall ? "Selection too small" : "Scrolling screenshot"}
+            label={scrollSelectionTooSmall ? "Selection too small" : "Scrolling screenshot"}
             icon={<ScrollScreenshotIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
             onClick={() => runAction(onScroll)}
-            disabled={selectionTooSmall}
+            disabled={scrollSelectionTooSmall}
           />
         </ToolbarGroup>
 
@@ -192,9 +204,9 @@ export function Toolbar({ selection, monitorRect, onCopy, onSave, onPin, onClose
             disabled={busy}
           />
           <ToolbarButton
-            label={selectionTooSmall ? "Selection too small" : "Extract text (OCR)"}
-            icon={<TypeIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
-            disabled={selectionTooSmall}
+            label={ocrSelectionTooSmall ? "Selection too small" : "Extract text (OCR)"}
+            icon={<ScanText size={18} strokeWidth={2.2} aria-hidden="true" />}
+            disabled={ocrSelectionTooSmall}
             onClick={() => runAction(onOcr)}
           />
           <ToolbarButton

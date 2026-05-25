@@ -4,7 +4,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter, Manager, Window};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::ocr::download::{self, ProgressFn};
 use crate::ocr::manifest::{self, ASSETS};
@@ -72,21 +72,91 @@ pub async fn ocr_install(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Register the calling window as the active OCR chrome window so the
-/// session's RAII teardown closes it automatically. The frontend invokes
-/// this once the OCR chrome route mounts; closing the previous chrome
-/// window (if any) is handled inside [`WindowMgr::set_ocr_chrome`].
+/// Spawn the OCR chrome window from Rust. We must create the window in Rust
+/// because frontend-side `new WebviewWindow()` is blocked by Tauri 2 in
+/// release builds (and would require permission wiring even where it works).
+/// The window is anchored relative to the selection on the originating
+/// monitor: prefer placement below the selection, then above, then a
+/// last-resort bottom-of-monitor fallback.
 #[tauri::command]
-pub async fn ocr_register_chrome(
+pub async fn open_ocr_chrome(
+    app: AppHandle,
     state: tauri::State<'_, std::sync::Arc<crate::window_mgr::WindowMgr>>,
-    window: Window,
+    monitor_id: u32,
+    rect: crate::types::Rect,
 ) -> Result<(), String> {
-    let label = window.label().to_string();
-    let webview = window
-        .app_handle()
-        .get_webview_window(&label)
-        .ok_or_else(|| format!("webview {label} not found"))?;
-    state.set_ocr_chrome(webview);
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Look up monitor info to compute the anchor in logical coordinates.
+    let mon = crate::capture::enumerate_monitors()
+        .ok()
+        .and_then(|ms| ms.into_iter().find(|m| m.id == monitor_id))
+        .ok_or_else(|| "monitor not found".to_string())?;
+
+    let chrome_w = 400.0_f64;
+    let chrome_h = 280.0_f64;
+    let mon_logical_w = mon.rect.width as f64;
+    let mon_logical_h = mon.rect.height as f64;
+    let mon_origin_x = mon.rect.x as f64;
+    let mon_origin_y = mon.rect.y as f64;
+
+    // `rect` arrives in monitor-local logical coordinates from the frontend
+    // (mirrors handleScroll and crop_and_copy callers).
+    let sel_x = rect.x as f64;
+    let sel_y = rect.y as f64;
+    let sel_h = rect.height as f64;
+
+    let gap = 8.0;
+
+    // Anchor preference: below the selection, then above, then overlap.
+    let (x, y) = if sel_y + sel_h + gap + chrome_h <= mon_logical_h {
+        (
+            (mon_origin_x + sel_x).clamp(mon_origin_x, mon_origin_x + mon_logical_w - chrome_w),
+            mon_origin_y + sel_y + sel_h + gap,
+        )
+    } else if sel_y - gap - chrome_h >= 0.0 {
+        (
+            (mon_origin_x + sel_x).clamp(mon_origin_x, mon_origin_x + mon_logical_w - chrome_w),
+            mon_origin_y + sel_y - gap - chrome_h,
+        )
+    } else {
+        (
+            (mon_origin_x + sel_x).clamp(mon_origin_x, mon_origin_x + mon_logical_w - chrome_w),
+            mon_origin_y + (mon_logical_h - chrome_h - gap).max(gap),
+        )
+    };
+
+    let session_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let chrome_label = format!("ocr-chrome-{session_id}");
+
+    // URL-encode the rect JSON so '?' / '&' inside don't break the query string.
+    let rect_json = serde_json::to_string(&rect).map_err(|e| e.to_string())?;
+    let url = format!(
+        "index.html#/ocr-chrome/{session_id}?monitorId={monitor_id}&rect={}",
+        urlencoding::encode(&rect_json)
+    );
+
+    let window = tauri::WebviewWindowBuilder::new(
+        &app,
+        &chrome_label,
+        tauri::WebviewUrl::App(url.into()),
+    )
+    .transparent(true)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(true)
+    .title("OCR")
+    .inner_size(chrome_w, chrome_h)
+    .position(x, y)
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    // Register so SessionGuard tears it down with the session.
+    state.set_ocr_chrome(window);
     Ok(())
 }
 
