@@ -14,6 +14,7 @@
   <a href="https://github.com/poneding/flashot/blob/main/LICENSE"><img src="https://img.shields.io/github/license/poneding/flashot?style=flat-square" alt="License" /></a>
   <a href="https://github.com/poneding/flashot/releases"><img src="https://img.shields.io/github/downloads/poneding/flashot/total?style=flat-square&color=green" alt="Downloads" /></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platform" />
+  <a href="https://linux.do" alt="LINUX DO"><img src="https://shorturl.at/ggSqS" /></a>
 </p>
 
 <p align="center">
