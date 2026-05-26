@@ -351,6 +351,8 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
     if (updates.start) { before.start = obj.start; after.start = updates.start; }
     if (updates.end) { before.end = obj.end; after.end = updates.end; }
     if (updates.points) { before.points = obj.points; after.points = updates.points; }
+    if ("text" in updates) { before.text = obj.text; after.text = updates.text; }
+    if ("markerNumber" in updates) { before.markerNumber = obj.markerNumber; after.markerNumber = updates.markerNumber; }
     if (updates.transform) { before.transform = { ...obj.transform }; after.transform = updates.transform; }
     const cmd: Command = { type: "resize", objectId: id, before, after };
     const objects = commandStack.execute(cmd, get().objects);

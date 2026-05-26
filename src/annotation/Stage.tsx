@@ -25,6 +25,7 @@ import { onMarkerStart, onMarkerMove, onMarkerEnd } from "@/annotation/tools/mar
 import { onEraserStart, onEraserMove, onEraserEnd } from "@/annotation/tools/eraser";
 import type { AnnotationObject, ToolType } from "@/annotation/types";
 import { TextOverlay } from "@/annotation/TextOverlay";
+import { MarkerTextOverlay } from "@/annotation/MarkerTextOverlay";
 import { addTextToLayer } from "@/annotation/tools/text";
 import { hitTestHandle } from "@/lib/geometry";
 import { renderObject } from "@/annotation/render";
@@ -494,8 +495,15 @@ export function AnnotationStage({ selection, scaleFactor, interacting }: Props) 
   const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
   const [, forceRender] = useState(0);
   const [textEditing, setTextEditing] = useState<{ position: { x: number; y: number }; editingObject: AnnotationObject | null; key: number } | null>(null);
+  const [markerEditing, setMarkerEditing] = useState<{ object: AnnotationObject; key: number } | null>(null);
   const textFlushRef = useRef<(() => void) | null>(null);
   const textKeyRef = useRef(0);
+  const markerKeyRef = useRef(0);
+
+  const openMarkerEditor = (object: AnnotationObject) => {
+    markerKeyRef.current++;
+    setMarkerEditing({ object, key: markerKeyRef.current });
+  };
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -649,6 +657,13 @@ export function AnnotationStage({ selection, scaleFactor, interacting }: Props) 
     const hitNode = getObjectNodeFromHit(hitTarget);
     const hitObject = hitNode ? objects.find((o) => o.id === hitNode.id()) : undefined;
 
+    if (tool !== "eraser" && hitObject?.type === "marker" && hitNode) {
+      e.stopPropagation();
+      setSelectedObject(hitObject.id);
+      openMarkerEditor(hitObject);
+      return;
+    }
+
     // Keep single-click available for selecting/dragging text. Double-click reopens editing.
     if (tool === "text" && hitObject?.type === "text" && hitNode && e.detail >= 2) {
       e.stopPropagation();
@@ -732,7 +747,7 @@ export function AnnotationStage({ selection, scaleFactor, interacting }: Props) 
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
-    const { activeTool: tool, drawingState, setDrawingState, addObject } = useAnnotation.getState();
+    const { activeTool: tool, drawingState, setDrawingState, addObject, setSelectedObject } = useAnnotation.getState();
     if (drawingState !== "active") return;
 
     e.stopPropagation();
@@ -749,7 +764,13 @@ export function AnnotationStage({ selection, scaleFactor, interacting }: Props) 
     const handlers = TOOL_HANDLERS[tool];
     if (handlers) {
       const obj = handlers.end(x, y);
-      if (obj) addObject(obj);
+      if (obj) {
+        addObject(obj);
+        if (obj.type === "marker") {
+          setSelectedObject(obj.id);
+          openMarkerEditor(obj);
+        }
+      }
     }
     setDrawingState("idle");
   };
@@ -775,6 +796,18 @@ export function AnnotationStage({ selection, scaleFactor, interacting }: Props) 
           visibility: "visible",
         }}
       />
+      {markerEditing && (
+        <MarkerTextOverlay
+          key={markerEditing.key}
+          object={markerEditing.object}
+          selection={selection}
+          onConfirm={(text) => {
+            useAnnotation.getState().resizeObject(markerEditing.object.id, { text });
+            setMarkerEditing(null);
+          }}
+          onCancel={() => setMarkerEditing(null)}
+        />
+      )}
       {textEditing && (
         <TextOverlay
           key={textEditing.key}

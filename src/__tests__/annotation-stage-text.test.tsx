@@ -23,6 +23,25 @@ function textObject(): AnnotationObject {
   };
 }
 
+function markerObject(overrides: Partial<AnnotationObject> = {}): AnnotationObject {
+  return {
+    id: "marker-1",
+    type: "marker",
+    start: { x: 48, y: 56 },
+    markerNumber: 1,
+    text: "",
+    style: {
+      color: "#ff0000",
+      strokeWidth: 4,
+      markerFill: "#0099ff",
+      markerTextColor: "#ffffff",
+      markerBubbleFill: "#111827",
+    },
+    transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    ...overrides,
+  };
+}
+
 describe("AnnotationStage text interactions", () => {
   beforeAll(() => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(function getContextMock(this: HTMLCanvasElement) {
@@ -96,5 +115,51 @@ describe("AnnotationStage text interactions", () => {
     render(<AnnotationStage selection={selection} scaleFactor={2} />);
 
     expect(getLayer()?.getCanvas().getPixelRatio()).toBe(2);
+  });
+
+
+  it("opens marker editor after creation and commits bubble text", () => {
+    useAnnotation.getState().setActiveTool("marker");
+    const { container } = render(<AnnotationStage selection={selection} scaleFactor={1} />);
+    const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
+
+    fireEvent.mouseDown(stageNode, { clientX: 60, clientY: 70 });
+    fireEvent.mouseUp(stageNode, { clientX: 60, clientY: 70 });
+
+    const created = useAnnotation.getState().objects[0];
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement | null;
+    expect(created.type).toBe("marker");
+    expect(useAnnotation.getState().selectedObjectId).toBe(created.id);
+    expect(textarea).not.toBeNull();
+
+    fireEvent.input(textarea!, { target: { value: "Review this" } });
+    fireEvent.keyDown(textarea!, { key: "Enter" });
+
+    expect(useAnnotation.getState().objects[0].text).toBe("Review this");
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(getLayer()?.findOne(".marker-bubble")).not.toBeUndefined();
+  });
+
+  it("opens marker editor on selection and hides the bubble for empty text", () => {
+    const { container } = render(<AnnotationStage selection={selection} scaleFactor={1} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(markerObject({ text: "Old note" }));
+    });
+
+    const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
+    const node = getLayer()?.findOne("#marker-1");
+    vi.spyOn(getStage()!, "getIntersection").mockReturnValue(node as never);
+
+    fireEvent.mouseDown(stageNode, { clientX: 50, clientY: 58, detail: 1 });
+
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement | null;
+    expect(textarea?.value).toBe("Old note");
+
+    fireEvent.input(textarea!, { target: { value: "   " } });
+    fireEvent.keyDown(textarea!, { key: "Enter" });
+
+    expect(useAnnotation.getState().objects[0].text).toBe("");
+    expect(getLayer()?.findOne(".marker-bubble")).toBeUndefined();
   });
 });
