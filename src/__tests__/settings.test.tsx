@@ -90,6 +90,31 @@ describe("SettingsRoute", () => {
     expect(screen.queryByText(/CommandOrControl/)).toBeNull();
   });
 
+  it("groups settings into shortcut, capture, appearance, and general sections", async () => {
+    render(<SettingsRoute />);
+
+    expect(await screen.findByRole("heading", { name: "Shortcuts" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Capture" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Appearance" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "General" })).toBeTruthy();
+  });
+
+  it("saves accent color and language selections", async () => {
+    render(<SettingsRoute />);
+
+    await screen.findByRole("heading", { name: "Appearance" });
+    fireEvent.click(screen.getByRole("button", { name: "Accent color: Rose" }));
+    fireEvent.change(screen.getByLabelText("Language"), { target: { value: "zh-CN" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({
+        accentColor: "#F43F5E",
+        language: "zh-CN",
+      }));
+    });
+  });
+
   it("uses compact shortcut label icons", async () => {
     render(<SettingsRoute />);
 

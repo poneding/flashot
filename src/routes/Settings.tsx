@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
+import { AccentColorSelect } from "@/settings/AccentColorSelect";
 import { HotkeyRecorder } from "@/settings/HotkeyRecorder";
+import { LanguageSelect } from "@/settings/LanguageSelect";
+import { SettingsSection } from "@/settings/SettingsSection";
 import { ThemeSelect } from "@/settings/ThemeSelect";
 import { getSettings, setSettings } from "@/lib/ipc";
 import { SELECTION_COLOR } from "@/lib/colors";
@@ -60,47 +63,73 @@ export function SettingsRoute() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-md mx-auto">
+    <div className="p-6 space-y-5 max-w-md mx-auto">
       <h1 className="text-xl font-semibold">Flashot Settings</h1>
 
-      <div className="space-y-2">
-        <ShortcutLabel icon={CropIcon}>Capture Region</ShortcutLabel>
-        <HotkeyRecorder
-          value={s.captureHotkey}
-          onChange={(captureHotkey) => setS({ ...s, captureHotkey })}
-        />
-      </div>
+      <SettingsSection title="Shortcuts">
+        <div className="space-y-2">
+          <ShortcutLabel icon={CropIcon}>Capture Region</ShortcutLabel>
+          <HotkeyRecorder
+            value={s.captureHotkey}
+            onChange={(captureHotkey) => setS({ ...s, captureHotkey })}
+          />
+        </div>
 
-      <div className="space-y-2">
-        <ShortcutLabel icon={MonitorIcon}>Capture Screen</ShortcutLabel>
-        <HotkeyRecorder
-          value={s.fullscreenHotkey}
-          onChange={(fullscreenHotkey) => setS({ ...s, fullscreenHotkey })}
-        />
-      </div>
+        <div className="space-y-2">
+          <ShortcutLabel icon={MonitorIcon}>Capture Screen</ShortcutLabel>
+          <HotkeyRecorder
+            value={s.fullscreenHotkey}
+            onChange={(fullscreenHotkey) => setS({ ...s, fullscreenHotkey })}
+          />
+        </div>
 
-      <div className="space-y-2">
-        <ShortcutLabel icon={AppWindowIcon}>Capture Window</ShortcutLabel>
-        <HotkeyRecorder
-          value={s.activeWindowHotkey}
-          onChange={(activeWindowHotkey) => setS({ ...s, activeWindowHotkey })}
-        />
-      </div>
+        <div className="space-y-2">
+          <ShortcutLabel icon={AppWindowIcon}>Capture Window</ShortcutLabel>
+          <HotkeyRecorder
+            value={s.activeWindowHotkey}
+            onChange={(activeWindowHotkey) => setS({ ...s, activeWindowHotkey })}
+          />
+        </div>
+      </SettingsSection>
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Theme</label>
-        <ThemeSelect value={s.theme} onChange={(theme) => setS({ ...s, theme })} />
-      </div>
+      <SettingsSection title="Capture">
+        <div className="flex items-center justify-between gap-3">
+          <label className="text-sm font-medium">Corner radius</label>
+          <span className="text-sm text-muted-foreground">{s.cornerRadius}px</span>
+        </div>
+      </SettingsSection>
 
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="launch-at-login"
-          aria-label="Launch at login"
-          checked={s.launchAtLogin}
-          onCheckedChange={(launchAtLogin) => setS({ ...s, launchAtLogin })}
-        />
-        <label className="text-sm font-medium" htmlFor="launch-at-login">Launch at login</label>
-      </div>
+      <SettingsSection title="Appearance">
+        <div className="flex items-center justify-between gap-3">
+          <label className="text-sm font-medium">Theme</label>
+          <ThemeSelect value={s.theme} onChange={(theme) => setS({ ...s, theme })} />
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <label className="text-sm font-medium">Accent color</label>
+          <AccentColorSelect
+            value={s.accentColor}
+            onChange={(accentColor) => setS({ ...s, accentColor })}
+          />
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <label className="text-sm font-medium" htmlFor="settings-language">Language</label>
+          <LanguageSelect value={s.language} onChange={(language) => setS({ ...s, language })} />
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="General">
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="launch-at-login"
+            aria-label="Launch at login"
+            checked={s.launchAtLogin}
+            onCheckedChange={(launchAtLogin) => setS({ ...s, launchAtLogin })}
+          />
+          <label className="text-sm font-medium" htmlFor="launch-at-login">Launch at login</label>
+        </div>
+      </SettingsSection>
 
       <div className="flex justify-end gap-2 pt-4">
         <Button variant="outline" onClick={() => setS(defaultSettings())}>Reset</Button>
