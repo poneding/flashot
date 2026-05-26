@@ -6,6 +6,7 @@ const releaseWorkflowPath = resolve(__dirname, "../../.github/workflows/release.
 const ciWorkflowPath = resolve(__dirname, "../../.github/workflows/ci.yml");
 const readmePath = resolve(__dirname, "../../README.md");
 const tauriConfigPath = resolve(__dirname, "../../src-tauri/tauri.conf.json");
+const cargoManifestPath = resolve(__dirname, "../../src-tauri/Cargo.toml");
 
 describe("release workflow", () => {
   it("keeps branch CI focused on checks instead of packaging installers", () => {
@@ -36,6 +37,24 @@ describe("release workflow", () => {
     expect(workflow).toContain("src-tauri/lib/onnxruntime/windows/DirectML.dll");
     expect(workflow).toContain("ORT_DYLIB_PATH=");
     expect(workflow).toContain("GITHUB_PATH");
+  });
+
+  it("loads Windows ONNX Runtime dynamically during Rust tests", () => {
+    const manifest = readFileSync(cargoManifestPath, "utf8");
+    const workflow = readFileSync(ciWorkflowPath, "utf8");
+    const windowsOrtDependency = manifest.match(
+      /\[target\.'cfg\(target_os = "windows"\)'\.dependencies\][\s\S]*?ort = \{[^\n]+/,
+    )?.[0];
+
+    expect(windowsOrtDependency).toBeDefined();
+    expect(windowsOrtDependency).toContain('"load-dynamic"');
+    expect(windowsOrtDependency).toContain('"ndarray"');
+    expect(windowsOrtDependency).not.toContain('"directml"');
+    expect(workflow).toContain("cygpath -w");
+    expect(workflow).toContain("cargo test --no-run");
+    expect(workflow).toContain("target/debug/deps");
+    expect(workflow).toContain("cp -f lib/onnxruntime/windows/onnxruntime.dll");
+    expect(workflow).toContain("cp -f lib/onnxruntime/windows/DirectML.dll");
   });
 
   it("publishes GitHub Releases from semantic version tags", () => {

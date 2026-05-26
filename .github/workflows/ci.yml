@@ -77,8 +77,10 @@ jobs:
                 src-tauri/lib/onnxruntime/windows/onnxruntime_providers_shared.dll
               cp "$RUNNER_TEMP/directml/bin/x64-win/DirectML.dll" \
                 src-tauri/lib/onnxruntime/windows/DirectML.dll
-              echo "ORT_DYLIB_PATH=$PWD/src-tauri/lib/onnxruntime/windows/onnxruntime.dll" >> "$GITHUB_ENV"
-              echo "$PWD/src-tauri/lib/onnxruntime/windows" >> "$GITHUB_PATH"
+              windows_ort_dir="$PWD/src-tauri/lib/onnxruntime/windows"
+              windows_ort_dir_native="$(cygpath -w "$windows_ort_dir")"
+              echo "ORT_DYLIB_PATH=${windows_ort_dir_native}\\onnxruntime.dll" >> "$GITHUB_ENV"
+              echo "$windows_ort_dir_native" >> "$GITHUB_PATH"
               ;;
             *)
               echo "No checked-in ONNX Runtime library is required for ${RUNNER_OS} CI."
@@ -92,7 +94,19 @@ jobs:
         run: cd src-tauri && cargo clippy --all-targets -- -D warnings
 
       - name: Cargo test
-        run: cd src-tauri && cargo test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd src-tauri
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            cargo test --no-run
+            for dir in target/debug target/debug/deps; do
+              cp -f lib/onnxruntime/windows/onnxruntime.dll "$dir/"
+              cp -f lib/onnxruntime/windows/onnxruntime_providers_shared.dll "$dir/"
+              cp -f lib/onnxruntime/windows/DirectML.dll "$dir/"
+            done
+          fi
+          cargo test
 
       - name: Cargo bench (crop_bench only)
         run: cd src-tauri && cargo bench --bench crop_bench
