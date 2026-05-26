@@ -166,7 +166,9 @@ describe("Annotation toolbar", () => {
     fireEvent.click(rectangle);
 
     expect(useAnnotation.getState().activeTool).toBe("rect");
-    expect(rectangle.querySelector("span")).not.toBeNull();
+    const activeIndicator = rectangle.querySelector("span") as HTMLElement | null;
+    expect(activeIndicator).not.toBeNull();
+    expect(activeIndicator?.style.background).toBe("var(--flashot-accent)");
 
     fireEvent.click(rectangle);
 

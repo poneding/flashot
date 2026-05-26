@@ -3,6 +3,7 @@ import { useAnnotation } from "@/annotation/store";
 import { TooltipBubble } from "@/annotation/Tooltip";
 import { useOverlay } from "@/overlay/state";
 import type { ToolType } from "@/annotation/types";
+import { ACCENT_COLOR_CSS_VAR } from "@/lib/colors";
 import { clampToolbarPosition, computeToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
 import {
@@ -271,7 +272,7 @@ function ToolButton({ icon, label, active, onClick }: ToolButtonProps) {
             width: 12,
             height: 2,
             borderRadius: 1,
-            background: "#3b82f6",
+            background: ACCENT_COLOR_CSS_VAR,
           }}
         />
       )}
