@@ -26,6 +26,18 @@ pub enum Theme {
     Dark,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Language {
+    #[serde(rename = "system")]
+    System,
+    #[serde(rename = "en")]
+    En,
+    #[serde(rename = "zh-CN")]
+    ZhCn,
+}
+
+const DEFAULT_ACCENT_COLOR: &str = "#4ED1FF";
+
 fn default_capture_hotkey() -> String {
     DEFAULT_CAPTURE_HOTKEY.to_string()
 }
@@ -42,6 +54,14 @@ fn default_theme() -> Theme {
     Theme::System
 }
 
+fn default_accent_color() -> String {
+    DEFAULT_ACCENT_COLOR.to_string()
+}
+
+fn default_language() -> Language {
+    Language::System
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -53,6 +73,10 @@ pub struct Settings {
     pub active_window_hotkey: String,
     #[serde(default = "default_theme")]
     pub theme: Theme,
+    #[serde(default = "default_accent_color")]
+    pub accent_color: String,
+    #[serde(default = "default_language")]
+    pub language: Language,
     #[serde(default)]
     pub launch_at_login: bool,
     #[serde(default)]
@@ -68,6 +92,8 @@ impl Default for Settings {
             fullscreen_hotkey: default_fullscreen_hotkey(),
             active_window_hotkey: default_active_window_hotkey(),
             theme: default_theme(),
+            accent_color: default_accent_color(),
+            language: default_language(),
             launch_at_login: false,
             last_save_dir: None,
             corner_radius: 0,
@@ -116,6 +142,8 @@ mod tests {
             default_active_window_hotkey()
         );
         assert_eq!(settings.theme, Theme::System);
+        assert_eq!(settings.accent_color, DEFAULT_ACCENT_COLOR);
+        assert_eq!(settings.language, Language::System);
         assert!(!settings.launch_at_login);
         assert_eq!(settings.last_save_dir, None);
     }
@@ -131,6 +159,8 @@ mod tests {
             default_active_window_hotkey()
         );
         assert_eq!(settings.theme, Theme::System);
+        assert_eq!(settings.accent_color, DEFAULT_ACCENT_COLOR);
+        assert_eq!(settings.language, Language::System);
         assert!(!settings.launch_at_login);
         assert_eq!(settings.last_save_dir, None);
     }
@@ -155,6 +185,8 @@ mod tests {
             fullscreen_hotkey: "Ctrl+Shift+F".to_string(),
             active_window_hotkey: "Ctrl+Shift+W".to_string(),
             theme: Theme::Dark,
+            accent_color: "#ff00aa".to_string(),
+            language: Language::ZhCn,
             launch_at_login: true,
             last_save_dir: Some("/Users/dp/Pictures/Flashot".to_string()),
             corner_radius: 0,
@@ -167,6 +199,8 @@ mod tests {
         assert_eq!(value["activeWindowHotkey"], "Ctrl+Shift+W");
         assert!(value.get("hotkey").is_none());
         assert_eq!(value["theme"], "dark");
+        assert_eq!(value["accentColor"], "#ff00aa");
+        assert_eq!(value["language"], "zh-CN");
         assert_eq!(value["launchAtLogin"], true);
         assert_eq!(value["lastSaveDir"], "/Users/dp/Pictures/Flashot");
     }
@@ -175,6 +209,13 @@ mod tests {
     fn default_settings_have_zero_corner_radius() {
         let settings = Settings::default();
         assert_eq!(settings.corner_radius, 0);
+    }
+
+    #[test]
+    fn default_settings_have_appearance_defaults() {
+        let settings = Settings::default();
+        assert_eq!(settings.accent_color, "#4ED1FF");
+        assert_eq!(settings.language, Language::System);
     }
 
     #[test]
@@ -190,5 +231,12 @@ mod tests {
     fn legacy_settings_without_corner_radius_default_to_zero() {
         let settings: Settings = serde_json::from_str(r#"{}"#).unwrap();
         assert_eq!(settings.corner_radius, 0);
+    }
+
+    #[test]
+    fn legacy_settings_without_appearance_fields_get_defaults() {
+        let settings: Settings = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(settings.accent_color, "#4ED1FF");
+        assert_eq!(settings.language, Language::System);
     }
 }

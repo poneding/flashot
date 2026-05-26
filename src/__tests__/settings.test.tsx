@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsRoute } from "@/routes/Settings";
 import { ThemeSelect } from "@/settings/ThemeSelect";
 import { getSettings, setSettings } from "@/lib/ipc";
+import { SELECTION_COLOR } from "@/lib/colors";
 import type { Settings } from "@/lib/types";
 
 vi.mock("@/lib/ipc", () => ({
@@ -16,6 +17,8 @@ const settings: Settings = {
   fullscreenHotkey: "Cmd+Shift+F",
   activeWindowHotkey: "Cmd+Shift+W",
   theme: "system",
+  accentColor: SELECTION_COLOR,
+  language: "system",
   launchAtLogin: false,
   lastSaveDir: null,
   cornerRadius: 0,
@@ -107,5 +110,30 @@ describe("SettingsRoute", () => {
     expect(
       checkbox.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("fills appearance defaults when loading legacy settings", async () => {
+    const legacySettings = {
+      captureHotkey: "Cmd+Shift+A",
+      fullscreenHotkey: "Cmd+Shift+F",
+      activeWindowHotkey: "Cmd+Shift+W",
+      theme: "system",
+      launchAtLogin: false,
+      lastSaveDir: null,
+      cornerRadius: 0,
+    } as Settings;
+    vi.mocked(getSettings).mockResolvedValue(legacySettings);
+
+    render(<SettingsRoute />);
+
+    await screen.findByText("Capture Region");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({
+        accentColor: SELECTION_COLOR,
+        language: "system",
+      }));
+    });
   });
 });

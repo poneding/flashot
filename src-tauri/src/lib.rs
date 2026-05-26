@@ -1451,6 +1451,8 @@ mod tests {
             fullscreen_hotkey: "Cmd+Shift+F".to_string(),
             active_window_hotkey: "Cmd+Shift+W".to_string(),
             theme: settings_store::Theme::System,
+            accent_color: "#4ED1FF".to_string(),
+            language: settings_store::Language::System,
             launch_at_login: false,
             last_save_dir: None,
             corner_radius: 0,

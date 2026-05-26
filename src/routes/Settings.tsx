@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { HotkeyRecorder } from "@/settings/HotkeyRecorder";
 import { ThemeSelect } from "@/settings/ThemeSelect";
 import { getSettings, setSettings } from "@/lib/ipc";
+import { SELECTION_COLOR } from "@/lib/colors";
 import type { Settings } from "@/lib/types";
 import { AppWindowIcon, CropIcon, MonitorIcon, type LucideIcon } from "lucide-react";
 
@@ -18,6 +19,8 @@ function defaultSettings(): Settings {
     fullscreenHotkey: `${mod}+Shift+F`,
     activeWindowHotkey: `${mod}+Shift+W`,
     theme: "system",
+    accentColor: SELECTION_COLOR,
+    language: "system",
     launchAtLogin: false,
     lastSaveDir: null,
     cornerRadius: 0,
@@ -37,7 +40,11 @@ export function SettingsRoute() {
   const [s, setS] = useState<Settings>(() => defaultSettings());
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => { getSettings().then(setS).catch(() => {}); }, []);
+  useEffect(() => {
+    getSettings()
+      .then((settings) => setS({ ...defaultSettings(), ...settings }))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle(

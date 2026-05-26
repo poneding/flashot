@@ -54,6 +54,8 @@ export type Settings = {
   fullscreenHotkey: string;   // e.g. "Cmd+Shift+F"
   activeWindowHotkey: string; // e.g. "Cmd+Shift+W"
   theme: "system" | "light" | "dark";
+  accentColor: string;
+  language: "system" | "en" | "zh-CN";
   launchAtLogin: boolean;
   lastSaveDir: string | null;
   cornerRadius: number;
