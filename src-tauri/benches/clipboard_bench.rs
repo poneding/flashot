@@ -9,7 +9,9 @@ fn bench(c: &mut Criterion) {
     let h = 1080u32;
     let rgba = vec![200u8; (w * h * 4) as usize];
     c.bench_function("clipboard_copy_image_1080p", |b| {
-        b.iter(|| { let _ = copy_image(rgba.clone(), w, h); })
+        b.iter(|| {
+            let _ = copy_image(rgba.clone(), w, h);
+        })
     });
 }
 

@@ -6,7 +6,14 @@ fn make_4k_frame() -> Vec<u8> {
     vec![128u8; (w * h * 4) as usize]
 }
 
-fn crop_rgba(src: &[u8], src_width: u32, rect_x: u32, rect_y: u32, rect_w: u32, rect_h: u32) -> Vec<u8> {
+fn crop_rgba(
+    src: &[u8],
+    src_width: u32,
+    rect_x: u32,
+    rect_y: u32,
+    rect_w: u32,
+    rect_h: u32,
+) -> Vec<u8> {
     let mut out = Vec::with_capacity((rect_w * rect_h * 4) as usize);
     for row in 0..rect_h {
         let src_row_start = ((rect_y + row) * src_width + rect_x) as usize * 4;

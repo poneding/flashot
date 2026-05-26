@@ -16,7 +16,9 @@ pub fn sort_reading_order(mut lines: Vec<OcrLine>) -> Vec<OcrLine> {
         let bh = bbox_height(&b.bbox);
         let overlap = (ay - by).abs() < ah.min(bh) * 0.5;
         if overlap {
-            bbox_min_x(&a.bbox).partial_cmp(&bbox_min_x(&b.bbox)).unwrap()
+            bbox_min_x(&a.bbox)
+                .partial_cmp(&bbox_min_x(&b.bbox))
+                .unwrap()
         } else {
             ay.partial_cmp(&by).unwrap()
         }
@@ -26,7 +28,10 @@ pub fn sort_reading_order(mut lines: Vec<OcrLine>) -> Vec<OcrLine> {
 
 /// Drop lines with confidence below CONFIDENCE_FLOOR.
 pub fn filter_low_confidence(lines: Vec<OcrLine>) -> Vec<OcrLine> {
-    lines.into_iter().filter(|l| l.confidence >= CONFIDENCE_FLOOR).collect()
+    lines
+        .into_iter()
+        .filter(|l| l.confidence >= CONFIDENCE_FLOOR)
+        .collect()
 }
 
 /// Concatenate line texts, separating rows with '\n'. Adjacent lines whose
@@ -35,7 +40,9 @@ pub fn concatenate(lines: &[OcrLine]) -> String {
     let mut out = String::new();
     for (i, line) in lines.iter().enumerate() {
         let text = line.text.trim();
-        if text.is_empty() { continue; }
+        if text.is_empty() {
+            continue;
+        }
         if !out.is_empty() {
             let prev = &lines[i - 1];
             let same_row = (bbox_center_y(&line.bbox) - bbox_center_y(&prev.bbox)).abs()
@@ -80,12 +87,15 @@ mod tests {
     #[test]
     fn sort_orders_top_to_bottom_then_left_to_right() {
         let l = vec![
-            line("b", 1.0, 100.0, 50.0, 30.0, 20.0),  // row 1, right
-            line("c", 1.0, 50.0, 100.0, 30.0, 20.0),  // row 2
-            line("a", 1.0, 50.0, 50.0, 30.0, 20.0),   // row 1, left
+            line("b", 1.0, 100.0, 50.0, 30.0, 20.0), // row 1, right
+            line("c", 1.0, 50.0, 100.0, 30.0, 20.0), // row 2
+            line("a", 1.0, 50.0, 50.0, 30.0, 20.0),  // row 1, left
         ];
         let sorted = sort_reading_order(l);
-        assert_eq!(sorted.iter().map(|x| x.text.as_str()).collect::<Vec<_>>(), vec!["a", "b", "c"]);
+        assert_eq!(
+            sorted.iter().map(|x| x.text.as_str()).collect::<Vec<_>>(),
+            vec!["a", "b", "c"]
+        );
     }
 
     #[test]
@@ -103,8 +113,8 @@ mod tests {
     fn concatenate_uses_space_within_row_newline_between_rows() {
         let l = vec![
             line("hello", 1.0, 50.0, 50.0, 30.0, 20.0),
-            line("world", 1.0, 100.0, 50.0, 30.0, 20.0),  // same row
-            line("foo", 1.0, 50.0, 100.0, 30.0, 20.0),    // next row
+            line("world", 1.0, 100.0, 50.0, 30.0, 20.0), // same row
+            line("foo", 1.0, 50.0, 100.0, 30.0, 20.0),   // next row
         ];
         let text = concatenate(&l);
         assert_eq!(text, "hello world\nfoo");
