@@ -68,6 +68,16 @@ describe("PinRoute", () => {
     expect(screenshot.style.borderRadius).toBe("8px");
   });
 
+  it("uses the accent variable for the pinned screenshot glow", async () => {
+    window.location.hash = "#/pin/test-id";
+
+    render(<PinRoute />);
+
+    const screenshot = await screen.findByAltText("Pinned screenshot");
+
+    expect(screenshot.style.boxShadow).toContain("rgba(var(--flashot-accent-rgb), 0.5)");
+  });
+
   it("applies radius from the query string to screenshot and annotation layers", async () => {
     window.location.hash = "#/pin/test-id?annotation=1&radius=8";
 

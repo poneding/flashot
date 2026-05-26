@@ -1,5 +1,5 @@
 import { closePin, setPinScale } from "@/lib/ipc";
-import { SELECTION_COLOR } from "@/lib/colors";
+import { ACCENT_RGB_CSS_VAR } from "@/lib/colors";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { appCacheDir } from "@tauri-apps/api/path";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -10,14 +10,14 @@ import { useEffect, useState, type CSSProperties } from "react";
 // shadows have room to render without being clipped by the window edge.
 const PIN_SHADOW_PADDING = 24;
 const PIN_GLOW = [
-  // Tight rim — barely-there definition right at the image edge.
-  `0 0 1px ${SELECTION_COLOR}99`,
-  // Inner halo — most of the visible color.
-  `0 0 6px ${SELECTION_COLOR}80`,
+  // Tight rim - barely-there definition right at the image edge.
+  `0 0 1px rgba(${ACCENT_RGB_CSS_VAR}, 0.6)`,
+  // Inner halo - most of the visible color.
+  `0 0 6px rgba(${ACCENT_RGB_CSS_VAR}, 0.5)`,
   // Mid bloom.
-  `0 0 14px ${SELECTION_COLOR}55`,
+  `0 0 14px rgba(${ACCENT_RGB_CSS_VAR}, 0.34)`,
   // Outer feathered fall-off.
-  `0 0 22px ${SELECTION_COLOR}33`,
+  `0 0 22px rgba(${ACCENT_RGB_CSS_VAR}, 0.2)`,
 ].join(", ");
 
 function parsePinRoute(): { id: string; hasAnnotation: boolean; radius: number } | null {
