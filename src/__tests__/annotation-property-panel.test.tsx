@@ -114,6 +114,33 @@ describe("Annotation property panel", () => {
     expect(screen.queryByLabelText("Increase Corner radius")).toBeNull();
   });
 
+  it("shows focus controls for rectangle and ellipse panels only", () => {
+    const { rerender } = render(<PropertyPanel tool="rect" />);
+
+    expect(screen.getByRole("button", { name: "Focus" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Focus opacity: 45%" })).not.toBeNull();
+
+    rerender(<PropertyPanel tool="ellipse" />);
+
+    expect(screen.getByRole("button", { name: "Focus" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Focus opacity: 45%" })).not.toBeNull();
+
+    rerender(<PropertyPanel tool="line" />);
+
+    expect(screen.queryByRole("button", { name: "Focus" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Focus opacity:/ })).toBeNull();
+
+    rerender(<PropertyPanel tool="text" />);
+
+    expect(screen.queryByRole("button", { name: "Focus" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Focus opacity:/ })).toBeNull();
+
+    rerender(<PropertyPanel tool="highlight" />);
+
+    expect(screen.queryByRole("button", { name: "Focus" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Focus opacity:/ })).toBeNull();
+  });
+
   it("shows immediate custom tooltips for numeric controls on hover", () => {
     render(<PropertyPanel tool="rect" />);
 
