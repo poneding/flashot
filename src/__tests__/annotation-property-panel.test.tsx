@@ -114,6 +114,22 @@ describe("Annotation property panel", () => {
     expect(screen.queryByLabelText("Increase Corner radius")).toBeNull();
   });
 
+  it("shows marker fill, text color, and bubble background controls", () => {
+    render(<PropertyPanel tool="marker" />);
+
+    const fill = screen.getByLabelText("Marker fill");
+    const textColor = screen.getByLabelText("Marker text color");
+    const bubbleBackground = screen.getByLabelText("Marker bubble background");
+
+    fireEvent.click(within(fill).getByTitle("#0099ff"));
+    fireEvent.click(within(textColor).getByTitle("#ffffff"));
+    fireEvent.click(within(bubbleBackground).getByTitle("#000000"));
+
+    expect(useAnnotation.getState().activeStyle.markerFill).toBe("#0099ff");
+    expect(useAnnotation.getState().activeStyle.markerTextColor).toBe("#ffffff");
+    expect(useAnnotation.getState().activeStyle.markerBubbleFill).toBe("#000000");
+  });
+
   it("shows focus controls for rectangle and ellipse panels only", () => {
     const { rerender } = render(<PropertyPanel tool="rect" />);
 

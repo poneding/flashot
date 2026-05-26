@@ -120,6 +120,7 @@ describe("Annotation toolbar", () => {
       "Text",
       "Blur",
       "Highlight",
+      "Marker",
       "Eraser",
       "Undo (Cmd+Z)",
       "Redo (Cmd+Shift+Z)",
@@ -147,6 +148,14 @@ describe("Annotation toolbar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Measure" }));
 
     expect(useAnnotation.getState().activeTool).toBe("measure");
+  });
+
+  it("selects the marker tool from the toolbar", () => {
+    renderToolbar();
+
+    fireEvent.click(screen.getByTitle("Marker"));
+
+    expect(useAnnotation.getState().activeTool).toBe("marker");
   });
 
   it("closes the color picker when another annotation tool is selected", () => {

@@ -363,9 +363,11 @@ function GradientPicker({
 function ColorPicker({
   value,
   onChange,
+  label,
 }: {
   value: string;
   onChange: (color: string) => void;
+  label?: string;
 }) {
   const [showGradient, setShowGradient] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
@@ -391,7 +393,7 @@ function ColorPicker({
   };
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+    <div aria-label={label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
       {PRESET_COLORS.map((c) => (
         <button
           key={c}
@@ -1441,6 +1443,36 @@ function TextSection({
   );
 }
 
+function MarkerSection({
+  style,
+  set,
+}: {
+  style: AnnotationStyle;
+  set: (p: Partial<AnnotationStyle>) => void;
+}) {
+  return (
+    <>
+      <ColorPicker
+        label="Marker fill"
+        value={style.markerFill ?? style.color}
+        onChange={(markerFill) => set({ markerFill })}
+      />
+      <Separator />
+      <ColorPicker
+        label="Marker text color"
+        value={style.markerTextColor ?? "#ffffff"}
+        onChange={(markerTextColor) => set({ markerTextColor })}
+      />
+      <Separator />
+      <ColorPicker
+        label="Marker bubble background"
+        value={style.markerBubbleFill ?? "#111827"}
+        onChange={(markerBubbleFill) => set({ markerBubbleFill })}
+      />
+    </>
+  );
+}
+
 function BlurSection({
   style,
   set,
@@ -1547,6 +1579,7 @@ export function PropertyPanel({ tool, style: containerStyle, object, panelRef }:
       {tool === "rect" && <RectSection style={style} set={set} />}
       {tool === "ellipse" && <EllipseSection style={style} set={set} />}
       {tool === "text" && <TextSection style={style} set={set} />}
+      {tool === "marker" && <MarkerSection style={style} set={set} />}
       {tool === "blur" && <BlurSection style={style} set={set} />}
       {tool === "highlight" && <HighlightSection style={style} set={set} />}
     </div>
