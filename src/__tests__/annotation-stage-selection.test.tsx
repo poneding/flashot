@@ -2,12 +2,14 @@
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import Konva from "konva";
-import { AnnotationStage, getLayer } from "@/annotation/Stage";
+import * as StageModule from "@/annotation/Stage";
 import { useAnnotation } from "@/annotation/store";
 import type { AnnotationObject } from "@/annotation/types";
 import { hitTestHandle, rectContainsPoint } from "@/lib/geometry";
 import type { CaptureStartPayload } from "@/lib/types";
 import { useOverlay } from "@/overlay/state";
+
+const { AnnotationStage, getLayer } = StageModule;
 
 vi.mock("@/lib/ipc", () => ({
   beginTextInputSession: vi.fn().mockResolvedValue(undefined),
@@ -32,6 +34,29 @@ const annotatedRect: AnnotationObject = {
   style: { color: "#ff0000", strokeWidth: 4 },
   transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
 };
+
+
+function installImageMock() {
+  class MockImage {
+    width = 640;
+    height = 360;
+    crossOrigin = "";
+    onload: null | (() => void) = null;
+    onerror: null | ((error: unknown) => void) = null;
+    private value = "";
+
+    set src(next: string) {
+      this.value = next;
+      setTimeout(() => this.onload?.(), 0);
+    }
+
+    get src() {
+      return this.value;
+    }
+  }
+
+  vi.stubGlobal("Image", MockImage);
+}
 
 function MoveHarness() {
   const committedSelection = useOverlay((s) => s.selection);
@@ -97,6 +122,7 @@ describe("AnnotationStage selection movement", () => {
   });
 
   beforeEach(() => {
+    installImageMock();
     localStorage.clear();
     useAnnotation.getState().reset();
     useOverlay.getState().end();
@@ -106,6 +132,7 @@ describe("AnnotationStage selection movement", () => {
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     useAnnotation.getState().reset();
     useOverlay.getState().end();
   });
@@ -198,6 +225,37 @@ describe("AnnotationStage selection movement", () => {
     expect(stageNode.style.visibility).toBe("visible");
   });
 
+
+  it("creates a magnifier render context from the frozen frame and filters the current lens", async () => {
+    const lensLikeObject: AnnotationObject = {
+      id: "lens-1",
+      type: "marker",
+      start: { x: 80, y: 60 },
+      markerNumber: 1,
+      style: { color: "#0099ff", strokeWidth: 4 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    useAnnotation.getState().addObject(annotatedRect);
+    useAnnotation.getState().addObject(lensLikeObject);
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} frameUrl={capture.frameUrl} />);
+
+    await vi.waitFor(() => {
+      const context = (StageModule as typeof StageModule & {
+        getMagnifierRenderContext?: (excludeObjectId?: string) => {
+          sourceImage: HTMLImageElement;
+          stageSize: { width: number; height: number };
+          scaleFactor: number;
+          objects: AnnotationObject[];
+        } | null;
+      }).getMagnifierRenderContext?.("lens-1");
+
+      expect(context?.sourceImage).toBeInstanceOf(Image);
+      expect(context?.stageSize).toEqual({ width: 240, height: 160 });
+      expect(context?.scaleFactor).toBe(2);
+      expect(context?.objects.map((obj) => obj.id)).toEqual(["rect-1"]);
+    });
+  });
 
   it("re-renders focused annotation masks when selection dimensions change", () => {
     const focusedRect: AnnotationObject = {

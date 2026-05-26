@@ -1,9 +1,7 @@
 /** @vitest-environment jsdom */
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { clearMocks, mockConvertFileSrc } from "@tauri-apps/api/mocks";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportAnnotationLayer } from "@/annotation/export";
 import { useAnnotation } from "@/annotation/store";
+import { currentCursorPointInWindow } from "@/lib/cursor";
 import {
   cancelCapture,
   cropAndCopy,
@@ -13,15 +11,19 @@ import {
   requestColorFormatToggle,
   startScrollSession,
 } from "@/lib/ipc";
-import { OverlayRoute } from "@/routes/Overlay";
-import { currentCursorPointInWindow } from "@/lib/cursor";
-import { useOverlay } from "@/overlay/state";
 import type { CaptureStartPayload } from "@/lib/types";
+import { useOverlay } from "@/overlay/state";
+import { OverlayRoute } from "@/routes/Overlay";
+import { clearMocks, mockConvertFileSrc } from "@tauri-apps/api/mocks";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const ipcListeners = vi.hoisted(() => ({
   colorFormatToggleRequested: undefined as undefined | (() => void),
   colorCopyRequested: undefined as undefined | (() => void),
 }));
+
+const annotationStageMock = vi.hoisted(() => vi.fn((_props: Record<string, unknown>) => null));
 
 const webviewWindowMock = vi.hoisted(() => ({
   setFocus: vi.fn().mockResolvedValue(undefined),
@@ -38,7 +40,7 @@ const coreMock = vi.hoisted(() => ({
 }));
 
 vi.mock("@/annotation/Stage", () => ({
-  AnnotationStage: () => null,
+  AnnotationStage: annotationStageMock,
 }));
 
 vi.mock("@/annotation/export", () => ({
@@ -107,13 +109,14 @@ describe("OverlayRoute", () => {
     mockConvertFileSrc("macos");
     ipcListeners.colorFormatToggleRequested = undefined;
     ipcListeners.colorCopyRequested = undefined;
+    annotationStageMock.mockClear();
     webviewWindowMock.setFocus.mockClear();
     webviewWindowMock.setCursorIcon.mockClear();
     clipboardMock.writeText.mockClear();
     coreMock.convertFileSrc.mockClear();
     coreMock.invoke.mockClear();
     coreMock.invoke.mockResolvedValue(undefined);
-    vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => {}));
+    vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => { }));
     useAnnotation.getState().reset();
     useOverlay.getState().end();
     useOverlay.getState().start(capture);
@@ -246,7 +249,7 @@ describe("OverlayRoute", () => {
 
   it("shows a startup state before the backend captures the initial scroll frame", async () => {
     const selection = { x: 100, y: 120, width: 240, height: 160 };
-    vi.mocked(startScrollSession).mockReturnValueOnce(new Promise<void>(() => {}));
+    vi.mocked(startScrollSession).mockReturnValueOnce(new Promise<void>(() => { }));
     useOverlay.getState().commit(selection);
 
     render(<OverlayRoute />);
@@ -274,7 +277,7 @@ describe("OverlayRoute", () => {
 
   it("restores the committed selection if scrolling capture fails to start", async () => {
     const selection = { x: 100, y: 120, width: 240, height: 160 };
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => { });
     vi.mocked(startScrollSession).mockRejectedValueOnce(new Error("initial capture failed"));
     useOverlay.getState().commit(selection);
 
@@ -341,7 +344,7 @@ describe("OverlayRoute", () => {
   });
 
   it("broadcasts hover color format shortcuts instead of mutating the focused overlay", () => {
-    vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => {}));
+    vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => { }));
 
     render(<OverlayRoute />);
     fireEvent.keyDown(window, { key: "x" });
@@ -351,7 +354,7 @@ describe("OverlayRoute", () => {
   });
 
   it("applies broadcast color format shortcuts only in the overlay under the cursor", async () => {
-    vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => {}));
+    vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => { }));
     render(<OverlayRoute />);
 
     expect(ipcListeners.colorFormatToggleRequested).toBeDefined();
@@ -367,7 +370,7 @@ describe("OverlayRoute", () => {
   });
 
   it("broadcasts hover copy shortcuts instead of copying from the focused overlay", () => {
-    vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => {}));
+    vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => { }));
     useOverlay.getState().setCurrentColor({ r: 1, g: 2, b: 3 });
 
     render(<OverlayRoute />);
@@ -378,7 +381,7 @@ describe("OverlayRoute", () => {
   });
 
   it("copies color after a broadcast only in the overlay under the cursor", async () => {
-    vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => {}));
+    vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => { }));
     useOverlay.getState().setCurrentColor({ r: 1, g: 2, b: 3 });
     render(<OverlayRoute />);
 

@@ -503,7 +503,12 @@ export function OverlayRoute() {
       )}
       {mode === "committed" && selection && monitorRect && monitorId != null && (
         <>
-          <AnnotationStage selection={selection} scaleFactor={scaleFactor} interacting={!!selectionInteraction} />
+          <AnnotationStage
+            selection={selection}
+            scaleFactor={scaleFactor}
+            frameUrl={frameUrl}
+            interacting={!!selectionInteraction}
+          />
           <AnnotationToolbar
             selection={selection}
             monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}

@@ -29,11 +29,17 @@ import { MarkerTextOverlay } from "@/annotation/MarkerTextOverlay";
 import { addTextToLayer } from "@/annotation/tools/text";
 import { hitTestHandle } from "@/lib/geometry";
 import { renderObject } from "@/annotation/render";
+import {
+  annotationFrameSourceFromUrl,
+  createMagnifierRenderContext,
+  type MagnifierRenderContext,
+} from "@/annotation/magnifierContext";
 import { useOverlay } from "@/overlay/state";
 
 type Props = {
   selection: Rect;
   scaleFactor: number;
+  frameUrl?: string | null;
   interacting?: boolean;
 };
 
@@ -41,6 +47,8 @@ let stage: Konva.Stage | null = null;
 let layer: Konva.Layer | null = null;
 let transformer: Konva.Transformer | null = null;
 let lineEditGroup: Konva.Group | null = null;
+let magnifierSourceImage: HTMLImageElement | null = null;
+let magnifierScaleFactor = 1;
 
 type LineEditHandle = "start" | "control" | "end";
 
@@ -224,6 +232,21 @@ function applyObjectTransformToNode(obj: AnnotationObject, node: Konva.Node) {
 function currentStageSize(): { width: number; height: number } | undefined {
   if (!stage) return undefined;
   return { width: stage.width(), height: stage.height() };
+}
+
+
+export function getMagnifierRenderContext(excludeObjectId?: string): MagnifierRenderContext | null {
+  if (!magnifierSourceImage) return null;
+  const stageSize = currentStageSize();
+  if (!stageSize) return null;
+
+  return createMagnifierRenderContext({
+    sourceImage: magnifierSourceImage,
+    stageSize,
+    scaleFactor: magnifierScaleFactor,
+    objects: useAnnotation.getState().objects,
+    excludeObjectId,
+  });
 }
 
 function usesStageSizedRendering(obj: AnnotationObject): boolean {
@@ -489,7 +512,7 @@ function syncLayerWithStore(prevObjects: AnnotationObject[] = []) {
   syncSelectionWithStore(selectedObjectId);
 }
 
-export function AnnotationStage({ selection, scaleFactor, interacting }: Props) {
+export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeTool = useAnnotation((s) => s.activeTool);
   const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
@@ -603,8 +626,43 @@ export function AnnotationStage({ selection, scaleFactor, interacting }: Props) 
       layer = null;
       transformer = null;
       lineEditGroup = null;
+      magnifierSourceImage = null;
     };
   }, []);
+
+  useEffect(() => {
+    magnifierScaleFactor = scaleFactor;
+  }, [scaleFactor]);
+
+  useEffect(() => {
+    if (!frameUrl) {
+      magnifierSourceImage = null;
+      return;
+    }
+
+    let canceled = false;
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      if (canceled) return;
+      magnifierSourceImage = image;
+      layer?.batchDraw();
+    };
+    image.onerror = (error) => {
+      if (!canceled) {
+        magnifierSourceImage = null;
+        console.warn("Failed to load annotation magnifier frame", error);
+      }
+    };
+    image.src = annotationFrameSourceFromUrl(frameUrl);
+
+    return () => {
+      canceled = true;
+      if (magnifierSourceImage === image) {
+        magnifierSourceImage = null;
+      }
+    };
+  }, [frameUrl]);
 
   useEffect(() => {
     if (!stage || interacting) return;
