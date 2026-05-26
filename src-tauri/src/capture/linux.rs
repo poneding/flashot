@@ -621,8 +621,9 @@ mod tests {
         )
         .unwrap();
 
-        let row_1 = ((1 * 4 + 1) * 4)..((1 * 4 + 3) * 4);
-        let row_2 = ((2 * 4 + 1) * 4)..((2 * 4 + 3) * 4);
+        let pixel_offset = |x: usize, y: usize| (y * 4 + x) * 4;
+        let row_1 = pixel_offset(1, 1)..pixel_offset(3, 1);
+        let row_2 = pixel_offset(1, 2)..pixel_offset(3, 2);
         let expected: Vec<u8> = rgba[row_1]
             .iter()
             .chain(rgba[row_2].iter())
