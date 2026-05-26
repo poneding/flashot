@@ -22,6 +22,7 @@ export type ArrowStyle = "v-shape" | "filled-triangle";
 export type FillMode = "hollow" | "solid";
 export type BlurMode = "mosaic" | "gaussian" | "solid";
 export type HighlightMode = "freehand" | "straight";
+export type FocusMode = "none" | "spotlight";
 
 export type AnnotationStyle = {
   color: string;
@@ -39,6 +40,9 @@ export type AnnotationStyle = {
   blurSolidColor?: string;
   highlightMode?: HighlightMode;
   opacity?: number;
+  focusMode?: FocusMode;
+  focusOpacity?: number;
+  focusColor?: string;
 };
 
 export type AnnotationObject = {
@@ -100,4 +104,7 @@ export const DEFAULT_STYLE: AnnotationStyle = {
   blurSolidColor: "#000000",
   highlightMode: "freehand",
   opacity: 0.35,
+  focusMode: "none",
+  focusOpacity: 0.45,
+  focusColor: "#000000",
 };

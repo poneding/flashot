@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useAnnotation } from "@/annotation/store";
+import { DEFAULT_STYLE } from "@/annotation/types";
 import type { ToolType } from "@/annotation/types";
 
 describe("useAnnotation store", () => {
@@ -19,6 +20,20 @@ describe("useAnnotation store", () => {
     useAnnotation.getState().setActiveTool("rect");
     expect(useAnnotation.getState().activeTool).toBe("rect");
     expect(useAnnotation.getState().selectedObjectId).toBeNull();
+  });
+
+  it("defaults focus effect styling to disabled spotlight settings", () => {
+    expect(DEFAULT_STYLE.focusMode).toBe("none");
+    expect(DEFAULT_STYLE.focusOpacity).toBe(0.45);
+    expect(DEFAULT_STYLE.focusColor).toBe("#000000");
+  });
+
+  it("clamps focus opacity when active style changes", () => {
+    useAnnotation.getState().setActiveStyle({ focusOpacity: 2 });
+    expect(useAnnotation.getState().activeStyle.focusOpacity).toBe(1);
+
+    useAnnotation.getState().setActiveStyle({ focusOpacity: -0.5 });
+    expect(useAnnotation.getState().activeStyle.focusOpacity).toBe(0);
   });
 
   it("sets the measure tool as the active tool", () => {

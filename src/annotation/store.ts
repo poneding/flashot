@@ -125,8 +125,21 @@ function persistToolStyleMemory() {
   } catch { /* ignore */ }
 }
 
+function normalizeFocusStyle(style: AnnotationStyle): AnnotationStyle {
+  const focusOpacity = finiteNumber(style.focusOpacity, DEFAULT_STYLE.focusOpacity ?? 0.45);
+  const focusMode = style.focusMode === "spotlight" ? "spotlight" : "none";
+  const focusColor = typeof style.focusColor === "string" ? style.focusColor : (DEFAULT_STYLE.focusColor ?? "#000000");
+
+  return {
+    ...style,
+    focusMode,
+    focusOpacity: Math.max(0, Math.min(1, focusOpacity)),
+    focusColor,
+  };
+}
+
 function normalizeActiveStyleForTool(tool: ToolType, style: AnnotationStyle): AnnotationStyle {
-  style = normalizeTextStyle(style);
+  style = normalizeFocusStyle(normalizeTextStyle(style));
   if (tool === "line") {
     return { ...style, ...lineToolStyle(style) };
   }
