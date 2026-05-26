@@ -177,7 +177,7 @@ jobs:
               } else {
                 Write-Warning "gflags.exe or cdb.exe not found; skipping loader snaps"
               }
-POWERSHELL
+          POWERSHELL
           fi
           cargo test
 
