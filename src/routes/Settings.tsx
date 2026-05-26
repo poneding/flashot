@@ -7,7 +7,7 @@ import { LanguageSelect } from "@/settings/LanguageSelect";
 import { SettingsSection } from "@/settings/SettingsSection";
 import { ThemeSelect } from "@/settings/ThemeSelect";
 import { getSettings, setSettings } from "@/lib/ipc";
-import { SELECTION_COLOR } from "@/lib/colors";
+import { applyAccentColor, SELECTION_COLOR } from "@/lib/colors";
 import type { Settings } from "@/lib/types";
 import { AppWindowIcon, CropIcon, MonitorIcon, type LucideIcon } from "lucide-react";
 
@@ -55,6 +55,10 @@ export function SettingsRoute() {
       s.theme === "dark" || (s.theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches),
     );
   }, [s.theme]);
+
+  useEffect(() => {
+    applyAccentColor(s.accentColor);
+  }, [s.accentColor]);
 
   const save = async () => {
     await setSettings(s);

@@ -55,6 +55,11 @@ describe("SettingsRoute", () => {
         dispatchEvent: vi.fn(),
       })),
     });
+    document.documentElement.style.removeProperty("--flashot-accent");
+    document.documentElement.style.removeProperty("--flashot-accent-rgb");
+    document.documentElement.style.removeProperty("--primary");
+    document.documentElement.style.removeProperty("--ring");
+    document.documentElement.style.removeProperty("--accent");
     vi.mocked(getSettings).mockResolvedValue(settings);
     vi.mocked(setSettings).mockResolvedValue();
   });
@@ -113,6 +118,22 @@ describe("SettingsRoute", () => {
         language: "zh-CN",
       }));
     });
+  });
+
+  it("updates document accent variables from the selected accent color", async () => {
+    render(<SettingsRoute />);
+
+    await screen.findByRole("heading", { name: "Appearance" });
+
+    expect(document.documentElement.style.getPropertyValue("--flashot-accent")).toBe(SELECTION_COLOR);
+
+    fireEvent.click(screen.getByRole("button", { name: "Accent color: Rose" }));
+
+    await waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue("--flashot-accent")).toBe("#F43F5E");
+    });
+    expect(document.documentElement.style.getPropertyValue("--primary")).not.toBe("");
+    expect(document.documentElement.style.getPropertyValue("--ring")).not.toBe("");
   });
 
   it("uses compact shortcut label icons", async () => {
