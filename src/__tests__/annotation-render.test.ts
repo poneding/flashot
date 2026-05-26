@@ -116,6 +116,55 @@ describe("annotation object rendering", () => {
     expect(group.findOne(".focus-boundary")).toBeInstanceOf(Konva.Ellipse);
   });
 
+  it("renders empty markers as a numbered badge without a bubble", () => {
+    const node = renderObject(object({
+      id: "marker-1",
+      type: "marker",
+      start: { x: 30, y: 40 },
+      markerNumber: 5,
+      text: "",
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        markerFill: "#0099ff",
+        markerTextColor: "#ffffff",
+        markerBubbleFill: "#111827",
+      },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    }));
+
+    expect(node).toBeInstanceOf(Konva.Group);
+    const group = node as Konva.Group;
+
+    expect(group.findOne(".marker-badge")).toBeInstanceOf(Konva.Circle);
+    expect((group.findOne(".marker-number") as Konva.Text).text()).toBe("5");
+    expect(group.findOne(".marker-bubble")).toBeUndefined();
+  });
+
+  it("renders marker text inside a bubble when present", () => {
+    const node = renderObject(object({
+      id: "marker-2",
+      type: "marker",
+      start: { x: 30, y: 40 },
+      markerNumber: 2,
+      text: "Review this",
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        markerFill: "#ff6600",
+        markerTextColor: "#101010",
+        markerBubbleFill: "#ffeecc",
+      },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    }));
+
+    expect(node).toBeInstanceOf(Konva.Group);
+    const group = node as Konva.Group;
+
+    expect(group.findOne(".marker-bubble")).toBeInstanceOf(Konva.Rect);
+    expect((group.findOne(".marker-bubble-text") as Konva.Text).text()).toBe("Review this");
+  });
+
   it("renders lines as endpoint-editable curves without whole-object dragging", () => {
     const line = object({
       type: "line",

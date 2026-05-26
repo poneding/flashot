@@ -8,6 +8,7 @@ import { renderEllipseObject } from "@/annotation/tools/ellipse";
 import { renderHighlightObject } from "@/annotation/tools/highlight";
 import { renderBlurObject } from "@/annotation/tools/blur";
 import { renderTextObject } from "@/annotation/tools/text";
+import { renderMarkerObject } from "@/annotation/tools/marker";
 import type { StageSize } from "@/annotation/focus";
 
 type LayerChild = Konva.Group | Konva.Shape;
@@ -23,6 +24,7 @@ export function renderObject(obj: AnnotationObject, stageSize?: StageSize): Laye
     case "highlight": return renderHighlightObject(obj);
     case "blur": return renderBlurObject(obj) as LayerChild | null;
     case "text": return renderTextObject(obj);
+    case "marker": return renderMarkerObject(obj);
     default: return null;
   }
 }

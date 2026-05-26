@@ -21,6 +21,7 @@ import { onRectStart, onRectMove, onRectEnd } from "@/annotation/tools/rect";
 import { onEllipseStart, onEllipseMove, onEllipseEnd } from "@/annotation/tools/ellipse";
 import { highlightBasePosition, onHighlightStart, onHighlightMove, onHighlightEnd } from "@/annotation/tools/highlight";
 import { onBlurStart, onBlurMove, onBlurEnd } from "@/annotation/tools/blur";
+import { onMarkerStart, onMarkerMove, onMarkerEnd } from "@/annotation/tools/marker";
 import { onEraserStart, onEraserMove, onEraserEnd } from "@/annotation/tools/eraser";
 import type { AnnotationObject, ToolType } from "@/annotation/types";
 import { TextOverlay } from "@/annotation/TextOverlay";
@@ -81,6 +82,7 @@ const TOOL_HANDLERS: Partial<Record<ToolType, ToolHandlers>> = {
   ellipse: { start: onEllipseStart, move: onEllipseMove, end: onEllipseEnd },
   highlight: { start: onHighlightStart, move: onHighlightMove, end: onHighlightEnd },
   blur: { start: onBlurStart, move: onBlurMove, end: onBlurEnd },
+  marker: { start: onMarkerStart, move: onMarkerMove, end: () => onMarkerEnd() },
 };
 
 function objectBasePosition(obj: AnnotationObject): { x: number; y: number } {
