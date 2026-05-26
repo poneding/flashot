@@ -148,6 +148,10 @@ function normalizeActiveStyleForTool(tool: ToolType, style: AnnotationStyle): An
   return style;
 }
 
+function usesIsolatedToolStyle(tool: ToolType): boolean {
+  return tool === "measure" || tool === "highlight";
+}
+
 function rememberToolStyle(tool: ToolType, style: AnnotationStyle) {
   if (tool === "line") {
     toolStyleMemory.line = lineToolStyle(style);
@@ -220,6 +224,8 @@ let toolStyleMemory = initialToolStyleMemory.memory;
 let hasRememberedMeasureToolStyle = initialToolStyleMemory.hasRememberedMeasure;
 let hasRememberedHighlightToolStyle = initialToolStyleMemory.hasRememberedHighlight;
 
+let sharedStyleMemory = initialActiveStyle;
+
 const initialState: AnnotationState = {
   objects: [],
   activeTool: "select",
@@ -236,8 +242,15 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
   setActiveTool(tool) {
     const { activeTool, activeStyle } = get();
     rememberToolStyle(activeTool, activeStyle);
-    const nextStyle = styleForTool(tool, activeStyle);
-    persistStyle(nextStyle);
+    if (!usesIsolatedToolStyle(activeTool)) {
+      sharedStyleMemory = activeStyle;
+    }
+
+    const nextStyle = styleForTool(tool, sharedStyleMemory);
+    if (!usesIsolatedToolStyle(tool)) {
+      sharedStyleMemory = nextStyle;
+      persistStyle(nextStyle);
+    }
     set({ activeTool: tool, activeStyle: nextStyle, selectedObjectId: null });
   },
 
@@ -248,7 +261,10 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
       { ...state.activeStyle, ...partial },
     );
     rememberToolStyle(state.activeTool, activeStyle);
-    persistStyle(activeStyle);
+    if (!usesIsolatedToolStyle(state.activeTool)) {
+      sharedStyleMemory = activeStyle;
+      persistStyle(activeStyle);
+    }
     set({ activeStyle });
   },
 

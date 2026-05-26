@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useAnnotation } from "@/annotation/store";
+import type { ToolType } from "@/annotation/types";
 
 describe("useAnnotation store", () => {
   beforeEach(() => {
@@ -90,6 +91,34 @@ describe("useAnnotation store", () => {
 
     useAnnotation.getState().setActiveTool("rect");
     useAnnotation.getState().setActiveStyle({ strokeWidth: 12, cornerRadius: 32 });
+
+    useAnnotation.getState().setActiveTool("highlight");
+
+    expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(2);
+    expect(useAnnotation.getState().activeStyle.cornerRadius).toBe(16);
+  });
+
+  it("does not leak highlight stroke width or corner radius into other tool defaults", () => {
+    useAnnotation.getState().setActiveTool("rect");
+    useAnnotation.getState().setActiveStyle({ strokeWidth: 8, cornerRadius: 10 });
+
+    useAnnotation.getState().setActiveTool("measure");
+    useAnnotation.getState().setActiveStyle({ strokeWidth: 9 });
+
+    useAnnotation.getState().setActiveTool("highlight");
+    useAnnotation.getState().setActiveStyle({ strokeWidth: 2, cornerRadius: 16 });
+
+    const sharedTools: ToolType[] = ["rect", "line", "arrow", "draw"];
+    for (const tool of sharedTools) {
+      useAnnotation.getState().setActiveTool(tool);
+      expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(8);
+      expect(useAnnotation.getState().activeStyle.cornerRadius).toBe(10);
+    }
+
+    useAnnotation.getState().setActiveTool("measure");
+
+    expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(9);
+    expect(useAnnotation.getState().activeStyle.cornerRadius).toBe(10);
 
     useAnnotation.getState().setActiveTool("highlight");
 
