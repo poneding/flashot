@@ -43,8 +43,9 @@ Scale behavior:
 - Keep the existing scale range: `50%` to `300%`.
 - Use one shared scale model for dropdown and mouse wheel.
 - Dropdown options are `5%` increments: `50%`, `55%`, `60%`, ..., `300%`.
-- Mouse wheel zoom uses the same `5%` step instead of the current faster `10%` jump.
-- High-resolution trackpad wheel events should be accumulated/normalized so small deltas do not trigger many scale changes at once.
+- Mouse wheel zoom uses the same `5%` step instead of the current faster `10%` jump, so one normalized wheel notch maps to exactly one dropdown level.
+- Wheel deltas should be normalized across `deltaMode` values and accumulated to a notch threshold. Small high-resolution trackpad deltas should not trigger immediate repeated changes, and a single wheel event should apply at most one `5%` step.
+- When wheel direction changes, discard the previous accumulated remainder so zooming feels controllable instead of overshooting.
 - Clamp every scale update to `50%..300%` before calling `set_pin_scale`.
 
 ## Architecture

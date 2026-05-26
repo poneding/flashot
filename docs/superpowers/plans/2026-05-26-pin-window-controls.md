@@ -49,7 +49,7 @@ Close calls `closePin`; the scale dropdown calls `setPinScale` with percentage v
 
 - [ ] **Step 4: Normalize wheel zoom**
 
-Replace the current `10%` wheel jump with the shared `5%` step. Add normalization/accumulation for high-resolution trackpad deltas so one small wheel event cannot trigger repeated jumps. Clamp to `50%..300%` before persisting.
+Replace the current `10%` wheel jump with the shared `5%` step, so one normalized wheel notch maps to one dropdown level. Normalize `WheelEvent.deltaMode`, accumulate small trackpad deltas until they cross a notch threshold, apply at most one `5%` step per event, and reset the accumulated remainder when the wheel direction changes. Clamp to `50%..300%` before persisting.
 
 - [ ] **Step 5: Verify**
 
