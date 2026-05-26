@@ -146,35 +146,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libpipewire-0.3-dev libwayland-dev libgbm-dev libegl-dev
 
-      - name: Download onnxruntime runtime library
-        shell: bash
-        run: |
-          set -euo pipefail
-          ORT_VERSION="1.22.0"
-          mkdir -p src-tauri/lib/onnxruntime/macos src-tauri/lib/onnxruntime/linux src-tauri/lib/onnxruntime/windows
-
-          case "${{ runner.os }}" in
-            macOS)
-              archive="$RUNNER_TEMP/onnxruntime-macos.tgz"
-              curl --fail --location --retry 5 --output "$archive" \
-                "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-universal2-${ORT_VERSION}.tgz"
-              tar -xzf "$archive" -C "$RUNNER_TEMP"
-              cp "$RUNNER_TEMP/onnxruntime-osx-universal2-${ORT_VERSION}/lib/libonnxruntime.${ORT_VERSION}.dylib" \
-                src-tauri/lib/onnxruntime/macos/libonnxruntime.dylib
-              ;;
-            Linux)
-              archive="$RUNNER_TEMP/onnxruntime-linux.tgz"
-              curl --fail --location --retry 5 --output "$archive" \
-                "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz"
-              tar -xzf "$archive" -C "$RUNNER_TEMP"
-              cp "$RUNNER_TEMP/onnxruntime-linux-x64-${ORT_VERSION}/lib/libonnxruntime.so.${ORT_VERSION}" \
-                src-tauri/lib/onnxruntime/linux/libonnxruntime.so
-              ;;
-            Windows)
-              echo "Windows release uses ort's copy-dylibs output; no bundled file copy is required here."
-              ;;
-          esac
-
       - name: Install macOS signing certificate
         if: runner.os == 'macOS'
         timeout-minutes: 5
@@ -243,7 +214,11 @@ jobs:
 
           echo "Allowing codesign to access the imported private key"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          USER_KEYCHAINS=()
+          while IFS= read -r keychain; do
+            USER_KEYCHAINS+=("$keychain")
+          done < <(security list-keychains -d user | tr -d '"')
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "${USER_KEYCHAINS[@]}"
 
           echo "Verifying macOS signing identity"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
@@ -253,16 +228,6 @@ jobs:
           fi
 
           echo "APPLE_SIGNING_IDENTITY=$MACOS_CODESIGN_IDENTITY" >> "$GITHUB_ENV"
-
-      - name: Sign onnxruntime dylib (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          codesign --force --options runtime --sign "$APPLE_SIGNING_IDENTITY" \
-            src-tauri/lib/onnxruntime/macos/libonnxruntime.dylib
-          codesign --verify --verbose=2 src-tauri/lib/onnxruntime/macos/libonnxruntime.dylib
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -306,9 +271,11 @@ jobs:
           AARCH64_ASSET="Flashot_${VERSION}_aarch64.dmg"
           X64_ASSET="Flashot_${VERSION}_x64.dmg"
 
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "AARCH64_ASSET=$AARCH64_ASSET" >> "$GITHUB_ENV"
-          echo "X64_ASSET=$X64_ASSET" >> "$GITHUB_ENV"
+          {
+            echo "VERSION=$VERSION"
+            echo "AARCH64_ASSET=$AARCH64_ASSET"
+            echo "X64_ASSET=$X64_ASSET"
+          } >> "$GITHUB_ENV"
 
           for i in $(seq 1 30); do
             ASSETS=$(gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" --json assets -q '.assets[].name')

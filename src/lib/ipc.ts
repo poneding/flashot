@@ -3,10 +3,6 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type {
   CaptureStartPayload,
-  OcrDownloadProgress,
-  OcrInstallStatus,
-  OcrPackageInfo,
-  OcrResult,
   QuickShotFlashPayload,
   Rect,
   ScrollEndReason,
@@ -179,19 +175,4 @@ export function onScrollMatchFailed(cb: (info: { consecutiveFailures: number; sc
   return listen<{ consecutive_failures: number; score: number }>("scroll:match-failed", (e) =>
     cb({ consecutiveFailures: e.payload.consecutive_failures, score: e.payload.score }),
   );
-}
-
-export const ocr = {
-  status: () => invoke<OcrInstallStatus>("ocr_status"),
-  packageInfo: () => invoke<OcrPackageInfo>("ocr_package_info"),
-  install: () => invoke<void>("ocr_install"),
-  recognize: (monitorId: number, rect: Rect) =>
-    invoke<OcrResult>("ocr_recognize", { monitorId, rect }),
-  saveText: (text: string) => invoke<void>("ocr_save_text", { text }),
-  onDownloadProgress: (cb: (p: OcrDownloadProgress) => void): Promise<UnlistenFn> =>
-    listen<OcrDownloadProgress>("ocr:download-progress", (e) => cb(e.payload)),
-};
-
-export function onOcrResultCached(cb: (result: OcrResult) => void): Promise<UnlistenFn> {
-  return listen<OcrResult>("ocr:result-cached", (e) => cb(e.payload));
 }

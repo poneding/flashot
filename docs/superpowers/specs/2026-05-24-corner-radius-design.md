@@ -2,7 +2,7 @@
 
 **Status:** Approved
 **Date:** 2026-05-24
-**Branch:** feat/ocr (next)
+**Branch:** TBD
 
 ## Problem
 

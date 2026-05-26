@@ -40,9 +40,6 @@
       "icons/icon.ico"
     ],
     "category": "Productivity",
-    "macOS": {
-      "frameworks": ["./lib/onnxruntime/macos/libonnxruntime.dylib"]
-    },
     "linux": {
       "deb": {
         "depends": [
@@ -51,16 +48,10 @@
           "libayatana-appindicator3-1",
           "libpipewire-0.3-0",
           "libgbm1"
-        ],
-        "files": {
-          "/usr/lib/flashot/libonnxruntime.so": "./lib/onnxruntime/linux/libonnxruntime.so"
-        }
+        ]
       },
       "appimage": {
-        "bundleMediaFramework": false,
-        "files": {
-          "usr/lib/flashot/libonnxruntime.so": "./lib/onnxruntime/linux/libonnxruntime.so"
-        }
+        "bundleMediaFramework": false
       }
     }
   }

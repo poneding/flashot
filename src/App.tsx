@@ -1,6 +1,5 @@
 import { AboutRoute } from "@/routes/About";
 import { CaptureFocusRoute } from "@/routes/CaptureFocus";
-import { OcrChromeRoute } from "@/routes/OcrChrome";
 import { OverlayRoute } from "@/routes/Overlay";
 import { PinRoute } from "@/routes/Pin";
 import { ScrollChromeRoute } from "@/routes/ScrollChrome";
@@ -13,7 +12,6 @@ function parseRoute():
   | "overlay"
   | "pin"
   | "scroll-chrome"
-  | "ocr-chrome"
   | "settings"
   | "updater" {
   const h = window.location.hash || "";
@@ -23,7 +21,6 @@ function parseRoute():
   if (h.startsWith("#/updater")) return "updater";
   if (h.startsWith("#/pin/")) return "pin";
   if (h.startsWith("#/scroll-chrome/")) return "scroll-chrome";
-  if (h.startsWith("#/ocr-chrome/")) return "ocr-chrome";
   return "overlay";
 }
 
@@ -35,6 +32,5 @@ export default function App() {
   if (route === "updater") return <UpdaterRoute />;
   if (route === "pin") return <PinRoute />;
   if (route === "scroll-chrome") return <ScrollChromeRoute />;
-  if (route === "ocr-chrome") return <OcrChromeRoute />;
   return <OverlayRoute />;
 }

@@ -30,7 +30,6 @@ describe("Toolbar", () => {
   const onPin = vi.fn();
   const onClose = vi.fn();
   const onScroll = vi.fn();
-  const onOcr = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -58,7 +57,6 @@ describe("Toolbar", () => {
         onPin={onPin}
         onClose={onClose}
         onScroll={onScroll}
-        onOcr={onOcr}
       />,
     );
   }
@@ -89,7 +87,7 @@ describe("Toolbar", () => {
     expect(screen.getByRole("tooltip").textContent).toBe("Copy");
   });
 
-  it("groups pin, color picker, OCR, and scrolling screenshot above the close action", () => {
+  it("groups pin, color picker, and scrolling screenshot above the close action", () => {
     const { container } = renderToolbar();
     const radiusGroup = container.querySelector('[data-screenshot-toolbar-group="radius"]');
     const pinScrollGroup = container.querySelector('[data-screenshot-toolbar-group="pin-scroll"]');
@@ -101,10 +99,8 @@ describe("Toolbar", () => {
     expect(radiusGroup?.querySelector('[aria-label="Corner radius: 0 px"]')).not.toBeNull();
     expect(pinScrollGroup?.querySelector('[aria-label="Pin"]')).not.toBeNull();
     expect(pinScrollGroup?.querySelector('[aria-label="Color Picker"]')).not.toBeNull();
-    expect(pinScrollGroup?.querySelector('[aria-label="Extract text (OCR)"]')).not.toBeNull();
     expect(pinScrollGroup?.querySelector('[aria-label="Scrolling screenshot"]')).not.toBeNull();
     expect(closeGroup?.querySelector('[aria-label="Close"]')).not.toBeNull();
-    expect(closeGroup?.querySelector('[aria-label="Extract text (OCR)"]')).toBeNull();
 
     const groups = Array.from(container.querySelectorAll("[data-screenshot-toolbar-group]"));
     const groupButtons = Array.from(pinScrollGroup!.querySelectorAll("button")).map((button) =>
@@ -116,7 +112,6 @@ describe("Toolbar", () => {
     expect(groupButtons).toEqual([
       "Pin",
       "Color Picker",
-      "Extract text (OCR)",
       "Scrolling screenshot",
     ]);
   });
@@ -255,7 +250,7 @@ describe("Toolbar", () => {
 
     const toolbar = container.querySelector("[data-screenshot-toolbar]") as HTMLElement;
     expect(toolbar.style.left).toBe("760px");
-    expect(toolbar.style.top).toBe("336px");
+    expect(toolbar.style.top).toBe("370px");
   });
 
   it("routes output actions through the provided callbacks", async () => {
@@ -275,11 +270,6 @@ describe("Toolbar", () => {
       fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     });
     expect(onCopy).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Extract text (OCR)" }));
-    });
-    expect(onOcr).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Close" }));

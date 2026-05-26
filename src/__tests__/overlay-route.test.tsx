@@ -63,7 +63,6 @@ vi.mock("@/lib/ipc", () => ({
   }),
   onSelectionClaimed: vi.fn().mockResolvedValue(vi.fn()),
   onSelectionReleased: vi.fn().mockResolvedValue(vi.fn()),
-  onOcrResultCached: vi.fn().mockResolvedValue(vi.fn()),
   pinImage: vi.fn().mockResolvedValue("pin-1"),
   requestColorCopy: vi.fn().mockResolvedValue(undefined),
   requestColorFormatToggle: vi.fn().mockResolvedValue(undefined),
@@ -275,24 +274,6 @@ describe("OverlayRoute", () => {
         expect(useOverlay.getState().selection).toEqual(selection);
       });
       expect(warn).toHaveBeenCalled();
-    } finally {
-      warn.mockRestore();
-    }
-  });
-
-  it("shows a visible OCR status when the OCR chrome window cannot open", async () => {
-    const selection = { x: 100, y: 120, width: 240, height: 160 };
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    coreMock.invoke.mockRejectedValueOnce(new Error("window hidden behind overlay"));
-    useOverlay.getState().commit(selection);
-
-    try {
-      render(<OverlayRoute />);
-      fireEvent.click(screen.getByRole("button", { name: "Extract text (OCR)" }));
-
-      const status = await screen.findByRole("status");
-      expect(status.textContent).toContain("OCR");
-      expect(coreMock.invoke).toHaveBeenCalledWith("open_ocr_chrome", { monitorId: 1, rect: selection });
     } finally {
       warn.mockRestore();
     }
