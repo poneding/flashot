@@ -2,6 +2,7 @@ import Konva from "konva";
 import { getLayer } from "@/annotation/Stage";
 import { useAnnotation } from "@/annotation/store";
 import type { AnnotationObject } from "@/annotation/types";
+import { createRectFocusMask, shouldRenderFocus, type StageSize } from "@/annotation/focus";
 
 let startX = 0;
 let startY = 0;
@@ -82,7 +83,9 @@ export function onRectEnd(x: number, y: number): AnnotationObject | null {
   return obj;
 }
 
-export function renderRectObject(obj: AnnotationObject): Konva.Rect {
+export function renderRectObject(obj: AnnotationObject): Konva.Rect;
+export function renderRectObject(obj: AnnotationObject, stageSize: StageSize): Konva.Rect | Konva.Group;
+export function renderRectObject(obj: AnnotationObject, stageSize?: StageSize): Konva.Rect | Konva.Group {
   const start = obj.start ?? { x: 0, y: 0 };
   const end = obj.end ?? { x: 0, y: 0 };
   const transform = obj.transform;
@@ -94,7 +97,7 @@ export function renderRectObject(obj: AnnotationObject): Konva.Rect {
 
   const isSolid = obj.style.fill === "solid";
 
-  return new Konva.Rect({
+  const node = new Konva.Rect({
     id: obj.id,
     draggable: true,
     x,
@@ -110,4 +113,10 @@ export function renderRectObject(obj: AnnotationObject): Konva.Rect {
     strokeScaleEnabled: false,
     cornerRadius: obj.style.cornerRadius ?? 0,
   });
+
+  if (stageSize && shouldRenderFocus(obj.style)) {
+    return createRectFocusMask(obj, stageSize, node);
+  }
+
+  return node;
 }

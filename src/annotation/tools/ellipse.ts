@@ -2,6 +2,7 @@ import Konva from "konva";
 import { getLayer } from "@/annotation/Stage";
 import { useAnnotation } from "@/annotation/store";
 import type { AnnotationObject } from "@/annotation/types";
+import { createEllipseFocusMask, shouldRenderFocus, type StageSize } from "@/annotation/focus";
 
 let startX = 0;
 let startY = 0;
@@ -81,7 +82,9 @@ export function onEllipseEnd(x: number, y: number): AnnotationObject | null {
   return obj;
 }
 
-export function renderEllipseObject(obj: AnnotationObject): Konva.Ellipse {
+export function renderEllipseObject(obj: AnnotationObject): Konva.Ellipse;
+export function renderEllipseObject(obj: AnnotationObject, stageSize: StageSize): Konva.Ellipse | Konva.Group;
+export function renderEllipseObject(obj: AnnotationObject, stageSize?: StageSize): Konva.Ellipse | Konva.Group {
   const start = obj.start ?? { x: 0, y: 0 };
   const end = obj.end ?? { x: 0, y: 0 };
   const transform = obj.transform;
@@ -93,7 +96,7 @@ export function renderEllipseObject(obj: AnnotationObject): Konva.Ellipse {
 
   const isSolid = obj.style.fill === "solid";
 
-  return new Konva.Ellipse({
+  const node = new Konva.Ellipse({
     id: obj.id,
     draggable: true,
     x: cx,
@@ -108,4 +111,10 @@ export function renderEllipseObject(obj: AnnotationObject): Konva.Ellipse {
     strokeWidth: isSolid ? 0 : obj.style.strokeWidth,
     strokeScaleEnabled: false,
   });
+
+  if (stageSize && shouldRenderFocus(obj.style)) {
+    return createEllipseFocusMask(obj, stageSize, node);
+  }
+
+  return node;
 }

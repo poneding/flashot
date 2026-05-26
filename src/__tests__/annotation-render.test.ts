@@ -74,6 +74,48 @@ describe("annotation object rendering", () => {
     expect(node.strokeScaleEnabled()).toBe(false);
   });
 
+  it("renders focused rectangles as a mask group preserving the object id", () => {
+    const node = renderRectObject(object({
+      type: "rect",
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        fill: "hollow",
+        focusMode: "spotlight",
+        focusOpacity: 0.6,
+        focusColor: "#111111",
+      },
+    }), { width: 320, height: 180 });
+
+    expect(node).toBeInstanceOf(Konva.Group);
+    const group = node as unknown as Konva.Group;
+
+    expect(group.id()).toBe("object-1");
+    expect(group.findOne(".focus-mask")).toBeInstanceOf(Konva.Shape);
+    expect(group.findOne(".focus-boundary")).toBeInstanceOf(Konva.Rect);
+  });
+
+  it("renders focused ellipses as a mask group preserving the object id", () => {
+    const node = renderEllipseObject(object({
+      type: "ellipse",
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        fill: "hollow",
+        focusMode: "spotlight",
+        focusOpacity: 0.5,
+        focusColor: "#000000",
+      },
+    }), { width: 320, height: 180 });
+
+    expect(node).toBeInstanceOf(Konva.Group);
+    const group = node as unknown as Konva.Group;
+
+    expect(group.id()).toBe("object-1");
+    expect(group.findOne(".focus-mask")).toBeInstanceOf(Konva.Shape);
+    expect(group.findOne(".focus-boundary")).toBeInstanceOf(Konva.Ellipse);
+  });
+
   it("renders lines as endpoint-editable curves without whole-object dragging", () => {
     const line = object({
       type: "line",
