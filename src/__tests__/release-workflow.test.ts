@@ -68,7 +68,7 @@ describe("release workflow", () => {
   });
 
   it("publishes GitHub Releases from semantic version tags", () => {
-    const workflow = readFileSync(releaseWorkflowPath, "utf8");
+    const workflow = readFileSync(releaseWorkflowPath, "utf8").replace(/\r\n/g, "\n");
 
     expect(workflow).toContain("name: Release");
     expect(workflow).toContain("tags:");
@@ -98,7 +98,7 @@ describe("release workflow", () => {
   });
 
   it("keeps tauri-action release inputs attached to the build step", () => {
-    const workflow = readFileSync(releaseWorkflowPath, "utf8");
+    const workflow = readFileSync(releaseWorkflowPath, "utf8").replace(/\r\n/g, "\n");
 
     expect(workflow).toContain(
       [
