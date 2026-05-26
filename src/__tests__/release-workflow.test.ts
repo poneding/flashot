@@ -53,6 +53,7 @@ describe("release workflow", () => {
     expect(workflow).toContain("cygpath -w");
     expect(workflow).toContain("cargo test --no-run");
     expect(workflow).toContain("target/debug/deps");
+    expect(workflow).toContain('rm -f "$dir"/onnxruntime*.dll "$dir"/DirectML.dll "$dir"/flashot_lib.dll');
     expect(workflow).toContain("cp -f lib/onnxruntime/windows/onnxruntime.dll");
     expect(workflow).not.toContain("cp -f lib/onnxruntime/windows/DirectML.dll");
   });

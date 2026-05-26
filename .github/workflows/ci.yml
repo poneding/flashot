@@ -94,6 +94,7 @@ jobs:
           if [ "${RUNNER_OS:-}" = "Windows" ]; then
             cargo test --no-run
             for dir in target/debug target/debug/deps; do
+              rm -f "$dir"/onnxruntime*.dll "$dir"/DirectML.dll "$dir"/flashot_lib.dll
               cp -f lib/onnxruntime/windows/onnxruntime.dll "$dir/"
               cp -f lib/onnxruntime/windows/onnxruntime_providers_shared.dll "$dir/"
             done
