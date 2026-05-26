@@ -20,12 +20,6 @@ pub fn prepare_overlay_text_input(window: &WebviewWindow) -> Result<()> {
     })
 }
 
-pub fn configure_ocr_chrome_window(window: &WebviewWindow) -> Result<()> {
-    run_on_window_main_thread(window, "configure OCR chrome", |window| {
-        configure_platform_ocr_chrome(window)
-    })
-}
-
 pub fn restore_overlay_after_text_input(window: &WebviewWindow) -> Result<()> {
     run_on_window_main_thread(window, "restore overlay after text input", |window| {
         restore_platform_after_text_input(window)
@@ -70,11 +64,6 @@ fn text_input_overlay_level_from_popup_level(popup_level: isize) -> isize {
 #[cfg(all(target_os = "macos", test))]
 fn capture_presentation_options(current: usize) -> usize {
     current
-}
-
-#[cfg(any(target_os = "macos", test))]
-fn ocr_chrome_level_from_capture_level(capture_level: isize) -> isize {
-    capture_level + 1
 }
 
 fn run_on_window_main_thread<F>(
@@ -226,45 +215,6 @@ fn restore_platform_after_text_input(window: &WebviewWindow) -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-fn configure_platform_ocr_chrome(window: &WebviewWindow) -> Result<()> {
-    use objc::{
-        runtime::{Class, Object, Sel, YES},
-        Message,
-    };
-
-    const NS_WINDOW_COLLECTION_BEHAVIOR_CAN_JOIN_ALL_SPACES: usize = 1 << 0;
-    const NS_WINDOW_COLLECTION_BEHAVIOR_FULL_SCREEN_AUXILIARY: usize = 1 << 8;
-
-    let ns_window = window.ns_window()? as *mut Object;
-    let behavior = NS_WINDOW_COLLECTION_BEHAVIOR_CAN_JOIN_ALL_SPACES
-        | NS_WINDOW_COLLECTION_BEHAVIOR_FULL_SCREEN_AUXILIARY;
-
-    unsafe {
-        let ns_window = &*ns_window;
-        ns_window
-            .send_message::<_, ()>(Sel::register("setLevel:"), (ocr_chrome_window_level(),))?;
-        ns_window.send_message::<_, ()>(Sel::register("setCollectionBehavior:"), (behavior,))?;
-        ns_window.send_message::<_, ()>(Sel::register("orderFrontRegardless"), ())?;
-
-        if let Some(app_class) = Class::get("NSApplication") {
-            let app: *mut Object =
-                app_class.send_message(Sel::register("sharedApplication"), ())?;
-            if !app.is_null() {
-                (*app)
-                    .send_message::<_, ()>(Sel::register("activateIgnoringOtherApps:"), (YES,))?;
-            }
-        }
-
-        ns_window.send_message::<_, ()>(
-            Sel::register("makeKeyAndOrderFront:"),
-            (std::ptr::null_mut::<Object>(),),
-        )?;
-    }
-
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
 fn capture_overlay_window_level() -> isize {
     extern "C" {
         fn CGShieldingWindowLevel() -> i32;
@@ -279,11 +229,6 @@ fn capture_overlay_window_level() -> isize {
             CGWindowLevelForKey(K_CG_MAXIMUM_WINDOW_LEVEL_KEY) as isize,
         )
     }
-}
-
-#[cfg(target_os = "macos")]
-fn ocr_chrome_window_level() -> isize {
-    ocr_chrome_level_from_capture_level(capture_overlay_window_level())
 }
 
 #[cfg(target_os = "macos")]
@@ -403,13 +348,6 @@ fn restore_platform_after_text_input(_window: &WebviewWindow) -> Result<()> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
-fn configure_platform_ocr_chrome(window: &WebviewWindow) -> Result<()> {
-    window
-        .set_focus()
-        .map_err(|e| anyhow!("failed to focus OCR chrome: {e}"))
-}
-
 #[cfg(target_os = "windows")]
 fn configure_platform_overlay(_window: &WebviewWindow, _monitor_id: u32) -> Result<()> {
     Ok(())
@@ -430,13 +368,6 @@ fn prepare_platform_text_input(window: &WebviewWindow) -> Result<()> {
 #[cfg(target_os = "windows")]
 fn restore_platform_after_text_input(_window: &WebviewWindow) -> Result<()> {
     Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn configure_platform_ocr_chrome(window: &WebviewWindow) -> Result<()> {
-    window
-        .set_focus()
-        .map_err(|e| anyhow!("failed to focus OCR chrome: {e}"))
 }
 
 #[cfg(test)]
@@ -486,10 +417,5 @@ mod tests {
         let options = super::capture_presentation_options(existing);
 
         assert_eq!(options, existing);
-    }
-
-    #[test]
-    fn ocr_chrome_level_sits_above_capture_overlay_level() {
-        assert_eq!(super::ocr_chrome_level_from_capture_level(3000), 3001);
     }
 }

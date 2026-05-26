@@ -1,5 +1,5 @@
 use crate::{
-    clipboard, ocr, overlay_window,
+    clipboard, overlay_window,
     pin_mgr::{PinEntry, PinManager},
     saver, settings_store,
     settings_store::Settings,
@@ -945,57 +945,6 @@ pub async fn scroll_save(
     Ok(Some(path.to_string_lossy().to_string()))
 }
 
-#[tauri::command]
-pub async fn ocr_recognize(
-    app: AppHandle,
-    state: State<'_, Arc<WindowMgr>>,
-    monitor_id: u32,
-    rect: Rect,
-) -> Result<ocr::types::OcrResult, String> {
-    // Resolve model paths on the async side, then load the sessions inside the
-    // blocking task so a cold OCR start cannot stall Tauri's IPC worker.
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("app_data_dir: {e}"))?;
-    let install_dir = ocr::paths::install_dir(&data_dir);
-    if ocr::ensure_ort_dylib_ready().is_err() {
-        ocr::init_ort_dylib(&app).map_err(|e| format!("{e}"))?;
-    }
-
-    // Look up the frozen frame and crop the selection.
-    let cropped = state
-        .crop_frame_rgba(monitor_id, rect)
-        .ok_or_else(|| "frozen frame not available for monitor".to_string())?;
-
-    // Heavy: run on a blocking thread to keep the Tokio runtime responsive.
-    let (rgba, w, h) = cropped;
-    let result = tokio::task::spawn_blocking(move || {
-        let engine = ocr::engine::Engine::global();
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            engine.ensure_loaded(&install_dir)?;
-            engine.recognize(&rgba, w, h)
-        }))
-        .map_err(ocr_runtime_panic_error)?
-    })
-    .await
-    .map_err(|e| format!("join error: {e}"))?
-    .map_err(|e| format!("{e}"))?;
-
-    Ok(result)
-}
-
-fn ocr_runtime_panic_error(payload: Box<dyn std::any::Any + Send>) -> ocr::types::OcrError {
-    let message = if let Some(s) = payload.downcast_ref::<String>() {
-        s.clone()
-    } else if let Some(s) = payload.downcast_ref::<&str>() {
-        (*s).to_string()
-    } else {
-        "unknown panic while loading OCR runtime".to_string()
-    };
-    ocr::types::OcrError::RuntimeUnavailable(message)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1008,16 +957,6 @@ mod tests {
             }
         }
         out
-    }
-
-    #[test]
-    fn ocr_runtime_panic_becomes_user_facing_runtime_error() {
-        let err = ocr_runtime_panic_error(Box::new(
-            "ort 2.0.0-rc.10 is not compatible with ONNX Runtime 1.19.2",
-        ));
-
-        assert!(matches!(err, ocr::types::OcrError::RuntimeUnavailable(_)));
-        assert!(err.to_string().contains("ONNX Runtime 1.19.2"));
     }
 
     #[test]
@@ -1386,30 +1325,6 @@ mod tests {
         assert!(
             body.contains("show_pin_window(&window)"),
             "the backend must show hidden pin windows instead of relying on frontend JS",
-        );
-    }
-
-    #[test]
-    fn ocr_recognize_loads_engine_inside_blocking_task() {
-        let source = include_str!("commands.rs").replace("\r\n", "\n");
-        let body = function_body(&source, "ocr_recognize");
-        let blocking_idx = body
-            .find("spawn_blocking")
-            .expect("OCR recognition must run in a blocking task");
-        let before_blocking = &body[..blocking_idx];
-        let blocking_body = &body[blocking_idx..];
-
-        assert!(
-            !before_blocking.contains("ensure_loaded"),
-            "cold OCR model loading must not block the async IPC worker",
-        );
-        assert!(
-            blocking_body.contains("ensure_loaded"),
-            "the blocking task must load the OCR engine before recognition",
-        );
-        assert!(
-            blocking_body.contains("recognize(&rgba, w, h)"),
-            "the blocking task still performs recognition on the cropped image",
         );
     }
 

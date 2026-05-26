@@ -20,44 +20,6 @@ describe("release workflow", () => {
     expect(workflow).not.toContain("Build Tauri package");
   });
 
-  it("prepares platform ONNX Runtime libraries before cargo checks in branch CI", () => {
-    const workflow = readFileSync(ciWorkflowPath, "utf8");
-    const setupIndex = workflow.indexOf("name: Download onnxruntime runtime library");
-    const checkIndex = workflow.indexOf("name: Cargo check");
-
-    expect(setupIndex).toBeGreaterThan(-1);
-    expect(checkIndex).toBeGreaterThan(setupIndex);
-    expect(workflow).toContain("onnxruntime-osx-universal2-${ORT_VERSION}.tgz");
-    expect(workflow).toContain("src-tauri/lib/onnxruntime/macos/libonnxruntime.dylib");
-    expect(workflow).toContain("onnxruntime-win-x64-${ORT_VERSION}.zip");
-    expect(workflow).not.toContain("Microsoft.ML.OnnxRuntime.DirectML");
-    expect(workflow).not.toContain("Microsoft.AI.DirectML");
-    expect(workflow).toContain("src-tauri/lib/onnxruntime/windows/onnxruntime.dll");
-    expect(workflow).toContain("src-tauri/lib/onnxruntime/windows/onnxruntime_providers_shared.dll");
-    expect(workflow).not.toContain("src-tauri/lib/onnxruntime/windows/DirectML.dll");
-    expect(workflow).toContain("ORT_DYLIB_PATH=");
-    expect(workflow).toContain("GITHUB_PATH");
-  });
-
-  it("loads Windows ONNX Runtime dynamically during Rust tests", () => {
-    const manifest = readFileSync(cargoManifestPath, "utf8");
-    const workflow = readFileSync(ciWorkflowPath, "utf8");
-    const windowsOrtDependency = manifest.match(
-      /\[target\.'cfg\(target_os = "windows"\)'\.dependencies\][\s\S]*?ort = \{[^\n]+/,
-    )?.[0];
-
-    expect(windowsOrtDependency).toBeDefined();
-    expect(windowsOrtDependency).toContain('"load-dynamic"');
-    expect(windowsOrtDependency).toContain('"ndarray"');
-    expect(windowsOrtDependency).not.toContain('"directml"');
-    expect(workflow).toContain("cygpath -w");
-    expect(workflow).toContain("cargo test --no-run");
-    expect(workflow).toContain("target/debug/deps");
-    expect(workflow).toContain('rm -f "$dir"/onnxruntime*.dll "$dir"/DirectML.dll "$dir"/flashot_lib.dll');
-    expect(workflow).toContain("cp -f lib/onnxruntime/windows/onnxruntime.dll");
-    expect(workflow).not.toContain("cp -f lib/onnxruntime/windows/DirectML.dll");
-  });
-
   it("does not emit a Windows cdylib beside Rust unit test executables", () => {
     const manifest = readFileSync(cargoManifestPath, "utf8");
     const libSection = manifest.match(/\[lib\][\s\S]*?(?=\n\[|$)/)?.[0];
@@ -68,7 +30,7 @@ describe("release workflow", () => {
   });
 
   it("publishes GitHub Releases from semantic version tags", () => {
-    const workflow = readFileSync(releaseWorkflowPath, "utf8");
+    const workflow = readFileSync(releaseWorkflowPath, "utf8").replace(/\r\n/g, "\n");
 
     expect(workflow).toContain("name: Release");
     expect(workflow).toContain("tags:");
@@ -98,7 +60,7 @@ describe("release workflow", () => {
   });
 
   it("keeps tauri-action release inputs attached to the build step", () => {
-    const workflow = readFileSync(releaseWorkflowPath, "utf8");
+    const workflow = readFileSync(releaseWorkflowPath, "utf8").replace(/\r\n/g, "\n");
 
     expect(workflow).toContain(
       [

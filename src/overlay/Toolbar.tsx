@@ -4,14 +4,14 @@ import { clampToolbarPosition, computeVerticalToolbarPosition } from "@/lib/geom
 import type { Rect } from "@/lib/types";
 import { CornerRadiusPanel } from "@/overlay/CornerRadiusPanel";
 import { useOverlay } from "@/overlay/state";
-import { CopyIcon, GripHorizontal, PinIcon, Pipette, SaveIcon, ScanText, SquareRoundCorner, XIcon } from "lucide-react";
+import { CopyIcon, GripHorizontal, PinIcon, Pipette, SaveIcon, SquareRoundCorner, XIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 export const SCREENSHOT_TOOLBAR_RADIUS = 10;
 export const SCREENSHOT_TOOLBAR_BACKGROUND = "rgba(30, 30, 30, 0.85)";
 export const SCREENSHOT_TOOLBAR_BORDER = "1px solid rgba(255,255,255,0.1)";
 
-const TOOLBAR_SIZE = { width: 40, height: 264 };
+const TOOLBAR_SIZE = { width: 40, height: 230 };
 const RADIUS_PANEL_WIDTH = 72;
 const RADIUS_PANEL_HEIGHT = 218;
 const RADIUS_PANEL_GAP = 8;
@@ -26,9 +26,7 @@ type Props = {
   onPin: ToolbarAction;
   onClose: ToolbarAction;
   onScroll: ToolbarAction;
-  onOcr: ToolbarAction;
   scrollSelectionTooSmall?: boolean;
-  ocrSelectionTooSmall?: boolean;
 };
 
 type ToolbarButtonProps = {
@@ -56,9 +54,7 @@ export function Toolbar({
   onPin,
   onClose,
   onScroll,
-  onOcr,
   scrollSelectionTooSmall,
-  ocrSelectionTooSmall,
 }: Props) {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const radiusPanelRef = useRef<HTMLDivElement>(null);
@@ -198,12 +194,6 @@ export function Toolbar({
             icon={<Pipette size={18} strokeWidth={2.2} aria-hidden="true" />}
             active={colorPickerVisible}
             onClick={handleColorPickerClick}
-          />
-          <ToolbarButton
-            label={ocrSelectionTooSmall ? "Selection too small" : "Extract text (OCR)"}
-            icon={<ScanText size={18} strokeWidth={2.2} aria-hidden="true" />}
-            disabled={ocrSelectionTooSmall}
-            onClick={() => runAction(onOcr)}
           />
           <ToolbarButton
             label={scrollSelectionTooSmall ? "Selection too small" : "Scrolling screenshot"}

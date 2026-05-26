@@ -17,7 +17,7 @@ The feature must work on macOS, Windows, and Linux (X11) without per-platform in
 - No horizontal scrolling stitching in v1 — vertical only.
 - No annotation pipeline on the stitched result. Output goes straight to clipboard or file.
 - No multi-monitor scroll. Scroll capture is bounded to the monitor where the selection lives.
-- No OCR, no PDF export, no shareable link — the result is a PNG.
+- No PDF export, no shareable link — the result is a PNG.
 
 ## 3. User flow
 
@@ -331,5 +331,4 @@ Each phase ends with all tests green and is a candidate review checkpoint.
 - Horizontal stitching.
 - Annotation on stitched results.
 - Multi-monitor stitched capture.
-- OCR / text extraction.
 - Cloud upload of long screenshots.

@@ -8,7 +8,7 @@ import {
 } from "@/lib/geometry";
 import { hitTestWindow } from "@/lib/hit-test";
 import { getSettings, setSettings } from "@/lib/ipc";
-import type { CaptureStartPayload, Mode, OcrResult, Point, Rect, WindowRect } from "@/lib/types";
+import type { CaptureStartPayload, Mode, Point, Rect, WindowRect } from "@/lib/types";
 
 type SelectionInteraction =
   | { kind: "move"; origin: Point; startRect: Rect }
@@ -20,14 +20,6 @@ type HoverHit = {
   rect: Rect;
   target: Exclude<HoverTarget, null>;
 };
-
-export type OcrPhase =
-  | { kind: "idle" }
-  | { kind: "confirming-download"; sizeBytes: number }
-  | { kind: "downloading"; progress: number; downloadedBytes: number; totalBytes: number }
-  | { kind: "recognizing" }
-  | { kind: "result"; result: OcrResult }
-  | { kind: "error"; message: string };
 
 type State = {
   mode: Mode;
@@ -46,8 +38,6 @@ type State = {
   colorPickerVisible: boolean;
   colorCopied: boolean;
   currentColor: { r: number; g: number; b: number } | null;
-  ocr: OcrPhase;
-  lastOcrResult: OcrResult | null;
   cornerRadius: number;
 };
 
@@ -76,8 +66,6 @@ type Actions = {
   hideColorPicker: () => void;
   setColorCopied: (v: boolean) => void;
   setCurrentColor: (c: { r: number; g: number; b: number } | null) => void;
-  setOcrPhase: (phase: OcrPhase) => void;
-  setLastOcrResult: (result: OcrResult | null) => void;
   setCornerRadius: (n: number) => void;
 };
 
@@ -159,8 +147,6 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   colorPickerVisible: false,
   colorCopied: false,
   currentColor: null,
-  ocr: { kind: "idle" },
-  lastOcrResult: null,
   cornerRadius: 0,
 
   start: (p) =>
@@ -363,8 +349,6 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   hideColorPicker: () => set({ colorPickerVisible: false, colorCopied: false }),
   setColorCopied: (v) => set({ colorCopied: v }),
   setCurrentColor: (c) => set({ currentColor: c }),
-  setOcrPhase: (phase) => set({ ocr: phase }),
-  setLastOcrResult: (result) => set({ lastOcrResult: result }),
   setCornerRadius: (n) => {
     const clamped = normalizeCornerRadius(n);
     set({ cornerRadius: clamped });

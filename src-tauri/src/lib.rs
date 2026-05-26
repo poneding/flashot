@@ -3,7 +3,6 @@ pub mod clipboard;
 pub mod commands;
 pub mod hotkey;
 pub mod mask;
-pub mod ocr;
 pub mod overlay_window;
 pub mod permission;
 pub mod pin_mgr;
@@ -88,40 +87,6 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            if let Err(e) = ocr::init_ort_dylib(app.handle()) {
-                tracing::warn!("OCR will be unavailable: {e:?}");
-            }
-
-            // Background OCR warm-up: 2s delay, then load + dummy inference if models
-            // are installed. Errors are swallowed; OCR-via-command will surface them
-            // again on real use.
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                let Ok(data_dir) = handle.path().app_data_dir() else {
-                    return;
-                };
-                let install_dir = ocr::paths::install_dir(&data_dir);
-                if !install_dir.exists() {
-                    return;
-                }
-                let result = tokio::task::spawn_blocking(move || {
-                    let engine = ocr::engine::Engine::global();
-                    if let Err(e) = engine.ensure_loaded(&install_dir) {
-                        tracing::warn!("OCR warm-up: load failed: {e}");
-                        return;
-                    }
-                    // 64×64 grey dummy image. Just exercises the session caches.
-                    let dummy = vec![128u8; 64 * 64 * 4];
-                    let _ = engine.recognize(&dummy, 64, 64);
-                    tracing::info!("OCR warm-up complete");
-                })
-                .await;
-                if let Err(e) = result {
-                    tracing::warn!("OCR warm-up join: {e}");
-                }
-            });
-
             configure_capture_app_shell(app.handle())?;
 
             // Create shared WindowMgr state
@@ -287,12 +252,6 @@ pub fn run() {
             commands::stop_scroll_session,
             commands::scroll_copy,
             commands::scroll_save,
-            ocr::commands::ocr_status,
-            ocr::commands::ocr_package_info,
-            ocr::commands::ocr_install,
-            ocr::commands::open_ocr_chrome,
-            ocr::commands::ocr_save_text,
-            commands::ocr_recognize,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
