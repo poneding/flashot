@@ -218,10 +218,19 @@ function applyObjectTransformToNode(obj: AnnotationObject, node: Konva.Node) {
   node.rotation(obj.transform.rotation);
 }
 
+function currentStageSize(): { width: number; height: number } | undefined {
+  if (!stage) return undefined;
+  return { width: stage.width(), height: stage.height() };
+}
+
+function usesStageSizedRendering(obj: AnnotationObject): boolean {
+  return (obj.type === "rect" || obj.type === "ellipse") && obj.style.focusMode === "spotlight";
+}
+
 function replaceRenderedObjectNode(obj: AnnotationObject): Konva.Node | null {
   if (!layer) return null;
   const existingNode = findRenderedObjectNode(obj.id);
-  const nextNode = renderObject(obj);
+  const nextNode = renderObject(obj, currentStageSize());
   const zIndex = existingNode?.zIndex();
 
   existingNode?.destroy();
@@ -455,7 +464,7 @@ function syncLayerWithStore(prevObjects: AnnotationObject[] = []) {
     const prevObj = prevById.get(obj.id);
 
     if (!existingNode) {
-      const node = renderObject(obj);
+      const node = renderObject(obj, currentStageSize());
       if (node) layer.add(node);
       continue;
     }
@@ -592,6 +601,15 @@ export function AnnotationStage({ selection, scaleFactor, interacting }: Props) 
     stage.width(selection.width);
     stage.height(selection.height);
     if (layer) applyLayerPixelRatio(layer, scaleFactor);
+
+    const focusedObjects = useAnnotation.getState().objects.filter(usesStageSizedRendering);
+    for (const obj of focusedObjects) {
+      replaceRenderedObjectNode(obj);
+    }
+    if (focusedObjects.length > 0) {
+      syncSelectionWithStore(useAnnotation.getState().selectedObjectId);
+    }
+
     stage.batchDraw();
   }, [selection.width, selection.height, scaleFactor, interacting]);
 

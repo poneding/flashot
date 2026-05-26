@@ -1,7 +1,8 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { AnnotationStage } from "@/annotation/Stage";
+import Konva from "konva";
+import { AnnotationStage, getLayer } from "@/annotation/Stage";
 import { useAnnotation } from "@/annotation/store";
 import type { AnnotationObject } from "@/annotation/types";
 import { hitTestHandle, rectContainsPoint } from "@/lib/geometry";
@@ -195,5 +196,36 @@ describe("AnnotationStage selection movement", () => {
 
     expect(useOverlay.getState().selectionInteraction?.kind).toBe("move");
     expect(stageNode.style.visibility).toBe("visible");
+  });
+
+
+  it("re-renders focused annotation masks when selection dimensions change", () => {
+    const focusedRect: AnnotationObject = {
+      ...annotatedRect,
+      id: "focused-rect",
+      style: {
+        ...annotatedRect.style,
+        focusMode: "spotlight",
+        focusOpacity: 0.45,
+        focusColor: "#000000",
+      },
+    };
+    const { rerender } = render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(focusedRect);
+    });
+
+    let mask = getLayer()?.findOne(".focus-mask") as Konva.Shape | undefined;
+    expect(mask).toBeInstanceOf(Konva.Shape);
+    expect(mask?.getAttr("focusStageWidth")).toBe(240);
+    expect(mask?.getAttr("focusStageHeight")).toBe(160);
+
+    rerender(<AnnotationStage selection={{ ...selection, width: 320, height: 210 }} scaleFactor={2} />);
+
+    mask = getLayer()?.findOne(".focus-mask") as Konva.Shape | undefined;
+    expect(mask).toBeInstanceOf(Konva.Shape);
+    expect(mask?.getAttr("focusStageWidth")).toBe(320);
+    expect(mask?.getAttr("focusStageHeight")).toBe(210);
   });
 });
