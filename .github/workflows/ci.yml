@@ -44,6 +44,47 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libpipewire-0.3-dev libwayland-dev libgbm-dev libegl-dev
 
+      - name: Download onnxruntime runtime library
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORT_VERSION="1.22.0"
+          DIRECTML_VERSION="1.15.4"
+          mkdir -p src-tauri/lib/onnxruntime/macos src-tauri/lib/onnxruntime/windows
+
+          case "${{ runner.os }}" in
+            macOS)
+              archive="$RUNNER_TEMP/onnxruntime-macos.tgz"
+              curl --fail --location --retry 5 --output "$archive" \
+                "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-universal2-${ORT_VERSION}.tgz"
+              tar -xzf "$archive" -C "$RUNNER_TEMP"
+              cp "$RUNNER_TEMP/onnxruntime-osx-universal2-${ORT_VERSION}/lib/libonnxruntime.${ORT_VERSION}.dylib" \
+                src-tauri/lib/onnxruntime/macos/libonnxruntime.dylib
+              echo "ORT_DYLIB_PATH=$PWD/src-tauri/lib/onnxruntime/macos/libonnxruntime.dylib" >> "$GITHUB_ENV"
+              ;;
+            Windows)
+              ort_archive="$RUNNER_TEMP/onnxruntime-directml.nupkg"
+              directml_archive="$RUNNER_TEMP/directml.nupkg"
+              curl --fail --location --retry 5 --output "$ort_archive" \
+                "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime.DirectML/${ORT_VERSION}"
+              curl --fail --location --retry 5 --output "$directml_archive" \
+                "https://www.nuget.org/api/v2/package/Microsoft.AI.DirectML/${DIRECTML_VERSION}"
+              unzip -q "$ort_archive" -d "$RUNNER_TEMP/onnxruntime-directml"
+              unzip -q "$directml_archive" -d "$RUNNER_TEMP/directml"
+              cp "$RUNNER_TEMP/onnxruntime-directml/runtimes/win-x64/native/onnxruntime.dll" \
+                src-tauri/lib/onnxruntime/windows/onnxruntime.dll
+              cp "$RUNNER_TEMP/onnxruntime-directml/runtimes/win-x64/native/onnxruntime_providers_shared.dll" \
+                src-tauri/lib/onnxruntime/windows/onnxruntime_providers_shared.dll
+              cp "$RUNNER_TEMP/directml/bin/x64-win/DirectML.dll" \
+                src-tauri/lib/onnxruntime/windows/DirectML.dll
+              echo "ORT_DYLIB_PATH=$PWD/src-tauri/lib/onnxruntime/windows/onnxruntime.dll" >> "$GITHUB_ENV"
+              echo "$PWD/src-tauri/lib/onnxruntime/windows" >> "$GITHUB_PATH"
+              ;;
+            *)
+              echo "No checked-in ONNX Runtime library is required for ${RUNNER_OS} CI."
+              ;;
+          esac
+
       - name: Cargo check
         run: cd src-tauri && cargo check --all-targets
 

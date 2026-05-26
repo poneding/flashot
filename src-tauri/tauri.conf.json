@@ -41,7 +41,7 @@
     ],
     "category": "Productivity",
     "macOS": {
-      "frameworks": ["./lib/onnxruntime/macos/libonnxruntime.framework"]
+      "frameworks": ["./lib/onnxruntime/macos/libonnxruntime.dylib"]
     },
     "linux": {
       "deb": {

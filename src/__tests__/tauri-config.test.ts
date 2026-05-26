@@ -10,7 +10,7 @@ describe("Tauri capabilities", () => {
     expect(config.productName).toBe("Flashot");
   });
 
-  it("bundles macOS onnxruntime as a framework for nested code signing", () => {
+  it("bundles macOS onnxruntime through the frameworks key", () => {
     const configPath = resolve(__dirname, "../../src-tauri/tauri.conf.json");
     const config = JSON.parse(readFileSync(configPath, "utf8")) as {
       bundle?: {

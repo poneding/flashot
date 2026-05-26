@@ -254,56 +254,15 @@ jobs:
 
           echo "APPLE_SIGNING_IDENTITY=$MACOS_CODESIGN_IDENTITY" >> "$GITHUB_ENV"
 
-      - name: Bundle onnxruntime as Framework (macOS)
+      - name: Sign onnxruntime dylib (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
 
-          # Create Framework structure
-          FRAMEWORK_DIR="src-tauri/lib/onnxruntime/macos/libonnxruntime.framework"
-          mkdir -p "$FRAMEWORK_DIR/Versions/A"
-
-          # Move dylib into Framework
-          mv src-tauri/lib/onnxruntime/macos/libonnxruntime.dylib \
-             "$FRAMEWORK_DIR/Versions/A/libonnxruntime"
-
-          # Create symlinks
-          ln -sf A "$FRAMEWORK_DIR/Versions/Current"
-          ln -sf Versions/Current/libonnxruntime "$FRAMEWORK_DIR/libonnxruntime"
-
-          # Create Info.plist
-          cat > "$FRAMEWORK_DIR/Versions/A/Resources/Info.plist" <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleDevelopmentRegion</key>
-            <string>en</string>
-            <key>CFBundleExecutable</key>
-            <string>libonnxruntime</string>
-            <key>CFBundleIdentifier</key>
-            <string>com.microsoft.onnxruntime</string>
-            <key>CFBundleInfoDictionaryVersion</key>
-            <string>6.0</string>
-            <key>CFBundleName</key>
-            <string>libonnxruntime</string>
-            <key>CFBundlePackageType</key>
-            <string>FMWK</string>
-            <key>CFBundleShortVersionString</key>
-            <string>1.22.0</string>
-            <key>CFBundleVersion</key>
-            <string>1.22.0</string>
-          </dict>
-          </plist>
-          EOF
-
-          ln -sf Versions/Current/Resources "$FRAMEWORK_DIR/Resources"
-
-          # Sign the Framework
           codesign --force --options runtime --sign "$APPLE_SIGNING_IDENTITY" \
-            "$FRAMEWORK_DIR/Versions/A/libonnxruntime"
-          codesign --verify --verbose=2 "$FRAMEWORK_DIR"
+            src-tauri/lib/onnxruntime/macos/libonnxruntime.dylib
+          codesign --verify --verbose=2 src-tauri/lib/onnxruntime/macos/libonnxruntime.dylib
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile

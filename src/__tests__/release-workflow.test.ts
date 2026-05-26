@@ -19,6 +19,25 @@ describe("release workflow", () => {
     expect(workflow).not.toContain("Build Tauri package");
   });
 
+  it("prepares platform ONNX Runtime libraries before cargo checks in branch CI", () => {
+    const workflow = readFileSync(ciWorkflowPath, "utf8");
+    const setupIndex = workflow.indexOf("name: Download onnxruntime runtime library");
+    const checkIndex = workflow.indexOf("name: Cargo check");
+
+    expect(setupIndex).toBeGreaterThan(-1);
+    expect(checkIndex).toBeGreaterThan(setupIndex);
+    expect(workflow).toContain("onnxruntime-osx-universal2-${ORT_VERSION}.tgz");
+    expect(workflow).toContain("src-tauri/lib/onnxruntime/macos/libonnxruntime.dylib");
+    expect(workflow).toContain("Microsoft.ML.OnnxRuntime.DirectML");
+    expect(workflow).toContain("Microsoft.AI.DirectML");
+    expect(workflow).not.toContain("onnxruntime-win-x64-${ORT_VERSION}.zip");
+    expect(workflow).toContain("src-tauri/lib/onnxruntime/windows/onnxruntime.dll");
+    expect(workflow).toContain("src-tauri/lib/onnxruntime/windows/onnxruntime_providers_shared.dll");
+    expect(workflow).toContain("src-tauri/lib/onnxruntime/windows/DirectML.dll");
+    expect(workflow).toContain("ORT_DYLIB_PATH=");
+    expect(workflow).toContain("GITHUB_PATH");
+  });
+
   it("publishes GitHub Releases from semantic version tags", () => {
     const workflow = readFileSync(releaseWorkflowPath, "utf8");
 
