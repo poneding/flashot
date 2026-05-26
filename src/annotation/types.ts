@@ -13,6 +13,7 @@ export type ToolType =
   | "text"
   | "blur"
   | "highlight"
+  | "marker"
   | "eraser";
 
 export type LineShape = "straight" | "wavy";
@@ -43,15 +44,19 @@ export type AnnotationStyle = {
   focusMode?: FocusMode;
   focusOpacity?: number;
   focusColor?: string;
+  markerFill?: string;
+  markerTextColor?: string;
+  markerBubbleFill?: string;
 };
 
 export type AnnotationObject = {
   id: AnnotationId;
-  type: "draw" | "line" | "measure" | "arrow" | "rect" | "ellipse" | "text" | "blur" | "highlight";
+  type: "draw" | "line" | "measure" | "arrow" | "rect" | "ellipse" | "text" | "blur" | "highlight" | "marker";
   points?: number[];
   start?: Point;
   end?: Point;
   text?: string;
+  markerNumber?: number;
   style: AnnotationStyle;
   transform: {
     x: number;
@@ -107,4 +112,7 @@ export const DEFAULT_STYLE: AnnotationStyle = {
   focusMode: "none",
   focusOpacity: 0.45,
   focusColor: "#000000",
+  markerFill: "#ff0000",
+  markerTextColor: "#ffffff",
+  markerBubbleFill: "#111827",
 };

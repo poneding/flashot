@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useAnnotation } from "@/annotation/store";
 import { DEFAULT_STYLE } from "@/annotation/types";
-import type { ToolType } from "@/annotation/types";
+import type { AnnotationObject, ToolType } from "@/annotation/types";
 
 describe("useAnnotation store", () => {
   beforeEach(() => {
@@ -199,6 +199,53 @@ describe("useAnnotation store", () => {
     expect(useAnnotation.getState().objects).toHaveLength(0);
     useAnnotation.getState().undo();
     expect(useAnnotation.getState().objects).toHaveLength(1);
+  });
+
+  it("allocates marker numbers sequentially within a session", () => {
+    expect(useAnnotation.getState().currentMarkerNumber).toBe(1);
+    expect(useAnnotation.getState().allocateMarkerNumber()).toBe(1);
+    expect(useAnnotation.getState().allocateMarkerNumber()).toBe(2);
+    expect(useAnnotation.getState().allocateMarkerNumber()).toBe(3);
+    expect(useAnnotation.getState().currentMarkerNumber).toBe(4);
+  });
+
+  it("deleting a marker decrements only the current marker counter", () => {
+    const marker = (id: string, markerNumber: number): AnnotationObject => ({
+      id,
+      type: "marker",
+      start: { x: markerNumber * 10, y: 20 },
+      markerNumber,
+      style: { color: "#ff0000", strokeWidth: 4 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    });
+
+    useAnnotation.getState().addObject(marker("marker-1", useAnnotation.getState().allocateMarkerNumber()));
+    useAnnotation.getState().addObject(marker("marker-2", useAnnotation.getState().allocateMarkerNumber()));
+    useAnnotation.getState().addObject(marker("marker-3", useAnnotation.getState().allocateMarkerNumber()));
+
+    useAnnotation.getState().deleteObject("marker-2");
+
+    expect(useAnnotation.getState().currentMarkerNumber).toBe(3);
+    expect(useAnnotation.getState().objects.map((obj) => obj.markerNumber)).toEqual([1, 3]);
+  });
+
+  it("sets the current marker number for the next marker", () => {
+    useAnnotation.getState().setCurrentMarkerNumber(7);
+
+    expect(useAnnotation.getState().allocateMarkerNumber()).toBe(7);
+    expect(useAnnotation.getState().currentMarkerNumber).toBe(8);
+
+    useAnnotation.getState().setCurrentMarkerNumber(0);
+    expect(useAnnotation.getState().currentMarkerNumber).toBe(1);
+  });
+
+  it("resets marker numbering for a new capture session", () => {
+    useAnnotation.getState().allocateMarkerNumber();
+    useAnnotation.getState().setCurrentMarkerNumber(12);
+
+    useAnnotation.getState().reset();
+
+    expect(useAnnotation.getState().currentMarkerNumber).toBe(1);
   });
 
   it("moveObject updates transform", () => {

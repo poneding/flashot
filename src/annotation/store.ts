@@ -35,6 +35,10 @@ function finiteNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+function normalizeMarkerNumber(value: unknown): number {
+  return Math.max(1, Math.trunc(finiteNumber(value, 1)));
+}
+
 type ToolStyleMemory = {
   line: Pick<AnnotationStyle, "lineShape" | "lineStyle">;
   arrow: Pick<AnnotationStyle, "lineStyle" | "arrowStyle">;
@@ -211,6 +215,7 @@ type AnnotationState = {
   activeStyle: AnnotationStyle;
   selectedObjectId: AnnotationId | null;
   drawingState: DrawingState;
+  currentMarkerNumber: number;
   canUndo: boolean;
   canRedo: boolean;
 };
@@ -220,6 +225,8 @@ type AnnotationActions = {
   setActiveStyle: (style: Partial<AnnotationStyle>) => void;
   setDrawingState: (state: DrawingState) => void;
   setSelectedObject: (id: AnnotationId | null) => void;
+  allocateMarkerNumber: () => number;
+  setCurrentMarkerNumber: (value: number) => void;
   addObject: (obj: AnnotationObject) => void;
   deleteObject: (id: AnnotationId) => void;
   moveObject: (id: AnnotationId, transform: AnnotationObject["transform"]) => void;
@@ -245,6 +252,7 @@ const initialState: AnnotationState = {
   activeStyle: initialActiveStyle,
   selectedObjectId: null,
   drawingState: "idle",
+  currentMarkerNumber: 1,
   canUndo: false,
   canRedo: false,
 };
@@ -289,6 +297,16 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
     set({ selectedObjectId: id });
   },
 
+  allocateMarkerNumber() {
+    const currentMarkerNumber = get().currentMarkerNumber;
+    set({ currentMarkerNumber: currentMarkerNumber + 1 });
+    return currentMarkerNumber;
+  },
+
+  setCurrentMarkerNumber(value) {
+    set({ currentMarkerNumber: normalizeMarkerNumber(value) });
+  },
+
   addObject(obj) {
     const cmd: Command = { type: "add", objectId: obj.id, before: {}, after: obj };
     const objects = commandStack.execute(cmd, get().objects);
@@ -300,8 +318,12 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
     if (!obj) return;
     const cmd: Command = { type: "delete", objectId: id, before: obj, after: {} };
     const objects = commandStack.execute(cmd, get().objects);
+    const currentMarkerNumber = obj.type === "marker"
+      ? Math.max(1, get().currentMarkerNumber - 1)
+      : get().currentMarkerNumber;
     set({
       objects,
+      currentMarkerNumber,
       selectedObjectId: get().selectedObjectId === id ? null : get().selectedObjectId,
       canUndo: commandStack.canUndo(),
       canRedo: commandStack.canRedo(),
@@ -365,6 +387,7 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
       activeTool: "select",
       selectedObjectId: null,
       drawingState: "idle",
+      currentMarkerNumber: 1,
       canUndo: false,
       canRedo: false,
     });
