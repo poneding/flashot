@@ -98,6 +98,86 @@ jobs:
               cp -f lib/onnxruntime/windows/onnxruntime.dll "$dir/"
               cp -f lib/onnxruntime/windows/onnxruntime_providers_shared.dll "$dir/"
             done
+            pwsh -NoLogo -NoProfile -Command - <<'POWERSHELL'
+              $ErrorActionPreference = "Continue"
+
+              $exe = Get-ChildItem target/debug/deps -Filter 'flashot_lib-*.exe' |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 1
+              if (-not $exe) {
+                Write-Warning "flashot_lib test executable was not found"
+                exit 0
+              }
+
+              Write-Host "Inspecting test executable: $($exe.FullName)"
+              Write-Host "ORT_DYLIB_PATH=$env:ORT_DYLIB_PATH"
+              Write-Host "::group::DLLs beside Rust test executable"
+              Get-ChildItem target/debug/deps -Filter '*.dll' |
+                Sort-Object Name |
+                Select-Object Name,Length |
+                Format-Table -AutoSize
+              Write-Host "::endgroup::"
+
+              function Find-Tool([string] $Name) {
+                $cmd = Get-Command $Name -ErrorAction SilentlyContinue
+                if ($cmd) { return $cmd.Source }
+
+                foreach ($root in @(
+                  "${env:ProgramFiles(x86)}\Windows Kits\10",
+                  "${env:ProgramFiles}\Microsoft Visual Studio\2022\Enterprise"
+                )) {
+                  if (-not (Test-Path $root)) { continue }
+                  $found = Get-ChildItem $root -Filter $Name -Recurse -ErrorAction SilentlyContinue |
+                    Sort-Object FullName -Descending |
+                    Select-Object -First 1
+                  if ($found) { return $found.FullName }
+                }
+                return $null
+              }
+
+              $dumpbin = Find-Tool "dumpbin.exe"
+              if ($dumpbin) {
+                Write-Host "::group::dumpbin /DEPENDENTS $($exe.Name)"
+                & $dumpbin /DEPENDENTS $exe.FullName
+                Write-Host "::endgroup::"
+
+                Write-Host "::group::dumpbin /IMPORTS $($exe.Name)"
+                & $dumpbin /IMPORTS $exe.FullName
+                Write-Host "::endgroup::"
+              } else {
+                Write-Warning "dumpbin.exe not found"
+              }
+
+              $depsZip = Join-Path $env:RUNNER_TEMP "Dependencies_x64_Release.zip"
+              $depsDir = Join-Path $env:RUNNER_TEMP "Dependencies"
+              try {
+                curl.exe --fail --location --retry 3 --output $depsZip `
+                  "https://github.com/lucasg/Dependencies/releases/download/v1.11.1/Dependencies_x64_Release.zip"
+                Expand-Archive -Force $depsZip $depsDir
+                $depsExe = Get-ChildItem $depsDir -Filter "Dependencies.exe" -Recurse |
+                  Select-Object -First 1
+                if ($depsExe) {
+                  Write-Host "::group::Dependencies.exe -chain"
+                  & $depsExe.FullName -depth=2 -chain $exe.FullName
+                  Write-Host "::endgroup::"
+                }
+              } catch {
+                Write-Warning "Dependencies.exe diagnostic failed: $_"
+              }
+
+              $gflags = Find-Tool "gflags.exe"
+              $cdb = Find-Tool "cdb.exe"
+              if ($gflags -and $cdb) {
+                Write-Host "::group::Windows loader snaps"
+                & $gflags /i $exe.Name +sls
+                & $cdb -G -g -c "g;q" $exe.FullName --list 2>&1 |
+                  Select-String -Pattern "LDR|ERROR|Entry|entry|not found|failed|unable|STATUS_ENTRYPOINT"
+                & $gflags /i $exe.Name -sls
+                Write-Host "::endgroup::"
+              } else {
+                Write-Warning "gflags.exe or cdb.exe not found; skipping loader snaps"
+              }
+POWERSHELL
           fi
           cargo test
 
