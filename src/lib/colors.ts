@@ -1,6 +1,9 @@
 // Cyan accent used for selection borders, window-detect highlights,
 // crosshair, and the pin window glow.
 export const SELECTION_COLOR = "#4ED1FF";
+export const ACCENT_COLOR_CSS_VAR = "var(--flashot-accent)";
+export const ACCENT_RGB_CSS_VAR = "var(--flashot-accent-rgb)";
+export const ACCENT_SOFT_CSS_VAR = "var(--flashot-accent-soft)";
 
 
 type Rgb = { r: number; g: number; b: number };
@@ -51,7 +54,7 @@ function normalizeHexColor(value: string): string {
 export function accentCssVariables(color: string): Record<string, string> {
   const normalized = normalizeHexColor(color);
   const rgb = parseHexColor(normalized)!;
-  const rgbTriplet = `${rgb.r} ${rgb.g} ${rgb.b}`;
+  const rgbTriplet = `${rgb.r}, ${rgb.g}, ${rgb.b}`;
   const hslTriplet = rgbToHslTriplet(rgb);
 
   return {

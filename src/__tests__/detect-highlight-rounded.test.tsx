@@ -32,4 +32,13 @@ describe("DetectHighlight rounded hover outline", () => {
 
     expect(highlight?.style.borderRadius).toBe("0px");
   });
+  it("uses the accent variable for the hover border and glow", () => {
+    const { container } = render(<DetectHighlight />);
+    const highlight = container.firstElementChild as HTMLElement | null;
+
+    expect(highlight?.style.border).toBe("1.5px solid var(--flashot-accent)");
+    expect(highlight?.style.boxShadow).toBe("0 0 14px rgba(var(--flashot-accent-rgb), 0.4)");
+    expect(highlight?.style.background).toBe("var(--flashot-accent-soft)");
+  });
+
 });

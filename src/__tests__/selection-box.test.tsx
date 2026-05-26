@@ -26,13 +26,13 @@ describe("SelectionBox", () => {
     useOverlay.getState().end();
   });
 
-  it("uses the shared tooltip background and selection color for the dimensions badge", () => {
+  it("uses the shared tooltip background and accent variable for the dimensions badge", () => {
     render(<SelectionBox />);
 
     const dimensions = screen.getByText("240 × 160");
 
     expect(dimensions.style.background).toBe("rgba(18, 18, 18, 0.72)");
-    expect(dimensions.style.color).toBe("rgb(78, 209, 255)");
+    expect(dimensions.style.color).toBe("var(--flashot-accent)");
   });
 
   it("uses crosshair cursors on resize handles while the color picker is visible", () => {

@@ -26,6 +26,7 @@ describe("SelectionBox rounded outline", () => {
     expect(rect?.getAttribute("height")).toBe("81.5");
     expect(rect?.getAttribute("fill")).toBe("none");
     expect(rect?.getAttribute("stroke-width")).toBe("1.5");
+    expect(rect?.getAttribute("stroke")).toBe("var(--flashot-accent)");
   });
 
   it("forces rx=0 during scrolling regardless of store cornerRadius", () => {

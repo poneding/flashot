@@ -1,9 +1,9 @@
 import { useOverlay } from "@/overlay/state";
 import { cursorForHandle, type HandleId } from "@/lib/geometry";
 import { FLOATING_LABEL_BACKGROUND } from "@/lib/floating-surface";
-import { SELECTION_COLOR } from "@/lib/colors";
+import { ACCENT_COLOR_CSS_VAR } from "@/lib/colors";
 
-const COLOR = SELECTION_COLOR;
+const COLOR = ACCENT_COLOR_CSS_VAR;
 const STROKE_WIDTH = 1.5;
 
 const handleStyle: React.CSSProperties = {

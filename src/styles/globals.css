@@ -8,7 +8,7 @@
     --foreground: 222 47% 11%;
     --accent: 199 100% 65%;
     --flashot-accent: #4ED1FF;
-    --flashot-accent-rgb: 78 209 255;
+    --flashot-accent-rgb: 78, 209, 255;
     --flashot-accent-soft: rgba(78, 209, 255, 0.06);
     --border: 220 13% 91%;
     --radius: 0.625rem;
@@ -38,7 +38,7 @@
     --foreground: 0 0% 98%;
     --accent: 199 100% 65%;
     --flashot-accent: #4ED1FF;
-    --flashot-accent-rgb: 78 209 255;
+    --flashot-accent-rgb: 78, 209, 255;
     --flashot-accent-soft: rgba(78, 209, 255, 0.06);
     --border: 217 19% 27%;
     /* shadcn token extensions */
