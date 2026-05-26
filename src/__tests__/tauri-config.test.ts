@@ -10,6 +10,21 @@ describe("Tauri capabilities", () => {
     expect(config.productName).toBe("Flashot");
   });
 
+  it("bundles macOS onnxruntime as a framework for nested code signing", () => {
+    const configPath = resolve(__dirname, "../../src-tauri/tauri.conf.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+      bundle?: {
+        macOS?: {
+          frameworks?: string[];
+          files?: Record<string, string>;
+        };
+      };
+    };
+
+    expect(config.bundle?.macOS?.frameworks ?? []).toContain("./lib/onnxruntime/macos/libonnxruntime.dylib");
+    expect(config.bundle?.macOS?.files ?? {}).not.toHaveProperty("Frameworks/libonnxruntime.dylib");
+  });
+
   it("grants IPC permissions to overlay and settings windows", () => {
     const capabilityPath = resolve(__dirname, "../../src-tauri/capabilities/default.json");
     const capability = JSON.parse(readFileSync(capabilityPath, "utf8")) as {
