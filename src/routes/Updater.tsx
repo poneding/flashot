@@ -9,6 +9,7 @@ import {
   LoaderCircleIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useStoredAccentColor } from "@/settings/useStoredAccentColor";
 import { checkForUpdate, downloadAndInstall, type UpdateInfo, type UpdateProgress } from "@/lib/updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
@@ -22,6 +23,7 @@ type UpdaterState =
 
 export function UpdaterRoute() {
   const [state, setState] = useState<UpdaterState>("checking");
+  useStoredAccentColor();
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [progress, setProgress] = useState<UpdateProgress>({ downloaded: 0, total: null });
   const [errorMsg, setErrorMsg] = useState("");

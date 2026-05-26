@@ -2,11 +2,13 @@ import { getVersion } from "@tauri-apps/api/app";
 import { open } from "@tauri-apps/plugin-shell";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useStoredAccentColor } from "@/settings/useStoredAccentColor";
 
 const REPO_URL = "https://github.com/poneding/flashot";
 
 export function AboutRoute() {
   const [version, setVersion] = useState<string | null>(null);
+  useStoredAccentColor();
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => setVersion(null));
@@ -26,7 +28,7 @@ export function AboutRoute() {
           {version ? `Version ${version}` : "Version unavailable"}
         </p>
       </div>
-      <Button variant="outline" onClick={() => open(REPO_URL)}>
+      <Button onClick={() => open(REPO_URL)}>
         GitHub Repository
       </Button>
     </main>

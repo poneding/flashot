@@ -2,6 +2,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AboutRoute } from "@/routes/About";
+import { getSettings } from "@/lib/ipc";
 
 vi.mock("@tauri-apps/api/app", () => ({
   getVersion: vi.fn().mockResolvedValue("0.1.0"),
@@ -11,9 +12,25 @@ vi.mock("@tauri-apps/plugin-shell", () => ({
   open: vi.fn(),
 }));
 
+vi.mock("@/lib/ipc", () => ({
+  getSettings: vi.fn(),
+}));
+
 describe("AboutRoute", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    document.documentElement.style.removeProperty("--flashot-accent");
+    vi.mocked(getSettings).mockResolvedValue({
+      captureHotkey: "Cmd+Shift+A",
+      fullscreenHotkey: "Cmd+Shift+F",
+      activeWindowHotkey: "Cmd+Shift+W",
+      theme: "system",
+      accentColor: "#F43F5E",
+      language: "system",
+      launchAtLogin: false,
+      lastSaveDir: null,
+      cornerRadius: 0,
+    });
   });
 
   it("shows the app version and repository link", async () => {
@@ -46,4 +63,12 @@ describe("AboutRoute", () => {
     expect(main?.className).not.toContain("min-h-full");
     await screen.findByText("Version 0.1.0");
   });
+  it("applies the saved accent color for primary controls", async () => {
+    render(<AboutRoute />);
+
+    await waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue("--flashot-accent")).toBe("#F43F5E");
+    });
+  });
+
 });

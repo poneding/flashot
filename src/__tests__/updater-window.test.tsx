@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { UpdaterRoute } from "@/routes/Updater";
+import { getSettings } from "@/lib/ipc";
 
 // Mock dependencies
 vi.mock("@tauri-apps/api/app", () => ({
@@ -18,6 +19,10 @@ vi.mock("@tauri-apps/plugin-process", () => ({
   relaunch: vi.fn(),
 }));
 
+vi.mock("@/lib/ipc", () => ({
+  getSettings: vi.fn(),
+}));
+
 const mockCheckForUpdate = vi.fn();
 const mockDownloadAndInstall = vi.fn();
 
@@ -29,6 +34,28 @@ vi.mock("@/lib/updater", () => ({
 describe("UpdaterRoute", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    document.documentElement.style.removeProperty("--flashot-accent");
+    vi.mocked(getSettings).mockResolvedValue({
+      captureHotkey: "Cmd+Shift+A",
+      fullscreenHotkey: "Cmd+Shift+F",
+      activeWindowHotkey: "Cmd+Shift+W",
+      theme: "system",
+      accentColor: "#F43F5E",
+      language: "system",
+      launchAtLogin: false,
+      lastSaveDir: null,
+      cornerRadius: 0,
+    });
+  });
+
+  it("applies the saved accent color for primary controls", async () => {
+    mockCheckForUpdate.mockReturnValue(new Promise(() => {}));
+
+    render(<UpdaterRoute />);
+
+    await waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue("--flashot-accent")).toBe("#F43F5E");
+    });
   });
 
   it("shows checking state on mount", () => {
