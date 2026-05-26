@@ -29,12 +29,12 @@ describe("release workflow", () => {
     expect(checkIndex).toBeGreaterThan(setupIndex);
     expect(workflow).toContain("onnxruntime-osx-universal2-${ORT_VERSION}.tgz");
     expect(workflow).toContain("src-tauri/lib/onnxruntime/macos/libonnxruntime.dylib");
-    expect(workflow).toContain("Microsoft.ML.OnnxRuntime.DirectML");
-    expect(workflow).toContain("Microsoft.AI.DirectML");
-    expect(workflow).not.toContain("onnxruntime-win-x64-${ORT_VERSION}.zip");
+    expect(workflow).toContain("onnxruntime-win-x64-${ORT_VERSION}.zip");
+    expect(workflow).not.toContain("Microsoft.ML.OnnxRuntime.DirectML");
+    expect(workflow).not.toContain("Microsoft.AI.DirectML");
     expect(workflow).toContain("src-tauri/lib/onnxruntime/windows/onnxruntime.dll");
     expect(workflow).toContain("src-tauri/lib/onnxruntime/windows/onnxruntime_providers_shared.dll");
-    expect(workflow).toContain("src-tauri/lib/onnxruntime/windows/DirectML.dll");
+    expect(workflow).not.toContain("src-tauri/lib/onnxruntime/windows/DirectML.dll");
     expect(workflow).toContain("ORT_DYLIB_PATH=");
     expect(workflow).toContain("GITHUB_PATH");
   });
@@ -54,7 +54,7 @@ describe("release workflow", () => {
     expect(workflow).toContain("cargo test --no-run");
     expect(workflow).toContain("target/debug/deps");
     expect(workflow).toContain("cp -f lib/onnxruntime/windows/onnxruntime.dll");
-    expect(workflow).toContain("cp -f lib/onnxruntime/windows/DirectML.dll");
+    expect(workflow).not.toContain("cp -f lib/onnxruntime/windows/DirectML.dll");
   });
 
   it("publishes GitHub Releases from semantic version tags", () => {

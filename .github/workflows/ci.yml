@@ -49,7 +49,6 @@ jobs:
         run: |
           set -euo pipefail
           ORT_VERSION="1.22.0"
-          DIRECTML_VERSION="1.15.4"
           mkdir -p src-tauri/lib/onnxruntime/macos src-tauri/lib/onnxruntime/windows
 
           case "${{ runner.os }}" in
@@ -63,20 +62,14 @@ jobs:
               echo "ORT_DYLIB_PATH=$PWD/src-tauri/lib/onnxruntime/macos/libonnxruntime.dylib" >> "$GITHUB_ENV"
               ;;
             Windows)
-              ort_archive="$RUNNER_TEMP/onnxruntime-directml.nupkg"
-              directml_archive="$RUNNER_TEMP/directml.nupkg"
-              curl --fail --location --retry 5 --output "$ort_archive" \
-                "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime.DirectML/${ORT_VERSION}"
-              curl --fail --location --retry 5 --output "$directml_archive" \
-                "https://www.nuget.org/api/v2/package/Microsoft.AI.DirectML/${DIRECTML_VERSION}"
-              unzip -q "$ort_archive" -d "$RUNNER_TEMP/onnxruntime-directml"
-              unzip -q "$directml_archive" -d "$RUNNER_TEMP/directml"
-              cp "$RUNNER_TEMP/onnxruntime-directml/runtimes/win-x64/native/onnxruntime.dll" \
+              archive="$RUNNER_TEMP/onnxruntime-windows.zip"
+              curl --fail --location --retry 5 --output "$archive" \
+                "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-win-x64-${ORT_VERSION}.zip"
+              unzip -q "$archive" -d "$RUNNER_TEMP"
+              cp "$RUNNER_TEMP/onnxruntime-win-x64-${ORT_VERSION}/lib/onnxruntime.dll" \
                 src-tauri/lib/onnxruntime/windows/onnxruntime.dll
-              cp "$RUNNER_TEMP/onnxruntime-directml/runtimes/win-x64/native/onnxruntime_providers_shared.dll" \
+              cp "$RUNNER_TEMP/onnxruntime-win-x64-${ORT_VERSION}/lib/onnxruntime_providers_shared.dll" \
                 src-tauri/lib/onnxruntime/windows/onnxruntime_providers_shared.dll
-              cp "$RUNNER_TEMP/directml/bin/x64-win/DirectML.dll" \
-                src-tauri/lib/onnxruntime/windows/DirectML.dll
               windows_ort_dir="$PWD/src-tauri/lib/onnxruntime/windows"
               windows_ort_dir_native="$(cygpath -w "$windows_ort_dir")"
               echo "ORT_DYLIB_PATH=${windows_ort_dir_native}\\onnxruntime.dll" >> "$GITHUB_ENV"
@@ -103,60 +96,7 @@ jobs:
             for dir in target/debug target/debug/deps; do
               cp -f lib/onnxruntime/windows/onnxruntime.dll "$dir/"
               cp -f lib/onnxruntime/windows/onnxruntime_providers_shared.dll "$dir/"
-              cp -f lib/onnxruntime/windows/DirectML.dll "$dir/"
             done
-            cat > "$RUNNER_TEMP/inspect-windows-test-deps.ps1" <<'PS1'
-            $ErrorActionPreference = "Continue"
-            Write-Host "ORT_DYLIB_PATH=$env:ORT_DYLIB_PATH"
-            $exe = Get-ChildItem target/debug/deps -Filter 'flashot_lib-*.exe' |
-              Sort-Object LastWriteTime -Descending |
-              Select-Object -First 1
-            Write-Host "Inspecting test executable: $($exe.FullName)"
-            Write-Host "DLLs beside test executable:"
-            Get-ChildItem target/debug/deps -Filter *.dll |
-              Select-Object Name, Length |
-              Format-Table -AutoSize
-
-            function Find-Dumpbin {
-              $cmd = Get-Command dumpbin.exe -ErrorAction SilentlyContinue
-              if ($cmd) { return $cmd.Source }
-              $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-              if (Test-Path $vswhere) {
-                $install = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-                if ($install) {
-                  $candidate = Get-ChildItem "$install\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" |
-                    Sort-Object FullName -Descending |
-                    Select-Object -First 1
-                  if ($candidate) { return $candidate.FullName }
-                }
-              }
-              return $null
-            }
-
-            $dumpbin = Find-Dumpbin
-            if (-not $dumpbin) {
-              Write-Warning "dumpbin.exe not found"
-              exit 0
-            }
-
-            Write-Host "Using dumpbin: $dumpbin"
-            $targets = @($exe.FullName)
-            foreach ($name in @("onnxruntime.dll", "onnxruntime_providers_shared.dll", "DirectML.dll", "WebView2Loader.dll")) {
-              $path = Join-Path "target/debug/deps" $name
-              if (Test-Path $path) { $targets += (Resolve-Path $path).Path }
-            }
-
-            foreach ($target in $targets) {
-              Write-Host "::group::dumpbin dependents: $target"
-              & $dumpbin /DEPENDENTS $target
-              Write-Host "::endgroup::"
-              Write-Host "::group::dumpbin selected imports: $target"
-              & $dumpbin /IMPORTS $target |
-                Select-String -Pattern "DLL Name|onnx|DirectML|WebView2|api-ms|VCRUNTIME|MSVCP|D3D|PathCch|RoGet|GetDpi|SetThread|CreateFile2|GetThreadDescription|SetThreadDescription|DiscardVirtualMemory"
-              Write-Host "::endgroup::"
-            }
-          PS1
-            pwsh -NoProfile -File "$RUNNER_TEMP/inspect-windows-test-deps.ps1"
           fi
           cargo test
 
