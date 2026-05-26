@@ -61,6 +61,10 @@
   /* Overlay window: must be transparent + click-pass-when-needed */
   body.overlay { background: transparent !important; overflow: hidden; }
   body.overlay .overlay-crosshair, body.overlay .overlay-crosshair img { cursor: crosshair !important; }
+  body.capture-focus, body.capture-focus #root {
+    background: transparent !important;
+    overflow: hidden !important;
+  }
   /* Pin window: transparent so the boxShadow halo around the image
      reads as a glow, not a white slab. overflow:visible lets the
      shadow extend into the padding ring reserved by the Rust side. */

@@ -670,6 +670,9 @@ export function AnnotationStage({ selection, scaleFactor, interacting }: Props) 
       if (textEditing && textFlushRef.current) {
         textFlushRef.current();
       }
+      if (selectedObjectId) {
+        setSelectedObject(null);
+      }
       textKeyRef.current++;
       setTextEditing({ position: { x: e.clientX, y: e.clientY }, editingObject: null, key: textKeyRef.current });
       return;

@@ -12,7 +12,7 @@ edition = "2021"
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "flashot_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["staticlib", "rlib"]
 
 [build-dependencies]
 resvg = { version = "0.47", default-features = false }
@@ -69,7 +69,10 @@ hex = "0.4"
 urlencoding = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+ashpd = "0.8"
+libwayshot-xcap = "0.3"
 xcb = "1.5"
+zbus = "5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.23"
@@ -85,7 +88,7 @@ windows = { version = "0.58", features = [
   "Win32_System_Threading",
   "Win32_System_ProcessStatus",
 ] }
-ort = { version = "=2.0.0-rc.10", default-features = false, features = ["load-dynamic", "ndarray", "directml"] }
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["load-dynamic", "ndarray"] }
 
 [dev-dependencies]
 tempfile = "3"

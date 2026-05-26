@@ -34,7 +34,11 @@ fn recognize_english_code() {
     let (rgba, w, h) = load_fixture("english_code.png");
     let r = Engine::global().recognize(&rgba, w, h).unwrap();
     assert!(!r.full_text.is_empty(), "no text recognised");
-    assert!(r.full_text.contains("fn"), "expected `fn` token, got: {}", r.full_text);
+    assert!(
+        r.full_text.contains("fn"),
+        "expected `fn` token, got: {}",
+        r.full_text
+    );
 }
 
 #[test]
@@ -46,7 +50,8 @@ fn recognize_chinese_ui() {
     assert!(!r.full_text.is_empty());
     assert!(
         r.full_text.contains("设置") || r.full_text.contains("文件"),
-        "expected a Chinese UI token, got: {}", r.full_text
+        "expected a Chinese UI token, got: {}",
+        r.full_text
     );
 }
 

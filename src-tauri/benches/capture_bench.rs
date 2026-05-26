@@ -6,7 +6,11 @@ fn bench(c: &mut Criterion) {
     if std::env::var("CI").is_ok() && std::env::var("DISPLAY").is_err() {
         return;
     }
-    c.bench_function("capture_all_monitors", |b| b.iter(|| { let _ = capture_all_monitors(); }));
+    c.bench_function("capture_all_monitors", |b| {
+        b.iter(|| {
+            let _ = capture_all_monitors();
+        })
+    });
 }
 
 criterion_group!(benches, bench);

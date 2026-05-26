@@ -53,6 +53,14 @@ fn bundled_dylib_path(app: &AppHandle) -> Result<PathBuf> {
         return Ok(resolved);
     }
 
+    #[cfg(target_os = "linux")]
+    {
+        let packaged = PathBuf::from("/usr/lib/flashot/libonnxruntime.so");
+        if packaged.exists() {
+            return Ok(packaged);
+        }
+    }
+
     let source = source_dylib_path();
     if source.exists() {
         return Ok(source);

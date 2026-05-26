@@ -1572,6 +1572,7 @@ version = "0.5.0"
 dependencies = [
  "anyhow",
  "arboard",
+ "ashpd",
  "chrono",
  "core-foundation 0.9.4",
  "core-graphics 0.23.2",
@@ -1584,6 +1585,7 @@ dependencies = [
  "hex",
  "image",
  "imageproc",
+ "libwayshot-xcap",
  "mockall",
  "ndarray",
  "objc",
@@ -1617,6 +1619,7 @@ dependencies = [
  "wiremock",
  "xcap",
  "xcb",
+ "zbus 5.15.0",
 ]
 
 [[package]]

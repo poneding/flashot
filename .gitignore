@@ -44,3 +44,4 @@ src-tauri/lib/onnxruntime/linux/*.so
 
 # OCR integration test fixtures (engineer-created, not in CI)
 src-tauri/tests/fixtures/ocr/*.png
+src-tauri/target-linux-deb/*

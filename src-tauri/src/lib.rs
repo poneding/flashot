@@ -408,6 +408,78 @@ fn set_capture_cancel_hotkey(app: &AppHandle, enabled: bool) {
     }
 }
 
+#[cfg(target_os = "linux")]
+struct CaptureFocusGuard {
+    window: tauri::WebviewWindow,
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for CaptureFocusGuard {
+    fn drop(&mut self) {
+        if let Err(e) = self.window.hide() {
+            tracing::warn!("failed to hide capture focus window: {e}");
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn prepare_capture_focus_window(app: &AppHandle) -> Option<CaptureFocusGuard> {
+    if !is_linux_wayland_session() {
+        return None;
+    }
+
+    match ensure_capture_focus_window(app) {
+        Ok(window) => Some(CaptureFocusGuard { window }),
+        Err(e) => {
+            tracing::warn!("failed to prepare capture focus window: {e:#}");
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn ensure_capture_focus_window(app: &AppHandle) -> Result<tauri::WebviewWindow> {
+    const LABEL: &str = "capture-focus";
+
+    let window = if let Some(window) = app.get_webview_window(LABEL) {
+        window
+    } else {
+        let url = tauri::WebviewUrl::App("index.html#/capture-focus".into());
+        tauri::WebviewWindowBuilder::new(app, LABEL, url)
+            .title("Flashot")
+            .position(0.0, 0.0)
+            .inner_size(1.0, 1.0)
+            .decorations(false)
+            .resizable(false)
+            .skip_taskbar(true)
+            .always_on_top(true)
+            .visible_on_all_workspaces(true)
+            .shadow(false)
+            .transparent(true)
+            .visible(false)
+            .build()
+            .context("Failed to create capture focus window")?
+    };
+
+    window
+        .show()
+        .context("Failed to show capture focus window")?;
+    window
+        .set_focus()
+        .context("Failed to focus capture focus window")?;
+
+    tracing::info!("capture focus window prepared for Wayland permission request");
+    Ok(window)
+}
+
+#[cfg(target_os = "linux")]
+fn is_linux_wayland_session() -> bool {
+    std::env::var("XDG_SESSION_TYPE")
+        .map(|session| session.eq_ignore_ascii_case("wayland"))
+        .unwrap_or(false)
+        || std::env::var_os("WAYLAND_DISPLAY").is_some()
+}
+
 #[cfg(test)]
 fn register_startup_hotkey<F>(accelerator: &str, register: F) -> bool
 where
@@ -517,6 +589,13 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     let current_monitors =
         capture::enumerate_monitors().context("Failed to enumerate monitors before capture")?;
     ensure_overlays_for_monitors(&app, &current_monitors)?;
+
+    #[cfg(target_os = "linux")]
+    let _capture_focus_guard = prepare_capture_focus_window(&app);
+    #[cfg(target_os = "linux")]
+    if _capture_focus_guard.is_some() {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
 
     // Capture all monitors and enumerate windows in parallel
     tracing::info!("run_capture: spawning capture and window enumeration tasks");

@@ -34,8 +34,8 @@ pub fn apply_rounded_corners(
 
     let max_radius_logical = max_radius_physical as f32 / scale_factor;
     let clamped_radius_logical = (radius_logical as f32).min(max_radius_logical);
-    let radius_physical = ((clamped_radius_logical * scale_factor).round() as u32)
-        .min(max_radius_physical);
+    let radius_physical =
+        ((clamped_radius_logical * scale_factor).round() as u32).min(max_radius_physical);
     if radius_physical == 0 {
         return;
     }
