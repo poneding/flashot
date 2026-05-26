@@ -73,6 +73,25 @@ describe("AnnotationStage text interactions", () => {
     expect(container.querySelector("textarea")).toBeNull();
   });
 
+  it("clears the selected text when starting a new text annotation", () => {
+    useAnnotation.getState().setActiveTool("text");
+    const { container } = render(<AnnotationStage selection={selection} scaleFactor={1} />);
+    const object = textObject();
+
+    act(() => {
+      useAnnotation.getState().addObject(object);
+      useAnnotation.getState().setSelectedObject(object.id);
+    });
+
+    vi.spyOn(getStage()!, "getIntersection").mockReturnValue(null);
+    const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
+
+    fireEvent.mouseDown(stageNode, { clientX: 120, clientY: 80, detail: 1 });
+
+    expect(useAnnotation.getState().selectedObjectId).toBeNull();
+    expect(container.querySelector("textarea")).not.toBeNull();
+  });
+
   it("renders the annotation layer at the monitor scale factor", () => {
     render(<AnnotationStage selection={selection} scaleFactor={2} />);
 

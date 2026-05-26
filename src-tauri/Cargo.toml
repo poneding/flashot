@@ -69,7 +69,10 @@ hex = "0.4"
 urlencoding = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+ashpd = "0.8"
+libwayshot-xcap = "0.3"
 xcb = "1.5"
+zbus = "5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.23"

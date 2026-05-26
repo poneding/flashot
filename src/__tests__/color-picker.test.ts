@@ -3,7 +3,7 @@ import { clearMocks, mockConvertFileSrc } from "@tauri-apps/api/mocks";
 import { act, cleanup, render } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ColorPicker, formatColorText } from "@/overlay/ColorPicker";
+import { ColorPicker, colorPickerPosition, formatColorText } from "@/overlay/ColorPicker";
 import { useOverlay } from "@/overlay/state";
 import type { CaptureStartPayload } from "@/lib/types";
 
@@ -47,6 +47,20 @@ describe("ColorPicker format conversion", () => {
     const color = { r: 255, g: 255, b: 255 };
     expect(formatColorText(color, "hex")).toBe("#FFFFFF");
     expect(formatColorText(color, "rgb")).toBe("rgb(255,255,255)");
+  });
+
+  it("computes the picker position before rendering so it does not flash at the origin", () => {
+    expect(colorPickerPosition({ x: 180, y: 180 }, capture.monitorRect)).toEqual({
+      x: 200,
+      y: 200,
+    });
+  });
+
+  it("keeps the picker inside the monitor near screen edges", () => {
+    expect(colorPickerPosition({ x: 790, y: 10 }, capture.monitorRect)).toEqual({
+      x: 612,
+      y: 30,
+    });
   });
 
   it("stays hidden after a region is committed until explicitly enabled", () => {

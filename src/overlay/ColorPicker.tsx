@@ -2,6 +2,7 @@ import { useOverlay } from "@/overlay/state";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Check } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import type { Point, Rect } from "@/lib/types";
 
 const MAGNIFIER_SIZE = 120;
 const PIXEL_GRID_SIZE = 15;
@@ -41,7 +42,6 @@ export function ColorPicker() {
 
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const magnifierCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [frameReady, setFrameReady] = useState(false);
 
   // Load frozen frame into offscreen canvas
@@ -151,26 +151,9 @@ export function ColorPicker() {
     });
   }, [cursor, scaleFactor, setCurrentColor, frameReady]);
 
-  // Position with edge flip
-  useEffect(() => {
-    if (!cursor || !monitorRect) return;
-
-    let x = cursor.x + OFFSET;
-    let y = cursor.y - PANEL_HEIGHT - OFFSET;
-
-    if (x + PANEL_WIDTH > monitorRect.width) {
-      x = cursor.x - PANEL_WIDTH - OFFSET;
-    }
-
-    if (y < 0) {
-      y = cursor.y + OFFSET;
-    }
-
-    setPosition({ x, y });
-  }, [cursor, monitorRect]);
-
-  const visible = (mode === "hover" || (mode === "committed" && colorPickerVisible)) && cursor && frameUrl;
-  if (!visible) return null;
+  const position = cursor && monitorRect ? colorPickerPosition(cursor, monitorRect) : null;
+  const shouldShow = mode === "hover" || (mode === "committed" && colorPickerVisible);
+  if (!shouldShow || !position || !frameUrl) return null;
 
   return (
     <div style={{ ...containerStyle, left: position.x, top: position.y }}>
@@ -206,6 +189,24 @@ export function ColorPicker() {
       </div>
     </div>
   );
+}
+
+export function colorPickerPosition(cursor: Point, monitorRect: Rect): Point {
+  let x = cursor.x + OFFSET;
+  let y = cursor.y - PANEL_HEIGHT - OFFSET;
+
+  if (x + PANEL_WIDTH > monitorRect.width) {
+    x = cursor.x - PANEL_WIDTH - OFFSET;
+  }
+
+  if (y < 0) {
+    y = cursor.y + OFFSET;
+  }
+
+  return {
+    x: Math.max(0, Math.min(x, monitorRect.width - PANEL_WIDTH)),
+    y: Math.max(0, Math.min(y, monitorRect.height - PANEL_HEIGHT)),
+  };
 }
 
 function formatColorCss(c: { r: number; g: number; b: number }): string {
