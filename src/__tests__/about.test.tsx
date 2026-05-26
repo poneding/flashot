@@ -53,6 +53,13 @@ describe("AboutRoute", () => {
     expect(container.querySelector(".font-mono")).toBe(version);
   });
 
+  it("uses the shared utility window shell", async () => {
+    const { container } = render(<AboutRoute />);
+
+    expect(container.querySelector('[data-utility-window-shell="about"]')).not.toBeNull();
+    await screen.findByText("Version 0.1.0");
+  });
+
   it("keeps the compact about window from showing a vertical scrollbar", async () => {
     const { container } = render(<AboutRoute />);
 

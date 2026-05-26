@@ -58,10 +58,24 @@ describe("UpdaterRoute", () => {
     });
   });
 
-  it("shows checking state on mount", () => {
+  it("uses the shared utility window shell", async () => {
+    mockCheckForUpdate.mockReturnValue(new Promise(() => {}));
+
+    const { container } = render(<UpdaterRoute />);
+
+    expect(container.querySelector('[data-utility-window-shell="updater"]')).not.toBeNull();
+    await waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue("--flashot-accent")).toBe("#F43F5E");
+    });
+  });
+
+  it("shows checking state on mount", async () => {
     mockCheckForUpdate.mockReturnValue(new Promise(() => {})); // never resolves
     render(<UpdaterRoute />);
     expect(screen.getByText("Checking for updates…")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue("--flashot-accent")).toBe("#F43F5E");
+    });
   });
 
   it("shows up-to-date when no update available", async () => {

@@ -9,6 +9,7 @@ import {
   LoaderCircleIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { UtilityWindowShell } from "@/components/UtilityWindowShell";
 import { useStoredAccentColor } from "@/settings/useStoredAccentColor";
 import { checkForUpdate, downloadAndInstall, type UpdateInfo, type UpdateProgress } from "@/lib/updater";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -78,7 +79,10 @@ export function UpdaterRoute() {
   };
 
   return (
-    <main className="flex h-screen flex-col items-center justify-center gap-4 p-6 text-center select-none">
+    <UtilityWindowShell
+      windowName="updater"
+      contentClassName="flex flex-col items-center justify-center gap-4 text-center select-none"
+    >
       <img
         src="/app-logo.svg"
         alt="Flashot"
@@ -178,6 +182,6 @@ export function UpdaterRoute() {
           </div>
         </>
       )}
-    </main>
+    </UtilityWindowShell>
   );
 }

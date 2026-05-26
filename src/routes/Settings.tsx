@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
+import { UtilityWindowShell } from "@/components/UtilityWindowShell";
 import { AccentColorSelect } from "@/settings/AccentColorSelect";
 import { HotkeyRecorder } from "@/settings/HotkeyRecorder";
 import { LanguageSelect } from "@/settings/LanguageSelect";
@@ -67,7 +68,7 @@ export function SettingsRoute() {
   };
 
   return (
-    <div className="p-6 space-y-5 max-w-md mx-auto">
+    <UtilityWindowShell windowName="settings" contentClassName="max-w-md space-y-5">
       <h1 className="text-xl font-semibold">Flashot Settings</h1>
 
       <SettingsSection title="Shortcuts">
@@ -139,6 +140,6 @@ export function SettingsRoute() {
         <Button variant="outline" onClick={() => setS(defaultSettings())}>Reset</Button>
         <Button onClick={save}>{saved ? "Saved ✓" : "Save"}</Button>
       </div>
-    </div>
+    </UtilityWindowShell>
   );
 }

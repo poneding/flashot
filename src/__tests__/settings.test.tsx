@@ -96,9 +96,10 @@ describe("SettingsRoute", () => {
   });
 
   it("groups settings into shortcut, capture, appearance, and general sections", async () => {
-    render(<SettingsRoute />);
+    const { container } = render(<SettingsRoute />);
 
     expect(await screen.findByRole("heading", { name: "Shortcuts" })).toBeTruthy();
+    expect(container.querySelector('[data-utility-window-shell="settings"]')).not.toBeNull();
     expect(screen.getByRole("heading", { name: "Capture" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Appearance" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "General" })).toBeTruthy();
