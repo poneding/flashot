@@ -57,6 +57,15 @@ describe("release workflow", () => {
     expect(workflow).not.toContain("cp -f lib/onnxruntime/windows/DirectML.dll");
   });
 
+  it("does not emit a Windows cdylib beside Rust unit test executables", () => {
+    const manifest = readFileSync(cargoManifestPath, "utf8");
+    const libSection = manifest.match(/\[lib\][\s\S]*?(?=\n\[|$)/)?.[0];
+
+    expect(libSection).toBeDefined();
+    expect(libSection).toContain('crate-type = ["staticlib", "rlib"]');
+    expect(libSection).not.toContain('"cdylib"');
+  });
+
   it("publishes GitHub Releases from semantic version tags", () => {
     const workflow = readFileSync(releaseWorkflowPath, "utf8");
 
