@@ -603,7 +603,9 @@ pub async fn update_pin_annotation(
     match annotation_png {
         Some(png_data) if !png_data.is_empty() => {
             let next_annotation_path = annotation_path_for_pin(&paths.image_path, &pin_id)?;
-            std::fs::write(&next_annotation_path, png_data)
+            let next_annotation_png =
+                merge_pin_annotation_layers(paths.annotation_path.as_deref(), &png_data)?;
+            std::fs::write(&next_annotation_path, next_annotation_png)
                 .map_err(|e| format!("Failed to save annotation PNG: {e}"))?;
 
             if let Some(old_path) = paths.annotation_path.as_ref() {
@@ -654,25 +656,66 @@ fn annotation_path_for_pin(image_path: &Path, pin_id: &str) -> Result<std::path:
     Ok(parent.join(format!("pin-{pin_id}-annotation.png")))
 }
 
+fn merge_pin_annotation_layers(
+    stored_annotation_path: Option<&Path>,
+    annotation_png: &[u8],
+) -> Result<Vec<u8>, String> {
+    if annotation_png.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let Some(path) = stored_annotation_path else {
+        return Ok(annotation_png.to_vec());
+    };
+
+    use image::{imageops, RgbaImage};
+
+    let stored_png =
+        std::fs::read(path).map_err(|e| format!("Failed to read pin annotation PNG: {e}"))?;
+    let mut stored_img: RgbaImage =
+        image::load_from_memory_with_format(&stored_png, image::ImageFormat::Png)
+            .map_err(|e| format!("Failed to decode stored annotation PNG: {e}"))?
+            .to_rgba8();
+    let next_img = image::load_from_memory_with_format(annotation_png, image::ImageFormat::Png)
+        .map_err(|e| format!("Failed to decode annotation PNG: {e}"))?
+        .to_rgba8();
+
+    let next_resized =
+        if next_img.width() != stored_img.width() || next_img.height() != stored_img.height() {
+            imageops::resize(
+                &next_img,
+                stored_img.width(),
+                stored_img.height(),
+                imageops::FilterType::Lanczos3,
+            )
+        } else {
+            next_img
+        };
+
+    imageops::overlay(&mut stored_img, &next_resized, 0, 0);
+    let (width, height) = stored_img.dimensions();
+    let merged = stored_img.into_raw();
+    encode_pin_png(&merged, width, height)
+}
+
 fn compose_pin_image(
     image_path: &Path,
     stored_annotation_path: Option<&Path>,
     annotation_png: Option<&[u8]>,
 ) -> Result<CroppedImage, String> {
-    let base = load_pin_image(image_path)?;
+    let mut composed = load_pin_image(image_path)?;
+
+    if let Some(path) = stored_annotation_path {
+        let png_data =
+            std::fs::read(path).map_err(|e| format!("Failed to read pin annotation PNG: {e}"))?;
+        composed = composite_annotation(&composed, &png_data)?;
+    }
 
     if let Some(png_data) = annotation_png.filter(|data| !data.is_empty()) {
-        return composite_annotation(&base, png_data);
+        composed = composite_annotation(&composed, png_data)?;
     }
 
-    match stored_annotation_path {
-        Some(path) => {
-            let png_data = std::fs::read(path)
-                .map_err(|e| format!("Failed to read pin annotation PNG: {e}"))?;
-            composite_annotation(&base, &png_data)
-        }
-        None => Ok(base),
-    }
+    Ok(composed)
 }
 
 fn load_pin_image(path: &Path) -> Result<CroppedImage, String> {
@@ -1389,6 +1432,59 @@ mod tests {
             materialize_idx < write_idx,
             "the full image must still be materialized before writing the selected path",
         );
+    }
+
+    #[test]
+    fn pin_annotation_update_merges_stored_and_unsaved_annotation_layers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let stored_annotation_path = tmp.path().join("pin-annotation.png");
+        let stored_annotation = vec![255, 0, 0, 255, 0, 0, 0, 0];
+        let new_annotation = vec![0, 0, 0, 0, 0, 255, 0, 255];
+        std::fs::write(
+            &stored_annotation_path,
+            encode_pin_png(&stored_annotation, 2, 1).unwrap(),
+        )
+        .unwrap();
+        let new_annotation_png = encode_pin_png(&new_annotation, 2, 1).unwrap();
+
+        let merged =
+            merge_pin_annotation_layers(Some(&stored_annotation_path), &new_annotation_png)
+                .expect("annotation layers should merge");
+        let decoded = image::load_from_memory(&merged).unwrap().to_rgba8();
+
+        assert_eq!(decoded.dimensions(), (2, 1));
+        let rgba = decoded.into_raw();
+        assert_eq!(&rgba[0..4], &[255, 0, 0, 255]);
+        assert_eq!(&rgba[4..8], &[0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn pin_copy_composes_stored_and_unsaved_annotation_layers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base_path = tmp.path().join("pin.png");
+        let stored_annotation_path = tmp.path().join("pin-annotation.png");
+        let base = vec![255, 255, 255, 255, 255, 255, 255, 255];
+        let stored_annotation = vec![255, 0, 0, 255, 0, 0, 0, 0];
+        let new_annotation = vec![0, 0, 0, 0, 0, 255, 0, 255];
+        std::fs::write(&base_path, encode_pin_png(&base, 2, 1).unwrap()).unwrap();
+        std::fs::write(
+            &stored_annotation_path,
+            encode_pin_png(&stored_annotation, 2, 1).unwrap(),
+        )
+        .unwrap();
+        let new_annotation_png = encode_pin_png(&new_annotation, 2, 1).unwrap();
+
+        let composed = compose_pin_image(
+            &base_path,
+            Some(&stored_annotation_path),
+            Some(&new_annotation_png),
+        )
+        .unwrap();
+
+        assert_eq!(composed.width, 2);
+        assert_eq!(composed.height, 1);
+        assert_eq!(&composed.rgba[0..4], &[255, 0, 0, 255]);
+        assert_eq!(&composed.rgba[4..8], &[0, 255, 0, 255]);
     }
 
     #[test]
