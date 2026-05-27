@@ -1,4 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { frozenLayerFilterForImageAdjustments } from "@/overlay/imageAdjustments";
 import { useOverlay } from "@/overlay/state";
 
 const ASSET_LOCALHOST_PREFIX = "asset://localhost/";
@@ -23,6 +24,7 @@ function frameSourceFromUrl(url: string) {
 export function FrozenLayer() {
   const url = useOverlay((s) => s.frameUrl);
   const mode = useOverlay((s) => s.mode);
+  const imageAdjustments = useOverlay((s) => s.imageAdjustments);
   if (!url) return null;
   // In scrolling mode the user needs to see the live underlying app so they
   // can scroll it. Hide the frozen screenshot — the SelectionBox outline still
@@ -41,6 +43,7 @@ export function FrozenLayer() {
         width: "100%",
         height: "100%",
         objectFit: "fill",
+        filter: frozenLayerFilterForImageAdjustments(imageAdjustments),
         pointerEvents: "none",
         userSelect: "none",
         cursor: "inherit",

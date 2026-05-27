@@ -103,6 +103,7 @@ describe("Toolbar", () => {
     expect(radiusGroup?.querySelector('[aria-label="Corner radius: 0 px"]')).not.toBeNull();
     expect(pinScrollGroup?.querySelector('[aria-label="Pin"]')).not.toBeNull();
     expect(pinScrollGroup?.querySelector('[aria-label="Color Picker"]')).not.toBeNull();
+    expect(pinScrollGroup?.querySelector('[aria-label="Image adjustments"]')).not.toBeNull();
     expect(pinScrollGroup?.querySelector('[aria-label="Scrolling screenshot"]')).not.toBeNull();
     expect(closeGroup?.querySelector('[aria-label="Close"]')).not.toBeNull();
 
@@ -116,8 +117,43 @@ describe("Toolbar", () => {
     expect(groupButtons).toEqual([
       "Pin",
       "Color Picker",
+      "Image adjustments",
       "Scrolling screenshot",
     ]);
+  });
+
+  it("opens image adjustment controls and updates overlay adjustments", () => {
+    renderToolbar();
+
+    fireEvent.click(screen.getByRole("button", { name: "Image adjustments" }));
+
+    expect(screen.getByTestId("image-adjustments-panel")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Grayscale" }));
+    fireEvent.click(screen.getByRole("button", { name: "Auto enhance" }));
+    fireEvent.change(screen.getByRole("slider", { name: "Brightness" }), { target: { value: "25" } });
+    fireEvent.change(screen.getByRole("slider", { name: "Contrast" }), { target: { value: "-20" } });
+    fireEvent.change(screen.getByRole("slider", { name: "Saturation" }), { target: { value: "35" } });
+    fireEvent.change(screen.getByRole("slider", { name: "Sharpness" }), { target: { value: "40" } });
+
+    expect(useOverlay.getState().imageAdjustments).toEqual({
+      grayscale: true,
+      autoLevels: true,
+      brightness: 25,
+      contrast: -20,
+      saturation: 35,
+      sharpness: 40,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset image adjustments" }));
+
+    expect(useOverlay.getState().imageAdjustments).toEqual({
+      grayscale: false,
+      autoLevels: false,
+      brightness: 0,
+      contrast: 0,
+      saturation: 0,
+      sharpness: 0,
+    });
   });
 
   describe("Toolbar corner radius control", () => {

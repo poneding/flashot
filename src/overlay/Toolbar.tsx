@@ -3,8 +3,9 @@ import { useAnnotation } from "@/annotation/store";
 import { clampToolbarPosition, computeVerticalToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
 import { CornerRadiusPanel } from "@/overlay/CornerRadiusPanel";
+import { ImageAdjustmentsPanel } from "@/overlay/ImageAdjustmentsPanel";
 import { useOverlay } from "@/overlay/state";
-import { CopyIcon, GripHorizontal, PinIcon, Pipette, SaveIcon, SquareRoundCorner, XIcon } from "lucide-react";
+import { CopyIcon, GripHorizontal, PinIcon, Pipette, SaveIcon, SlidersHorizontal, SquareRoundCorner, XIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 export const SCREENSHOT_TOOLBAR_RADIUS = 10;
@@ -15,6 +16,9 @@ const TOOLBAR_SIZE = { width: 40, height: 230 };
 const RADIUS_PANEL_WIDTH = 72;
 const RADIUS_PANEL_HEIGHT = 218;
 const RADIUS_PANEL_GAP = 8;
+const ADJUSTMENTS_PANEL_WIDTH = 220;
+const ADJUSTMENTS_PANEL_HEIGHT = 220;
+const ADJUSTMENTS_PANEL_GAP = 8;
 
 type ToolbarAction = () => void | Promise<void>;
 
@@ -59,6 +63,8 @@ export function Toolbar({
   const toolbarRef = useRef<HTMLDivElement>(null);
   const radiusPanelRef = useRef<HTMLDivElement>(null);
   const radiusButtonRef = useRef<HTMLButtonElement>(null);
+  const adjustmentsPanelRef = useRef<HTMLDivElement>(null);
+  const adjustmentsButtonRef = useRef<HTMLButtonElement>(null);
   const cornerRadius = useOverlay((s) => s.cornerRadius);
   const setCornerRadius = useOverlay((s) => s.setCornerRadius);
   const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
@@ -68,11 +74,19 @@ export function Toolbar({
   const [busy, setBusy] = useState(false);
   const [customPos, setCustomPos] = useState<{ x: number; y: number } | null>(null);
   const [radiusPanelOpen, setRadiusPanelOpen] = useState(false);
+  const [adjustmentsPanelOpen, setAdjustmentsPanelOpen] = useState(false);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const toolbarSize = { width: TOOLBAR_SIZE.width, height: measuredHeight };
   const computedPos = computeVerticalToolbarPosition(selection, toolbarSize, monitorRect);
   const pos = customPos ? clampToolbarPosition(customPos, toolbarSize, monitorRect) : computedPos;
-  const radiusPanelPosition = computeRadiusPanelPosition(pos, monitorRect);
+  const radiusPanelPosition = computeSidePanelPosition(pos, monitorRect, RADIUS_PANEL_WIDTH, RADIUS_PANEL_HEIGHT, RADIUS_PANEL_GAP);
+  const adjustmentsPanelPosition = computeSidePanelPosition(
+    pos,
+    monitorRect,
+    ADJUSTMENTS_PANEL_WIDTH,
+    ADJUSTMENTS_PANEL_HEIGHT,
+    ADJUSTMENTS_PANEL_GAP,
+  );
 
   useLayoutEffect(() => {
     const nextHeight = toolbarRef.current?.offsetHeight ?? 0;
@@ -175,7 +189,10 @@ export function Toolbar({
             buttonRef={radiusButtonRef}
             label={`Corner radius: ${cornerRadius} px`}
             icon={<SquareRoundCorner size={18} strokeWidth={2.2} aria-hidden="true" />}
-            onClick={() => setRadiusPanelOpen((open) => !open)}
+            onClick={() => {
+              setAdjustmentsPanelOpen(false);
+              setRadiusPanelOpen((open) => !open);
+            }}
           />
         </ToolbarGroup>
 
@@ -193,6 +210,16 @@ export function Toolbar({
             icon={<Pipette size={18} strokeWidth={2.2} aria-hidden="true" />}
             active={colorPickerVisible}
             onClick={handleColorPickerClick}
+          />
+          <ToolbarButton
+            buttonRef={adjustmentsButtonRef}
+            label="Image adjustments"
+            icon={<SlidersHorizontal size={18} strokeWidth={2.2} aria-hidden="true" />}
+            active={adjustmentsPanelOpen}
+            onClick={() => {
+              setRadiusPanelOpen(false);
+              setAdjustmentsPanelOpen((open) => !open);
+            }}
           />
           <ToolbarButton
             label={scrollSelectionTooSmall ? "Selection too small" : "Scrolling screenshot"}
@@ -243,26 +270,41 @@ export function Toolbar({
           }}
         />
       )}
+
+      {adjustmentsPanelOpen && (
+        <ImageAdjustmentsPanel
+          panelRef={adjustmentsPanelRef}
+          style={{
+            position: "fixed",
+            left: adjustmentsPanelPosition.left,
+            top: adjustmentsPanelPosition.top,
+            width: ADJUSTMENTS_PANEL_WIDTH,
+          }}
+        />
+      )}
     </>
   );
 }
 
-function computeRadiusPanelPosition(
+function computeSidePanelPosition(
   toolbarPos: { x: number; y: number },
   monitorRect: Rect,
+  panelWidth: number,
+  panelHeight: number,
+  gap: number,
 ): { left: number; top: number } {
   const monitorLeft = monitorRect.x;
   const monitorTop = monitorRect.y;
   const monitorRight = monitorRect.x + monitorRect.width;
   const monitorBottom = monitorRect.y + monitorRect.height;
 
-  if (toolbarPos.x >= monitorLeft + RADIUS_PANEL_WIDTH + RADIUS_PANEL_GAP) {
+  if (toolbarPos.x >= monitorLeft + panelWidth + gap) {
     return {
-      left: toolbarPos.x - RADIUS_PANEL_WIDTH - RADIUS_PANEL_GAP,
+      left: toolbarPos.x - panelWidth - gap,
       top: clamp(
         toolbarPos.y + 4,
-        monitorTop + RADIUS_PANEL_GAP,
-        monitorBottom - RADIUS_PANEL_HEIGHT - RADIUS_PANEL_GAP,
+        monitorTop + gap,
+        monitorBottom - panelHeight - gap,
       ),
     };
   }
@@ -270,13 +312,13 @@ function computeRadiusPanelPosition(
   return {
     left: clamp(
       toolbarPos.x,
-      monitorLeft + RADIUS_PANEL_GAP,
-      monitorRight - RADIUS_PANEL_WIDTH - RADIUS_PANEL_GAP,
+      monitorLeft + gap,
+      monitorRight - panelWidth - gap,
     ),
     top: clamp(
-      toolbarPos.y - RADIUS_PANEL_HEIGHT - RADIUS_PANEL_GAP,
-      monitorTop + RADIUS_PANEL_GAP,
-      monitorBottom - RADIUS_PANEL_HEIGHT - RADIUS_PANEL_GAP,
+      toolbarPos.y - panelHeight - gap,
+      monitorTop + gap,
+      monitorBottom - panelHeight - gap,
     ),
   };
 }

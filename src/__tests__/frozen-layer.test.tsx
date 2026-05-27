@@ -35,4 +35,20 @@ describe("FrozenLayer", () => {
       "asset://localhost/%2FUsers%2Fdp%2FLibrary%2FCaches%2Fdev.flashot.app%2Fframe_3.png",
     );
   });
+
+  it("applies image adjustment preview filters only to the frozen base image", () => {
+    useOverlay.getState().setImageAdjustments({
+      grayscale: true,
+      brightness: 25,
+      contrast: -20,
+      saturation: 35,
+      sharpness: 40,
+    });
+
+    const { container } = render(<FrozenLayer />);
+
+    expect(container.querySelector("img")?.style.filter).toBe(
+      "grayscale(1) brightness(1.25) contrast(0.8) saturate(1.35)",
+    );
+  });
 });
