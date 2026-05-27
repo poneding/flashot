@@ -8,7 +8,7 @@ import type { Rect } from "@/lib/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { appCacheDir } from "@tauri-apps/api/path";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { ChevronDown, CopyIcon, Pencil, SaveIcon, XIcon } from "lucide-react";
+import { CopyIcon, Pencil, SaveIcon, Scaling, XIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 // Soft outer glow around the pinned image. The window itself reserves
@@ -471,7 +471,7 @@ function PinControls({
       <div style={{ position: "relative" }}>
         <PinControlButton
           label={`Scale: ${scaleLabel(scale)}`}
-          icon={<ChevronDown size={18} aria-hidden="true" />}
+          icon={<Scaling size={18} aria-hidden="true" />}
           active={scaleMenuOpen}
           onClick={onToggleScaleMenu}
         />

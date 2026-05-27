@@ -1,11 +1,11 @@
 import { PropertyPanel } from "@/annotation/PropertyPanel";
 import { useAnnotation } from "@/annotation/store";
 import { TooltipBubble } from "@/annotation/Tooltip";
-import { useOverlay } from "@/overlay/state";
 import type { ToolType } from "@/annotation/types";
 import { ACCENT_COLOR_CSS_VAR } from "@/lib/colors";
 import { clampToolbarPosition, computeToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
+import { useOverlay } from "@/overlay/state";
 import {
   Circle,
   Droplets,
@@ -15,11 +15,11 @@ import {
   MoveUpRight,
   Pencil,
   Redo2,
-  Ruler,
+  RulerDimensionLine,
+  Search,
   Square,
   Type,
-  Undo2,
-  ZoomIn,
+  Undo2
 } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 
@@ -60,9 +60,9 @@ const TOOLS: ToolDef[] = [
   { id: "blur", icon: <Droplets size={18} />, label: "Blur" },
   { id: "highlight", icon: <Highlighter size={18} />, label: "Highlight" },
   { id: "marker", icon: <MarkerIcon />, label: "Marker" },
-  { id: "magnifier", icon: <ZoomIn size={18} />, label: "Magnifier" },
+  { id: "measure", icon: <RulerDimensionLine size={18} />, label: "Measure" },
+  { id: "magnifier", icon: <Search size={18} />, label: "Magnifier" },
   { id: "eraser", icon: <Eraser size={18} />, label: "Eraser" },
-  { id: "measure", icon: <Ruler size={18} />, label: "Measure" },
 ];
 
 function shortcutTitle(action: string, key: string, options: { shift?: boolean } = {}): string {
