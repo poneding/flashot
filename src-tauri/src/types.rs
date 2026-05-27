@@ -34,7 +34,7 @@ pub struct MonitorInfo {
     pub scale_factor: f32,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageAdjustments {
     pub grayscale: bool,
@@ -43,19 +43,6 @@ pub struct ImageAdjustments {
     pub contrast: i32,
     pub saturation: i32,
     pub sharpness: u32,
-}
-
-impl Default for ImageAdjustments {
-    fn default() -> Self {
-        Self {
-            grayscale: false,
-            auto_levels: false,
-            brightness: 0,
-            contrast: 0,
-            saturation: 0,
-            sharpness: 0,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]

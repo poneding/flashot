@@ -431,6 +431,7 @@ pub fn list_system_fonts() -> Vec<String> {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn pin_image(
     monitor_id: u32,
     rect: Rect,
