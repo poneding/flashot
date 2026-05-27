@@ -1,8 +1,9 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { exportAnnotationLayer } from "@/annotation/export";
 import { PinRoute } from "@/routes/Pin";
-import { closePin, setPinScale } from "@/lib/ipc";
+import { closePin, copyPin, setPinScale, updatePinAnnotation } from "@/lib/ipc";
 
 const webviewWindowMock = vi.hoisted(() => ({
   show: vi.fn().mockResolvedValue(undefined),
@@ -21,9 +22,23 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
   getCurrentWebviewWindow: () => webviewWindowMock,
 }));
 
+vi.mock("@/annotation/Stage", () => ({
+  AnnotationStage: vi.fn(() => <div data-testid="pin-annotation-stage" />),
+}));
+
+vi.mock("@/annotation/Toolbar", () => ({
+  Toolbar: vi.fn(() => <div data-testid="pin-annotation-toolbar" />),
+}));
+
+vi.mock("@/annotation/export", () => ({
+  exportAnnotationLayer: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock("@/lib/ipc", () => ({
   closePin: vi.fn().mockResolvedValue(undefined),
+  copyPin: vi.fn().mockResolvedValue(undefined),
   setPinScale: vi.fn().mockResolvedValue(undefined),
+  updatePinAnnotation: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("PinRoute", () => {
@@ -170,6 +185,69 @@ describe("PinRoute", () => {
     await waitFor(() => {
       expect(closePin).toHaveBeenCalledWith("test-id");
     });
+  });
+
+  it("enters in-place edit mode with the annotation stage and toolbar", async () => {
+    window.location.hash = "#/pin/test-id?annotation=1";
+
+    render(<PinRoute />);
+
+    fireEvent.mouseEnter(await screen.findByTestId("pin-root"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(screen.getByTestId("pin-annotation-stage")).not.toBeNull();
+    expect(screen.getByTestId("pin-annotation-toolbar")).not.toBeNull();
+    expect(screen.getByAltText("Pinned screenshot")).not.toBeNull();
+    expect(screen.getByAltText("Pinned annotations")).not.toBeNull();
+  });
+
+  it("saves edited pin annotations over the same pin", async () => {
+    window.location.hash = "#/pin/test-id";
+    const annotationPng = new Uint8Array([4, 5, 6]).buffer;
+    vi.mocked(exportAnnotationLayer).mockResolvedValue(annotationPng);
+
+    render(<PinRoute />);
+
+    fireEvent.mouseEnter(await screen.findByTestId("pin-root"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(exportAnnotationLayer).toHaveBeenCalled();
+      expect(updatePinAnnotation).toHaveBeenCalledWith("test-id", annotationPng);
+    });
+  });
+
+  it("copies the current edited pin composition", async () => {
+    window.location.hash = "#/pin/test-id";
+    const annotationPng = new Uint8Array([9, 8, 7]).buffer;
+    vi.mocked(exportAnnotationLayer).mockResolvedValue(annotationPng);
+
+    render(<PinRoute />);
+
+    fireEvent.mouseEnter(await screen.findByTestId("pin-root"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+
+    await waitFor(() => {
+      expect(copyPin).toHaveBeenCalledWith("test-id", annotationPng);
+    });
+  });
+
+  it("cancels edit mode with Escape without closing or saving the pin", async () => {
+    window.location.hash = "#/pin/test-id";
+
+    render(<PinRoute />);
+
+    fireEvent.mouseEnter(await screen.findByTestId("pin-root"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("pin-annotation-stage")).toBeNull();
+    });
+    expect(updatePinAnnotation).not.toHaveBeenCalled();
+    expect(closePin).not.toHaveBeenCalled();
   });
 
   it("maps normalized wheel notches to one 5 percent scale step", async () => {

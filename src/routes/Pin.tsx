@@ -1,5 +1,10 @@
-import { closePin, setPinScale } from "@/lib/ipc";
+import { exportAnnotationLayer } from "@/annotation/export";
+import { AnnotationStage } from "@/annotation/Stage";
+import { useAnnotation } from "@/annotation/store";
+import { Toolbar as AnnotationToolbar } from "@/annotation/Toolbar";
 import { ACCENT_RGB_CSS_VAR } from "@/lib/colors";
+import { closePin, copyPin, setPinScale, updatePinAnnotation } from "@/lib/ipc";
+import type { Rect } from "@/lib/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { appCacheDir } from "@tauri-apps/api/path";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -52,6 +57,34 @@ function normalizedWheelDelta(event: WheelEvent): number {
   return event.deltaY;
 }
 
+function currentViewportSize() {
+  return {
+    width: Math.max(1, window.innerWidth || 1),
+    height: Math.max(1, window.innerHeight || 1),
+  };
+}
+
+function pinContentSelection(viewport: { width: number; height: number }): Rect {
+  return {
+    x: 0,
+    y: 0,
+    width: Math.max(1, viewport.width - 2 * PIN_SHADOW_PADDING),
+    height: Math.max(1, viewport.height - 2 * PIN_SHADOW_PADDING),
+  };
+}
+
+function pinToolbarSelection(content: Rect): Rect {
+  return {
+    ...content,
+    x: PIN_SHADOW_PADDING,
+    y: PIN_SHADOW_PADDING,
+  };
+}
+
+function pinMonitorRect(viewport: { width: number; height: number }): Rect {
+  return { x: 0, y: 0, width: viewport.width, height: viewport.height };
+}
+
 function parsePinRoute(): { id: string; hasAnnotation: boolean; radius: number } | null {
   const h = window.location.hash || "";
   const prefix = "#/pin/";
@@ -80,18 +113,31 @@ export function PinRoute() {
   const [scale, setScale] = useState(1.0);
   const scaleRef = useRef(scale);
   const wheelRef = useRef({ remainder: 0, direction: 0 });
+  const screenshotRef = useRef<HTMLImageElement>(null);
   const [controlsVisible, setControlsVisible] = useState(false);
   const [scaleMenuOpen, setScaleMenuOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const editingRef = useRef(editing);
+  const [viewportSize, setViewportSize] = useState(currentViewportSize);
+  const [pinExportScale, setPinExportScale] = useState(1);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [annotationFileUrl, setAnnotationFileUrl] = useState<string | null>(null);
   const [annotationUrl, setAnnotationUrl] = useState<string | null>(null);
   const [imageReady, setImageReady] = useState(false);
   const [annotationReady, setAnnotationReady] = useState(!hasAnnotation);
   const contentReady = imageReady && annotationReady;
   const scaleOptions = useMemo(buildScaleOptions, []);
+  const editorSelection = useMemo(() => pinContentSelection(viewportSize), [viewportSize]);
+  const editorToolbarSelection = useMemo(() => pinToolbarSelection(editorSelection), [editorSelection]);
+  const editorMonitorRect = useMemo(() => pinMonitorRect(viewportSize), [viewportSize]);
 
   useEffect(() => {
     scaleRef.current = scale;
   }, [scale]);
+
+  useEffect(() => {
+    editingRef.current = editing;
+  }, [editing]);
 
   useEffect(() => {
     document.body.classList.add("pin");
@@ -99,6 +145,28 @@ export function PinRoute() {
       document.body.classList.remove("pin");
     };
   }, []);
+
+  const updatePinExportScale = useCallback((node: HTMLImageElement | null = screenshotRef.current) => {
+    if (!node) {
+      setPinExportScale(1);
+      return;
+    }
+
+    const rect = node.getBoundingClientRect();
+    const displayWidth = rect.width || editorSelection.width;
+    const nextScale = node.naturalWidth > 0 && displayWidth > 0 ? node.naturalWidth / displayWidth : 1;
+    setPinExportScale(Math.max(1, nextScale));
+  }, [editorSelection.width]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportSize(currentViewportSize());
+      window.requestAnimationFrame(() => updatePinExportScale());
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [updatePinExportScale]);
 
   useEffect(() => {
     if (!id) return;
@@ -109,9 +177,11 @@ export function PinRoute() {
         const sep = cacheDir.endsWith("/") || cacheDir.endsWith("\\") ? "" : "/";
         const imagePath = `${cacheDir}${sep}pins/pin-${id}.png`;
         const annotationPath = `${cacheDir}${sep}pins/pin-${id}-annotation.png`;
+        const nextAnnotationUrl = convertFileSrc(annotationPath);
         if (!cancelled) {
           setImageUrl(convertFileSrc(imagePath));
-          setAnnotationUrl(hasAnnotation ? convertFileSrc(annotationPath) : null);
+          setAnnotationFileUrl(nextAnnotationUrl);
+          setAnnotationUrl(hasAnnotation ? nextAnnotationUrl : null);
         }
       } catch {
         if (!cancelled) {
@@ -147,6 +217,46 @@ export function PinRoute() {
     }
   }, [id]);
 
+  const cancelEditMode = useCallback(() => {
+    useAnnotation.getState().reset();
+    setEditing(false);
+  }, []);
+
+  const enterEditMode = useCallback(() => {
+    useAnnotation.getState().reset();
+    setScaleMenuOpen(false);
+    setControlsVisible(true);
+    setEditing(true);
+  }, []);
+
+  const exportCurrentAnnotation = useCallback(async () => {
+    return await exportAnnotationLayer(pinExportScale);
+  }, [pinExportScale]);
+
+  const saveCurrentPin = useCallback(async () => {
+    if (!id || !editingRef.current) return;
+    const annotationPng = await exportCurrentAnnotation();
+    if (!annotationPng) {
+      cancelEditMode();
+      return;
+    }
+
+    await updatePinAnnotation(id, annotationPng);
+
+    if (annotationFileUrl) {
+      setAnnotationReady(false);
+      setAnnotationUrl(`${annotationFileUrl}?rev=${Date.now()}`);
+    }
+
+    cancelEditMode();
+  }, [annotationFileUrl, cancelEditMode, exportCurrentAnnotation, id]);
+
+  const copyCurrentPin = useCallback(async () => {
+    if (!id) return;
+    const annotationPng = editingRef.current ? await exportCurrentAnnotation() : null;
+    await copyPin(id, annotationPng ?? undefined);
+  }, [exportCurrentAnnotation, id]);
+
   useEffect(() => {
     if (!id) return;
 
@@ -169,22 +279,31 @@ export function PinRoute() {
       void updatePinScale(scaleRef.current + direction * PIN_SCALE_STEP);
     };
 
+    const handleDoubleClick = () => {
+      if (!editingRef.current) void closeCurrentPin();
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        e.preventDefault();
+        if (editingRef.current) {
+          cancelEditMode();
+          return;
+        }
         void closeCurrentPin();
       }
     };
 
     window.addEventListener("wheel", handleWheel, { passive: false });
-    window.addEventListener("dblclick", closeCurrentPin);
+    window.addEventListener("dblclick", handleDoubleClick);
     window.addEventListener("keydown", handleKeyDown);
 
     return () => {
       window.removeEventListener("wheel", handleWheel);
-      window.removeEventListener("dblclick", closeCurrentPin);
+      window.removeEventListener("dblclick", handleDoubleClick);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [id, closeCurrentPin, updatePinScale]);
+  }, [id, cancelEditMode, closeCurrentPin, updatePinScale]);
 
   const hideControls = () => {
     setControlsVisible(false);
@@ -258,7 +377,11 @@ export function PinRoute() {
             setScaleMenuOpen(false);
             void updatePinScale(nextScale);
           }}
+          editing={editing}
+          onEdit={enterEditMode}
           onClose={closeCurrentPin}
+          onSave={() => void saveCurrentPin()}
+          onCopy={() => void copyCurrentPin()}
         />
       )}
       <div
@@ -266,11 +389,15 @@ export function PinRoute() {
         style={{ ...imageStackStyle, opacity: contentReady ? 1 : 0 }}
       >
         <img
+          ref={screenshotRef}
           src={imageUrl}
           alt="Pinned screenshot"
           style={imgStyle}
           draggable={false}
-          onLoad={() => setImageReady(true)}
+          onLoad={(event) => {
+            setImageReady(true);
+            updatePinExportScale(event.currentTarget);
+          }}
           onError={() => setImageReady(true)}
         />
         {annotationUrl && (
@@ -283,7 +410,21 @@ export function PinRoute() {
             onError={() => setAnnotationReady(true)}
           />
         )}
+        {editing && (
+          <AnnotationStage
+            selection={editorSelection}
+            scaleFactor={pinExportScale}
+            frameUrl={imageUrl}
+            interacting={false}
+          />
+        )}
       </div>
+      {editing && (
+        <AnnotationToolbar
+          selection={editorToolbarSelection}
+          monitorRect={editorMonitorRect}
+        />
+      )}
     </div>
   );
 }
@@ -299,18 +440,26 @@ type PinControlsProps = {
   scale: number;
   scaleOptions: number[];
   scaleMenuOpen: boolean;
+  editing: boolean;
   onToggleScaleMenu: () => void;
   onScaleSelect: (scale: number) => void;
+  onEdit: () => void;
   onClose: () => void;
+  onSave: () => void;
+  onCopy: () => void;
 };
 
 function PinControls({
   scale,
   scaleOptions,
   scaleMenuOpen,
+  editing,
   onToggleScaleMenu,
   onScaleSelect,
+  onEdit,
   onClose,
+  onSave,
+  onCopy,
 }: PinControlsProps) {
   return (
     <div
@@ -318,7 +467,7 @@ function PinControls({
       onMouseDown={(event) => event.stopPropagation()}
       style={pinControlsStyle}
     >
-      <PinControlButton label="Edit" icon={<Pencil size={18} aria-hidden="true" />} onClick={() => {}} />
+      <PinControlButton label="Edit" icon={<Pencil size={18} aria-hidden="true" />} active={editing} onClick={onEdit} />
       <div style={{ position: "relative" }}>
         <PinControlButton
           label={`Scale: ${scaleLabel(scale)}`}
@@ -346,8 +495,8 @@ function PinControls({
         )}
       </div>
       <PinControlButton label="Close" icon={<XIcon size={18} aria-hidden="true" />} tone="danger" onClick={onClose} />
-      <PinControlButton label="Save" icon={<SaveIcon size={18} aria-hidden="true" />} tone="primary" onClick={() => {}} />
-      <PinControlButton label="Copy" icon={<CopyIcon size={18} aria-hidden="true" />} tone="success" onClick={() => {}} />
+      <PinControlButton label="Save" icon={<SaveIcon size={18} aria-hidden="true" />} tone="primary" onClick={onSave} />
+      <PinControlButton label="Copy" icon={<CopyIcon size={18} aria-hidden="true" />} tone="success" onClick={onCopy} />
     </div>
   );
 }
