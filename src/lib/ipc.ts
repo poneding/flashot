@@ -91,6 +91,21 @@ export async function closePin(pinId: string): Promise<void> {
 export async function setPinScale(pinId: string, scale: number): Promise<void> {
   await invoke("set_pin_scale", { pinId, scale });
 }
+export async function updatePinAnnotation(
+  pinId: string,
+  annotationPng?: ArrayBuffer,
+): Promise<void> {
+  await invoke("update_pin_annotation", {
+    pinId,
+    annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
+  });
+}
+export async function copyPin(pinId: string, annotationPng?: ArrayBuffer): Promise<void> {
+  await invoke("copy_pin", {
+    pinId,
+    annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
+  });
+}
 
 export function onCaptureStart(cb: (p: CaptureStartPayload) => void): Promise<UnlistenFn> {
   return getCurrentWebviewWindow().listen<CaptureStartPayload>(

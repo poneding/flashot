@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
-import { cropAndCopy, cropAndSave, pinImage } from "@/lib/ipc";
+import { copyPin, cropAndCopy, cropAndSave, pinImage, updatePinAnnotation } from "@/lib/ipc";
 import type { ImageAdjustments, Rect } from "@/lib/types";
 
 function captureInvocations() {
@@ -80,6 +80,35 @@ describe("ipc wrappers", () => {
       {
         cmd: "pin_image",
         payload: expect.objectContaining({ adjustments }),
+      },
+    ]);
+  });
+
+  it("serializes pin annotation updates and copy requests", async () => {
+    const annotationPng = new Uint8Array([7, 8, 9]).buffer;
+    const invocations = captureInvocations();
+
+    await updatePinAnnotation("pin-1", annotationPng);
+    await updatePinAnnotation("pin-1");
+    await copyPin("pin-1", annotationPng);
+    await copyPin("pin-1");
+
+    expect(invocations).toEqual([
+      {
+        cmd: "update_pin_annotation",
+        payload: { pinId: "pin-1", annotationPng: [7, 8, 9] },
+      },
+      {
+        cmd: "update_pin_annotation",
+        payload: { pinId: "pin-1", annotationPng: null },
+      },
+      {
+        cmd: "copy_pin",
+        payload: { pinId: "pin-1", annotationPng: [7, 8, 9] },
+      },
+      {
+        cmd: "copy_pin",
+        payload: { pinId: "pin-1", annotationPng: null },
       },
     ]);
   });

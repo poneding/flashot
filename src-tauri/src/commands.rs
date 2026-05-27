@@ -6,7 +6,7 @@ use crate::{
     types::{ImageAdjustments, Rect},
     window_mgr::WindowMgr,
 };
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tauri_plugin_autostart::ManagerExt as _;
 use uuid::Uuid;
@@ -571,7 +571,7 @@ pub async fn set_pin_scale(
     app: AppHandle,
     pin_mgr: State<'_, Arc<PinManager>>,
 ) -> Result<(), String> {
-    let mut entry = pin_mgr.get_pin(&pin_id).ok_or("pin not found")?;
+    let entry = pin_mgr.get_pin(&pin_id).ok_or("pin not found")?;
     let clamped_scale = scale.clamp(0.5, 3.0);
 
     let new_width = entry.original_width as f64 * clamped_scale + 2.0 * PIN_SHADOW_PADDING;
@@ -586,9 +586,105 @@ pub async fn set_pin_scale(
             .map_err(|e| e.to_string())?;
     }
 
-    entry.current_scale = clamped_scale;
-    pin_mgr.add_pin(entry);
+    pin_mgr
+        .update_scale(&pin_id, clamped_scale)
+        .ok_or("pin not found")?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn update_pin_annotation(
+    pin_id: String,
+    annotation_png: Option<Vec<u8>>,
+    pin_mgr: State<'_, Arc<PinManager>>,
+) -> Result<(), String> {
+    let paths = pin_mgr.pin_paths(&pin_id).ok_or("pin not found")?;
+
+    match annotation_png {
+        Some(png_data) if !png_data.is_empty() => {
+            let next_annotation_path = annotation_path_for_pin(&paths.image_path, &pin_id)?;
+            std::fs::write(&next_annotation_path, png_data)
+                .map_err(|e| format!("Failed to save annotation PNG: {e}"))?;
+
+            if let Some(old_path) = paths.annotation_path.as_ref() {
+                if old_path != &next_annotation_path {
+                    let _ = std::fs::remove_file(old_path);
+                }
+            }
+
+            pin_mgr
+                .update_annotation(&pin_id, Some(next_annotation_path))
+                .ok_or("pin not found")?;
+        }
+        _ => {
+            if let Some(old_path) = paths.annotation_path {
+                let _ = std::fs::remove_file(old_path);
+            }
+
+            pin_mgr
+                .update_annotation(&pin_id, None)
+                .ok_or("pin not found")?;
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn copy_pin(
+    pin_id: String,
+    annotation_png: Option<Vec<u8>>,
+    pin_mgr: State<'_, Arc<PinManager>>,
+) -> Result<(), String> {
+    let paths = pin_mgr.pin_paths(&pin_id).ok_or("pin not found")?;
+    let final_image = compose_pin_image(
+        &paths.image_path,
+        paths.annotation_path.as_deref(),
+        annotation_png.as_deref(),
+    )?;
+
+    clipboard::copy_image(final_image.rgba, final_image.width, final_image.height)
+        .map_err(|e| e.to_string())
+}
+
+fn annotation_path_for_pin(image_path: &Path, pin_id: &str) -> Result<std::path::PathBuf, String> {
+    let parent = image_path
+        .parent()
+        .ok_or("pin image path has no parent directory")?;
+    Ok(parent.join(format!("pin-{pin_id}-annotation.png")))
+}
+
+fn compose_pin_image(
+    image_path: &Path,
+    stored_annotation_path: Option<&Path>,
+    annotation_png: Option<&[u8]>,
+) -> Result<CroppedImage, String> {
+    let base = load_pin_image(image_path)?;
+
+    if let Some(png_data) = annotation_png.filter(|data| !data.is_empty()) {
+        return composite_annotation(&base, png_data);
+    }
+
+    match stored_annotation_path {
+        Some(path) => {
+            let png_data = std::fs::read(path)
+                .map_err(|e| format!("Failed to read pin annotation PNG: {e}"))?;
+            composite_annotation(&base, &png_data)
+        }
+        None => Ok(base),
+    }
+}
+
+fn load_pin_image(path: &Path) -> Result<CroppedImage, String> {
+    let image = image::open(path)
+        .map_err(|e| format!("Failed to read pin image: {e}"))?
+        .to_rgba8();
+    let (width, height) = image.dimensions();
+    Ok(CroppedImage {
+        rgba: image.into_raw(),
+        width,
+        height,
+    })
 }
 
 fn save_pin_png(
@@ -1293,6 +1389,41 @@ mod tests {
             materialize_idx < write_idx,
             "the full image must still be materialized before writing the selected path",
         );
+    }
+
+    #[test]
+    fn pin_edit_commands_accept_annotation_png_and_are_registered() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let update_body = function_body(&source, "update_pin_annotation");
+        let copy_body = function_body(&source, "copy_pin");
+
+        assert!(
+            source.contains(
+                "pub async fn update_pin_annotation(\n    pin_id: String,\n    annotation_png: Option<Vec<u8>>,"
+            ),
+            "update_pin_annotation must accept optional exported annotation data",
+        );
+        assert!(
+            source.contains(
+                "pub async fn copy_pin(\n    pin_id: String,\n    annotation_png: Option<Vec<u8>>,"
+            ),
+            "copy_pin must accept optional unsaved annotation data",
+        );
+        assert!(
+            update_body.contains("update_annotation"),
+            "update_pin_annotation must persist the new annotation path in PinManager",
+        );
+        assert!(
+            copy_body.contains("clipboard::copy_image"),
+            "copy_pin must copy the composed pin image to the clipboard",
+        );
+
+        let lib_source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"),
+        )
+        .unwrap();
+        assert!(lib_source.contains("commands::update_pin_annotation"));
+        assert!(lib_source.contains("commands::copy_pin"));
     }
 
     #[test]

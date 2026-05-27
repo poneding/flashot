@@ -249,6 +249,8 @@ pub fn run() {
             commands::pin_image,
             commands::close_pin,
             commands::set_pin_scale,
+            commands::update_pin_annotation,
+            commands::copy_pin,
             commands::start_scroll_session,
             commands::stop_scroll_session,
             commands::scroll_copy,
