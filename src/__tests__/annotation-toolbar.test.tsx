@@ -154,7 +154,7 @@ describe("Annotation toolbar", () => {
   it("selects the marker tool from the toolbar", () => {
     renderToolbar();
 
-    fireEvent.click(screen.getByTitle("Marker"));
+    fireEvent.click(screen.getByRole("button", { name: "Marker" }));
 
     expect(useAnnotation.getState().activeTool).toBe("marker");
   });
@@ -162,7 +162,7 @@ describe("Annotation toolbar", () => {
   it("selects the magnifier tool from the toolbar", () => {
     renderToolbar();
 
-    fireEvent.click(screen.getByTitle("Magnifier"));
+    fireEvent.click(screen.getByRole("button", { name: "Magnifier" }));
 
     expect(useAnnotation.getState().activeTool).toBe("magnifier");
   });

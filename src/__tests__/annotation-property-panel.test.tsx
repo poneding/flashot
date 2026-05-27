@@ -121,9 +121,9 @@ describe("Annotation property panel", () => {
     const textColor = screen.getByLabelText("Marker text color");
     const bubbleBackground = screen.getByLabelText("Marker bubble background");
 
-    fireEvent.click(within(fill).getByTitle("#0099ff"));
-    fireEvent.click(within(textColor).getByTitle("#ffffff"));
-    fireEvent.click(within(bubbleBackground).getByTitle("#000000"));
+    fireEvent.click(within(fill).getByRole("button", { name: "#0099ff" }));
+    fireEvent.click(within(textColor).getByRole("button", { name: "#ffffff" }));
+    fireEvent.click(within(bubbleBackground).getByRole("button", { name: "#000000" }));
 
     expect(useAnnotation.getState().activeStyle.markerFill).toBe("#0099ff");
     expect(useAnnotation.getState().activeStyle.markerTextColor).toBe("#ffffff");
