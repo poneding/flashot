@@ -53,9 +53,11 @@ vi.mock("@/lib/ipc", () => ({
   claimSelection: vi.fn().mockResolvedValue(undefined),
   cropAndCopy: vi.fn().mockResolvedValue(undefined),
   cropAndSave: vi.fn().mockResolvedValue(null),
+  getSettings: vi.fn().mockResolvedValue({ accentColor: "#0EA5E9" }),
   onCaptureEnd: vi.fn().mockResolvedValue(vi.fn()),
   onCaptureStart: vi.fn().mockResolvedValue(vi.fn()),
   onQuickShotFlash: vi.fn().mockResolvedValue(vi.fn()),
+  onSettingsChanged: vi.fn().mockResolvedValue(vi.fn()),
   onColorFormatToggleRequested: vi.fn((cb: () => void) => {
     ipcListeners.colorFormatToggleRequested = cb;
     return Promise.resolve(vi.fn());

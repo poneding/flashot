@@ -290,7 +290,7 @@ describe("Toolbar", () => {
 
     const toolbar = container.querySelector("[data-screenshot-toolbar]") as HTMLElement;
     expect(toolbar.style.left).toBe("760px");
-    expect(toolbar.style.top).toBe("370px");
+    expect(toolbar.style.top).toBe("292px");
   });
 
   it("routes output actions through the provided callbacks", async () => {

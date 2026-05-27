@@ -16,7 +16,7 @@ import {
   Pencil,
   Redo2,
   RulerDimensionLine,
-  // Search,
+  Search,
   Square,
   Type,
   Undo2
@@ -32,23 +32,23 @@ type ToolDef = {
   label: string;
 };
 
-// function MarkerIcon() {
-//   return (
-//     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-//       <circle cx="12" cy="12" r="8" fill="currentColor" opacity="0.92" />
-//       <text
-//         x="12"
-//         y="15"
-//         textAnchor="middle"
-//         fontSize="9"
-//         fontWeight="700"
-//         fill="#111827"
-//       >
-//         1
-//       </text>
-//     </svg>
-//   );
-// }
+function MarkerIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="8" fill="currentColor" opacity="0.92" />
+      <text
+        x="12"
+        y="15"
+        textAnchor="middle"
+        fontSize="9"
+        fontWeight="700"
+        fill="#111827"
+      >
+        1
+      </text>
+    </svg>
+  );
+}
 
 const TOOLS: ToolDef[] = [
   { id: "draw", icon: <Pencil size={18} />, label: "Pen" },
@@ -59,10 +59,10 @@ const TOOLS: ToolDef[] = [
   { id: "text", icon: <Type size={18} />, label: "Text" },
   { id: "blur", icon: <Droplets size={18} />, label: "Blur" },
   { id: "highlight", icon: <Highlighter size={18} />, label: "Highlight" },
-  // { id: "marker", icon: <MarkerIcon />, label: "Marker" },
-  { id: "measure", icon: <RulerDimensionLine size={18} />, label: "Measure" },
-  // { id: "magnifier", icon: <Search size={18} />, label: "Magnifier" },
+  { id: "marker", icon: <MarkerIcon />, label: "Marker" },
+  { id: "magnifier", icon: <Search size={18} />, label: "Magnifier" },
   { id: "eraser", icon: <Eraser size={18} />, label: "Eraser" },
+  { id: "measure", icon: <RulerDimensionLine size={18} />, label: "Measure" },
 ];
 
 function shortcutTitle(action: string, key: string, options: { shift?: boolean } = {}): string {

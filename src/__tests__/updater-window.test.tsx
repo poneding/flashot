@@ -21,6 +21,7 @@ vi.mock("@tauri-apps/plugin-process", () => ({
 
 vi.mock("@/lib/ipc", () => ({
   getSettings: vi.fn(),
+  onSettingsChanged: vi.fn().mockResolvedValue(vi.fn()),
 }));
 
 const mockCheckForUpdate = vi.fn();

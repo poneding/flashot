@@ -14,6 +14,7 @@ vi.mock("@tauri-apps/plugin-shell", () => ({
 
 vi.mock("@/lib/ipc", () => ({
   getSettings: vi.fn(),
+  onSettingsChanged: vi.fn().mockResolvedValue(vi.fn()),
 }));
 
 describe("AboutRoute", () => {

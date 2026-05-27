@@ -37,6 +37,8 @@ vi.mock("@/annotation/export", () => ({
 vi.mock("@/lib/ipc", () => ({
   closePin: vi.fn().mockResolvedValue(undefined),
   copyPin: vi.fn().mockResolvedValue(undefined),
+  getSettings: vi.fn().mockResolvedValue({ accentColor: "#0EA5E9" }),
+  onSettingsChanged: vi.fn().mockResolvedValue(vi.fn()),
   setPinScale: vi.fn().mockResolvedValue(undefined),
   updatePinAnnotation: vi.fn().mockResolvedValue(undefined),
 }));

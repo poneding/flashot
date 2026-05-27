@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsRoute } from "@/routes/Settings";
 import { ThemeSelect } from "@/settings/ThemeSelect";
@@ -85,6 +86,7 @@ describe("SettingsRoute", () => {
   it("shows editable shortcuts for region, screen, and window capture", async () => {
     render(<SettingsRoute />);
 
+    fireEvent.click(await screen.findByRole("tab", { name: "Shortcuts" }));
     expect(await screen.findByText("Capture Region")).toBeTruthy();
     expect(screen.getByText("Capture Screen")).toBeTruthy();
     expect(screen.getByText("Capture Window")).toBeTruthy();
@@ -95,14 +97,16 @@ describe("SettingsRoute", () => {
     expect(screen.queryByText(/CommandOrControl/)).toBeNull();
   });
 
-  it("groups settings into shortcut, capture, appearance, and general sections", async () => {
+  it("groups settings into general, appearance, and shortcut tabs", async () => {
     const { container } = render(<SettingsRoute />);
 
-    expect(await screen.findByRole("heading", { name: "Shortcuts" })).toBeTruthy();
+    expect(await screen.findByRole("tab", { name: "General" })).toBeTruthy();
     expect(container.querySelector('[data-utility-window-shell="settings"]')).not.toBeNull();
-    expect(screen.getByRole("heading", { name: "Capture" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Appearance" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "General" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Appearance" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Shortcuts" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Shortcuts" }));
+    expect(await screen.findByText("Capture Region")).toBeTruthy();
   });
 
   it("renders settings labels in Simplified Chinese when selected", async () => {
@@ -110,21 +114,25 @@ describe("SettingsRoute", () => {
 
     render(<SettingsRoute />);
 
-    expect(await screen.findByRole("heading", { name: "快捷键" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "截图" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "外观" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "通用" })).toBeTruthy();
+    expect(await screen.findByRole("tab", { name: "快捷键" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "外观" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "通用" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "快捷键" }));
     expect(screen.getByText("截图区域")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "外观" }));
     expect(screen.getByLabelText("语言")).toBeTruthy();
     expect(screen.getByRole("button", { name: "保存" })).toBeTruthy();
   });
 
   it("saves accent color and language selections", async () => {
+    const user = userEvent.setup();
     render(<SettingsRoute />);
 
-    await screen.findByRole("heading", { name: "Appearance" });
+    await screen.findByRole("tab", { name: "Appearance" });
+    fireEvent.click(screen.getByRole("tab", { name: "Appearance" }));
     fireEvent.click(screen.getByRole("button", { name: "Accent color: Rose" }));
-    fireEvent.change(screen.getByLabelText("Language"), { target: { value: "zh-CN" } });
+    await user.click(screen.getByLabelText("Language"));
+    await user.click(await screen.findByRole("option", { name: "Simplified Chinese" }));
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => {
@@ -138,7 +146,8 @@ describe("SettingsRoute", () => {
   it("updates document accent variables from the selected accent color", async () => {
     render(<SettingsRoute />);
 
-    await screen.findByRole("heading", { name: "Appearance" });
+    await screen.findByRole("tab", { name: "Appearance" });
+    fireEvent.click(screen.getByRole("tab", { name: "Appearance" }));
 
     expect(document.documentElement.style.getPropertyValue("--flashot-accent")).toBe(SELECTION_COLOR);
 
@@ -154,6 +163,8 @@ describe("SettingsRoute", () => {
   it("uses compact shortcut label icons", async () => {
     render(<SettingsRoute />);
 
+    await screen.findByRole("tab", { name: "Shortcuts" });
+    fireEvent.click(screen.getByRole("tab", { name: "Shortcuts" }));
     const label = (await screen.findByText("Capture Region")).closest("label");
     const icon = label?.querySelector("svg");
 
@@ -187,6 +198,7 @@ describe("SettingsRoute", () => {
 
     render(<SettingsRoute />);
 
+    fireEvent.click(await screen.findByRole("tab", { name: "Shortcuts" }));
     await screen.findByText("Capture Region");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
