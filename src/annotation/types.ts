@@ -14,6 +14,7 @@ export type ToolType =
   | "blur"
   | "highlight"
   | "marker"
+  | "magnifier"
   | "eraser";
 
 export type LineShape = "straight" | "wavy";
@@ -24,6 +25,7 @@ export type FillMode = "hollow" | "solid";
 export type BlurMode = "mosaic" | "gaussian" | "solid";
 export type HighlightMode = "freehand" | "straight";
 export type FocusMode = "none" | "spotlight";
+export type MagnifierShape = "circle" | "rounded-rect";
 
 export type AnnotationStyle = {
   color: string;
@@ -47,11 +49,16 @@ export type AnnotationStyle = {
   markerFill?: string;
   markerTextColor?: string;
   markerBubbleFill?: string;
+  magnifierShape?: MagnifierShape;
+  magnifierZoom?: number;
+  magnifierBorderColor?: string;
+  magnifierBorderWidth?: number;
+  magnifierCornerRadius?: number;
 };
 
 export type AnnotationObject = {
   id: AnnotationId;
-  type: "draw" | "line" | "measure" | "arrow" | "rect" | "ellipse" | "text" | "blur" | "highlight" | "marker";
+  type: "draw" | "line" | "measure" | "arrow" | "rect" | "ellipse" | "text" | "blur" | "highlight" | "marker" | "magnifier";
   points?: number[];
   start?: Point;
   end?: Point;
@@ -115,4 +122,9 @@ export const DEFAULT_STYLE: AnnotationStyle = {
   markerFill: "#ff0000",
   markerTextColor: "#ffffff",
   markerBubbleFill: "#111827",
+  magnifierShape: "circle",
+  magnifierZoom: 1.5,
+  magnifierBorderColor: "#ffffff",
+  magnifierBorderWidth: 2,
+  magnifierCornerRadius: 12,
 };

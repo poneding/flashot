@@ -22,6 +22,7 @@ import { onEllipseStart, onEllipseMove, onEllipseEnd } from "@/annotation/tools/
 import { highlightBasePosition, onHighlightStart, onHighlightMove, onHighlightEnd } from "@/annotation/tools/highlight";
 import { onBlurStart, onBlurMove, onBlurEnd } from "@/annotation/tools/blur";
 import { onMarkerStart, onMarkerMove, onMarkerEnd } from "@/annotation/tools/marker";
+import { onMagnifierStart, onMagnifierMove, onMagnifierEnd } from "@/annotation/tools/magnifier";
 import { onEraserStart, onEraserMove, onEraserEnd } from "@/annotation/tools/eraser";
 import type { AnnotationObject, ToolType } from "@/annotation/types";
 import { TextOverlay } from "@/annotation/TextOverlay";
@@ -92,6 +93,7 @@ const TOOL_HANDLERS: Partial<Record<ToolType, ToolHandlers>> = {
   highlight: { start: onHighlightStart, move: onHighlightMove, end: onHighlightEnd },
   blur: { start: onBlurStart, move: onBlurMove, end: onBlurEnd },
   marker: { start: onMarkerStart, move: onMarkerMove, end: () => onMarkerEnd() },
+  magnifier: { start: onMagnifierStart, move: onMagnifierMove, end: onMagnifierEnd },
 };
 
 function objectBasePosition(obj: AnnotationObject): { x: number; y: number } {
@@ -253,10 +255,21 @@ function usesStageSizedRendering(obj: AnnotationObject): boolean {
   return (obj.type === "rect" || obj.type === "ellipse") && obj.style.focusMode === "spotlight";
 }
 
+function usesRenderContext(obj: AnnotationObject): boolean {
+  return usesStageSizedRendering(obj) || obj.type === "magnifier";
+}
+
+function currentRenderContext(excludeObjectId?: string) {
+  return {
+    stageSize: currentStageSize(),
+    magnifier: getMagnifierRenderContext(excludeObjectId),
+  };
+}
+
 function replaceRenderedObjectNode(obj: AnnotationObject): Konva.Node | null {
   if (!layer) return null;
   const existingNode = findRenderedObjectNode(obj.id);
-  const nextNode = renderObject(obj, currentStageSize());
+  const nextNode = renderObject(obj, currentRenderContext(obj.id));
   const zIndex = existingNode?.zIndex();
 
   existingNode?.destroy();
@@ -490,7 +503,7 @@ function syncLayerWithStore(prevObjects: AnnotationObject[] = []) {
     const prevObj = prevById.get(obj.id);
 
     if (!existingNode) {
-      const node = renderObject(obj, currentStageSize());
+      const node = renderObject(obj, currentRenderContext(obj.id));
       if (node) layer.add(node);
       continue;
     }
@@ -646,6 +659,9 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
     image.onload = () => {
       if (canceled) return;
       magnifierSourceImage = image;
+      useAnnotation.getState().objects
+        .filter((object) => object.type === "magnifier")
+        .forEach((object) => replaceRenderedObjectNode(object));
       layer?.batchDraw();
     };
     image.onerror = (error) => {
@@ -670,11 +686,11 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
     stage.height(selection.height);
     if (layer) applyLayerPixelRatio(layer, scaleFactor);
 
-    const focusedObjects = useAnnotation.getState().objects.filter(usesStageSizedRendering);
-    for (const obj of focusedObjects) {
+    const contextObjects = useAnnotation.getState().objects.filter(usesRenderContext);
+    for (const obj of contextObjects) {
       replaceRenderedObjectNode(obj);
     }
-    if (focusedObjects.length > 0) {
+    if (contextObjects.length > 0) {
       syncSelectionWithStore(useAnnotation.getState().selectedObjectId);
     }
 

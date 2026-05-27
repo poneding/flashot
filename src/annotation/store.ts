@@ -142,8 +142,23 @@ function normalizeFocusStyle(style: AnnotationStyle): AnnotationStyle {
   };
 }
 
+function normalizeMagnifierStyle(style: AnnotationStyle): AnnotationStyle {
+  const magnifierZoom = finiteNumber(style.magnifierZoom, DEFAULT_STYLE.magnifierZoom ?? 1.5);
+  const magnifierBorderWidth = finiteNumber(style.magnifierBorderWidth, DEFAULT_STYLE.magnifierBorderWidth ?? 2);
+  const magnifierCornerRadius = finiteNumber(style.magnifierCornerRadius, DEFAULT_STYLE.magnifierCornerRadius ?? 12);
+
+  return {
+    ...style,
+    magnifierShape: style.magnifierShape === "rounded-rect" ? "rounded-rect" : "circle",
+    magnifierZoom: Math.max(1.1, Math.min(2, magnifierZoom)),
+    magnifierBorderColor: typeof style.magnifierBorderColor === "string" ? style.magnifierBorderColor : (DEFAULT_STYLE.magnifierBorderColor ?? "#ffffff"),
+    magnifierBorderWidth: Math.max(1, Math.min(20, magnifierBorderWidth)),
+    magnifierCornerRadius: Math.max(0, Math.min(60, magnifierCornerRadius)),
+  };
+}
+
 function normalizeActiveStyleForTool(tool: ToolType, style: AnnotationStyle): AnnotationStyle {
-  style = normalizeFocusStyle(normalizeTextStyle(style));
+  style = normalizeMagnifierStyle(normalizeFocusStyle(normalizeTextStyle(style)));
   if (tool === "line") {
     return { ...style, ...lineToolStyle(style) };
   }

@@ -165,6 +165,78 @@ describe("annotation object rendering", () => {
     expect((group.findOne(".marker-bubble-text") as Konva.Text).text()).toBe("Review this");
   });
 
+  it("renders circle magnifiers with a clipped composited image and border", () => {
+    const sourceImage = new Image();
+    const node = renderObject(object({
+      id: "magnifier-1",
+      type: "magnifier",
+      start: { x: 40, y: 50 },
+      end: { x: 140, y: 150 },
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        magnifierShape: "circle",
+        magnifierZoom: 1.5,
+        magnifierBorderColor: "#0099ff",
+        magnifierBorderWidth: 3,
+      },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    }), {
+      stageSize: { width: 320, height: 180 },
+      magnifier: {
+        sourceImage,
+        stageSize: { width: 320, height: 180 },
+        scaleFactor: 1,
+        objects: [],
+      },
+    });
+
+    expect(node).toBeInstanceOf(Konva.Group);
+    const group = node as Konva.Group;
+
+    expect(group.findOne(".magnifier-clip")).toBeInstanceOf(Konva.Group);
+    expect(group.findOne(".magnifier-image")).toBeInstanceOf(Konva.Image);
+    expect(group.findOne(".magnifier-border")).toBeInstanceOf(Konva.Circle);
+    expect((group.findOne(".magnifier-image") as Konva.Image).image()).toBe(sourceImage);
+  });
+
+  it("renders rounded-rectangle magnifiers with a clipped composited image and border", () => {
+    const sourceImage = new Image();
+    const node = renderObject(object({
+      id: "magnifier-2",
+      type: "magnifier",
+      start: { x: 40, y: 50 },
+      end: { x: 160, y: 130 },
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        magnifierShape: "rounded-rect",
+        magnifierZoom: 1.25,
+        magnifierBorderColor: "#33cc33",
+        magnifierBorderWidth: 2,
+        magnifierCornerRadius: 16,
+      },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    }), {
+      stageSize: { width: 320, height: 180 },
+      magnifier: {
+        sourceImage,
+        stageSize: { width: 320, height: 180 },
+        scaleFactor: 1,
+        objects: [],
+      },
+    });
+
+    expect(node).toBeInstanceOf(Konva.Group);
+    const group = node as Konva.Group;
+    const border = group.findOne(".magnifier-border") as Konva.Rect;
+
+    expect(group.findOne(".magnifier-clip")).toBeInstanceOf(Konva.Group);
+    expect(group.findOne(".magnifier-image")).toBeInstanceOf(Konva.Image);
+    expect(border).toBeInstanceOf(Konva.Rect);
+    expect(border.cornerRadius()).toBe(16);
+  });
+
   it("renders lines as endpoint-editable curves without whole-object dragging", () => {
     const line = object({
       type: "line",
