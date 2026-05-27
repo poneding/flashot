@@ -195,13 +195,13 @@ pub async fn crop_and_copy(
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
     corner_radius: u32,
-    _adjustments: Option<ImageAdjustments>,
+    adjustments: Option<ImageAdjustments>,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
     let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
-    let cropped = crop_rgba(
+    let mut cropped = crop_rgba(
         &frame.rgba,
         frame.width,
         frame.height,
@@ -209,6 +209,12 @@ pub async fn crop_and_copy(
         frame.scale_factor,
     )
     .ok_or("crop failed")?;
+    crate::image_adjust::apply_image_adjustments(
+        &mut cropped.rgba,
+        cropped.width,
+        cropped.height,
+        adjustments.unwrap_or_default(),
+    );
     let mut final_image = match annotation_png {
         Some(png_data) if !png_data.is_empty() => composite_annotation(&cropped, &png_data)?,
         _ => cropped,
@@ -232,13 +238,13 @@ pub async fn crop_and_save(
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
     corner_radius: u32,
-    _adjustments: Option<ImageAdjustments>,
+    adjustments: Option<ImageAdjustments>,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
     let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
-    let cropped = crop_rgba(
+    let mut cropped = crop_rgba(
         &frame.rgba,
         frame.width,
         frame.height,
@@ -246,6 +252,12 @@ pub async fn crop_and_save(
         frame.scale_factor,
     )
     .ok_or("crop failed")?;
+    crate::image_adjust::apply_image_adjustments(
+        &mut cropped.rgba,
+        cropped.width,
+        cropped.height,
+        adjustments.unwrap_or_default(),
+    );
     let mut final_image = match annotation_png {
         Some(png_data) if !png_data.is_empty() => composite_annotation(&cropped, &png_data)?,
         _ => cropped,
@@ -424,7 +436,7 @@ pub async fn pin_image(
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
     corner_radius: u32,
-    _adjustments: Option<ImageAdjustments>,
+    adjustments: Option<ImageAdjustments>,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
     pin_mgr: State<'_, Arc<PinManager>>,
@@ -439,6 +451,12 @@ pub async fn pin_image(
         frame.scale_factor,
     )
     .ok_or("crop failed")?;
+    crate::image_adjust::apply_image_adjustments(
+        &mut cropped.rgba,
+        cropped.width,
+        cropped.height,
+        adjustments.unwrap_or_default(),
+    );
     crate::mask::apply_rounded_corners(
         &mut cropped.rgba,
         cropped.width,
@@ -1076,6 +1094,38 @@ mod tests {
         assert!(
             pin_body.contains("apply_rounded_corners"),
             "pin_image must call mask::apply_rounded_corners",
+        );
+        assert!(
+            !pin_body.contains("composite_annotation"),
+            "pin_image should keep annotation PNGs as a separate layer",
+        );
+    }
+
+    #[test]
+    fn output_commands_apply_image_adjustments_to_base_before_overlays() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        for name in ["crop_and_copy", "crop_and_save"] {
+            let body = function_body(&source, name);
+            let adjust_idx = body
+                .find("image_adjust::apply_image_adjustments")
+                .unwrap_or_else(|| panic!("{name} must apply image adjustments"));
+            let composite_idx = body.find("composite_annotation").unwrap();
+            assert!(
+                adjust_idx < composite_idx,
+                "{name}: image adjustments must affect only the cropped base before annotation compositing",
+            );
+        }
+
+        let pin_body = function_body(&source, "pin_image");
+        let adjust_idx = pin_body
+            .find("image_adjust::apply_image_adjustments")
+            .expect("pin_image must apply image adjustments");
+        let mask_idx = pin_body
+            .find("apply_rounded_corners")
+            .expect("pin_image must still apply rounded corners");
+        assert!(
+            adjust_idx < mask_idx,
+            "pin_image: image adjustments must be applied before the pin base image is masked",
         );
         assert!(
             !pin_body.contains("composite_annotation"),

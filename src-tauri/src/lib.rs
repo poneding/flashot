@@ -2,6 +2,7 @@ pub mod capture;
 pub mod clipboard;
 pub mod commands;
 pub mod hotkey;
+pub mod image_adjust;
 pub mod mask;
 pub mod overlay_window;
 pub mod permission;
