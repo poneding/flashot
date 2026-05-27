@@ -130,6 +130,29 @@ describe("Annotation property panel", () => {
     expect(useAnnotation.getState().activeStyle.markerBubbleFill).toBe("#000000");
   });
 
+  it("shows magnifier shape, zoom, border, color, and radius controls", () => {
+    render(<PropertyPanel tool="magnifier" />);
+
+    expect(screen.getByRole("button", { name: "Magnifier shape: Circle" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Magnifier zoom: 150%" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Magnifier border width: 2px" })).not.toBeNull();
+    expect(screen.getByLabelText("Magnifier border color")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Magnifier corner radius: 12px" })).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Magnifier shape: Circle" }));
+    fireEvent.click(screen.getByLabelText("Rounded rectangle lens"));
+    expect(useAnnotation.getState().activeStyle.magnifierShape).toBe("rounded-rect");
+
+    fireEvent.click(screen.getByRole("button", { name: "Magnifier zoom: 150%" }));
+    const zoomList = screen.getByTestId("annotation-number-list-magnifier-zoom");
+    expect(within(zoomList).getByRole("button", { name: "Magnifier zoom: 110%" })).not.toBeNull();
+    expect(within(zoomList).getByRole("button", { name: "Magnifier zoom: 200%" })).not.toBeNull();
+    expect(within(zoomList).queryByRole("button", { name: "Magnifier zoom: 100%" })).toBeNull();
+    fireEvent.click(within(zoomList).getByRole("button", { name: "Magnifier zoom: 175%" }));
+
+    expect(useAnnotation.getState().activeStyle.magnifierZoom).toBe(1.75);
+  });
+
   it("shows focus controls for rectangle and ellipse panels only", () => {
     const { rerender } = render(<PropertyPanel tool="rect" />);
 

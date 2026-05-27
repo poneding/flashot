@@ -121,6 +121,7 @@ describe("Annotation toolbar", () => {
       "Blur",
       "Highlight",
       "Marker",
+      "Magnifier",
       "Eraser",
       "Undo (Cmd+Z)",
       "Redo (Cmd+Shift+Z)",
@@ -156,6 +157,14 @@ describe("Annotation toolbar", () => {
     fireEvent.click(screen.getByTitle("Marker"));
 
     expect(useAnnotation.getState().activeTool).toBe("marker");
+  });
+
+  it("selects the magnifier tool from the toolbar", () => {
+    renderToolbar();
+
+    fireEvent.click(screen.getByTitle("Magnifier"));
+
+    expect(useAnnotation.getState().activeTool).toBe("magnifier");
   });
 
   it("closes the color picker when another annotation tool is selected", () => {

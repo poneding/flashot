@@ -19,6 +19,7 @@ import {
   Square,
   Type,
   Undo2,
+  ZoomIn,
 } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 
@@ -59,6 +60,7 @@ const TOOLS: ToolDef[] = [
   { id: "blur", icon: <Droplets size={18} />, label: "Blur" },
   { id: "highlight", icon: <Highlighter size={18} />, label: "Highlight" },
   { id: "marker", icon: <MarkerIcon />, label: "Marker" },
+  { id: "magnifier", icon: <ZoomIn size={18} />, label: "Magnifier" },
   { id: "eraser", icon: <Eraser size={18} />, label: "Eraser" },
   { id: "measure", icon: <Ruler size={18} />, label: "Measure" },
 ];

@@ -13,6 +13,7 @@ import {
   STROKE_WIDTHS,
   type AnnotationObject,
   type AnnotationStyle,
+  type MagnifierShape,
   type ToolType,
 } from "@/annotation/types";
 import { useDismissOnOutsideMouseDown } from "@/lib/useDismissOnOutsideMouseDown";
@@ -35,6 +36,7 @@ const PROPERTY_CONTROL_HEIGHT = 22;
 const OVERLAY_SURFACE_BACKGROUND = "rgba(30, 30, 30, 0.95)";
 const CORNER_RADIUS_OPTIONS = range(0, 60);
 const FOCUS_OPACITY_OPTIONS = range(0, 20).map((value) => value * 5);
+const MAGNIFIER_ZOOM_OPTIONS = Array.from({ length: 19 }, (_, index) => 110 + index * 5);
 
 const panelStyle: CSSProperties = {
   display: "flex",
@@ -679,6 +681,60 @@ function FocusOpacityDropdown({
   );
 }
 
+function MagnifierZoomDropdown({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  const percent = Math.round(value * 100);
+
+  return (
+    <NumberDropdown
+      title="Magnifier zoom"
+      value={percent}
+      options={MAGNIFIER_ZOOM_OPTIONS}
+      suffix="%"
+      onChange={(nextPercent) => onChange(nextPercent / 100)}
+    />
+  );
+}
+
+function MagnifierBorderWidthDropdown({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <NumberDropdown
+      title="Magnifier border width"
+      value={value}
+      options={STROKE_WIDTHS}
+      onChange={onChange}
+    />
+  );
+}
+
+function MagnifierCornerRadiusDropdown({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <NumberDropdown
+      title="Magnifier corner radius"
+      value={value}
+      options={CORNER_RADIUS_OPTIONS}
+      onChange={onChange}
+    />
+  );
+}
+
 function FontSizeDropdown({
   value,
   onChange,
@@ -822,6 +878,24 @@ function FilledCircleIcon() {
       aria-hidden="true"
     >
       <circle cx="12" cy="12" r="10" fill="currentColor" />
+    </svg>
+  );
+}
+
+function RoundedRectLensIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="5" width="18" height="14" rx="5" />
     </svg>
   );
 }
@@ -1473,6 +1547,49 @@ function MarkerSection({
   );
 }
 
+function MagnifierSection({
+  style,
+  set,
+}: {
+  style: AnnotationStyle;
+  set: (p: Partial<AnnotationStyle>) => void;
+}) {
+  return (
+    <>
+      <DropdownSelect<MagnifierShape>
+        title="Magnifier shape"
+        options={[
+          { value: "circle", label: "Circle", icon: PanelIcon(Circle) },
+          { value: "rounded-rect", label: "Rounded rectangle lens", icon: <RoundedRectLensIcon /> },
+        ]}
+        value={style.magnifierShape ?? "circle"}
+        onChange={(magnifierShape) => set({ magnifierShape })}
+      />
+      <Separator />
+      <MagnifierZoomDropdown
+        value={style.magnifierZoom ?? 1.5}
+        onChange={(magnifierZoom) => set({ magnifierZoom })}
+      />
+      <Separator />
+      <ColorPicker
+        label="Magnifier border color"
+        value={style.magnifierBorderColor ?? "#ffffff"}
+        onChange={(magnifierBorderColor) => set({ magnifierBorderColor })}
+      />
+      <Separator />
+      <MagnifierBorderWidthDropdown
+        value={style.magnifierBorderWidth ?? 2}
+        onChange={(magnifierBorderWidth) => set({ magnifierBorderWidth })}
+      />
+      <Separator />
+      <MagnifierCornerRadiusDropdown
+        value={style.magnifierCornerRadius ?? 12}
+        onChange={(magnifierCornerRadius) => set({ magnifierCornerRadius })}
+      />
+    </>
+  );
+}
+
 function BlurSection({
   style,
   set,
@@ -1580,6 +1697,7 @@ export function PropertyPanel({ tool, style: containerStyle, object, panelRef }:
       {tool === "ellipse" && <EllipseSection style={style} set={set} />}
       {tool === "text" && <TextSection style={style} set={set} />}
       {tool === "marker" && <MarkerSection style={style} set={set} />}
+      {tool === "magnifier" && <MagnifierSection style={style} set={set} />}
       {tool === "blur" && <BlurSection style={style} set={set} />}
       {tool === "highlight" && <HighlightSection style={style} set={set} />}
     </div>
