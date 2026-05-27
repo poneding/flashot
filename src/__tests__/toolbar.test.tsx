@@ -80,6 +80,10 @@ describe("Toolbar", () => {
     expect(save.textContent).toBe("");
     expect(pin.textContent).toBe("");
     expect(close.textContent).toBe("");
+    expect(copy.getAttribute("title")).toBeNull();
+    expect(save.getAttribute("title")).toBeNull();
+    expect(pin.getAttribute("title")).toBeNull();
+    expect(close.getAttribute("title")).toBeNull();
     expect(screen.queryByText("Copy")).toBeNull();
 
     fireEvent.mouseEnter(copy);

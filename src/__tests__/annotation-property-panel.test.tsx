@@ -73,12 +73,12 @@ describe("Annotation property panel", () => {
   it("uses a dropdown corner radius control for rectangles", () => {
     render(<PropertyPanel tool="rect" />);
 
-    expect(screen.queryByTitle("Sharp corners")).toBeNull();
-    expect(screen.queryByTitle("Rounded corners")).toBeNull();
-    expect(screen.getByTitle("Corner radius")).not.toBeNull();
+    expect(screen.queryByLabelText("Sharp corners")).toBeNull();
+    expect(screen.queryByLabelText("Rounded corners")).toBeNull();
+    expect(screen.getByRole("button", { name: "Corner radius: 0px" })).not.toBeNull();
     expect(screen.getByText("0px")).not.toBeNull();
-    expect(screen.queryByTitle("Decrease Corner radius")).toBeNull();
-    expect(screen.queryByTitle("Increase Corner radius")).toBeNull();
+    expect(screen.queryByLabelText("Decrease Corner radius")).toBeNull();
+    expect(screen.queryByLabelText("Increase Corner radius")).toBeNull();
   });
 
   it("keeps numeric control names in tooltips instead of visible labels", () => {
@@ -88,17 +88,17 @@ describe("Annotation property panel", () => {
     expect(screen.queryByText("圆角")).toBeNull();
     expect(screen.queryByText("Stroke")).toBeNull();
     expect(screen.queryByText("Radius")).toBeNull();
-    expect(screen.getByTitle("Stroke width")).not.toBeNull();
-    expect(screen.getByTitle("Corner radius")).not.toBeNull();
+    expect(screen.getByRole("button", { name: /^Stroke width:/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Corner radius: 0px" })).not.toBeNull();
   });
 
   it("renders measurement controls without decorative line style choices", () => {
     render(<PropertyPanel tool="measure" />);
 
-    expect(screen.getByTitle("Stroke width")).not.toBeNull();
-    expect(screen.getByTitle("#ff0000")).not.toBeNull();
-    expect(screen.queryByTitle("Decrease Stroke width")).toBeNull();
-    expect(screen.queryByTitle("Increase Stroke width")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Stroke width:/ })).not.toBeNull();
+    expect(screen.getByLabelText("#ff0000")).not.toBeNull();
+    expect(screen.queryByLabelText("Decrease Stroke width")).toBeNull();
+    expect(screen.queryByLabelText("Increase Stroke width")).toBeNull();
     expect(screen.queryByLabelText("Line style: Solid")).toBeNull();
     expect(screen.queryByLabelText("Arrowhead: Open")).toBeNull();
   });
@@ -106,18 +106,18 @@ describe("Annotation property panel", () => {
   it("renders highlight stroke and corner radius as dropdown controls", () => {
     render(<PropertyPanel tool="highlight" />);
 
-    expect(screen.getByTitle("Stroke width")).not.toBeNull();
-    expect(screen.getByTitle("Corner radius")).not.toBeNull();
-    expect(screen.queryByTitle("Decrease Stroke width")).toBeNull();
-    expect(screen.queryByTitle("Increase Stroke width")).toBeNull();
-    expect(screen.queryByTitle("Decrease Corner radius")).toBeNull();
-    expect(screen.queryByTitle("Increase Corner radius")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Stroke width:/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Corner radius: 0px" })).not.toBeNull();
+    expect(screen.queryByLabelText("Decrease Stroke width")).toBeNull();
+    expect(screen.queryByLabelText("Increase Stroke width")).toBeNull();
+    expect(screen.queryByLabelText("Decrease Corner radius")).toBeNull();
+    expect(screen.queryByLabelText("Increase Corner radius")).toBeNull();
   });
 
   it("shows immediate custom tooltips for numeric controls on hover", () => {
     render(<PropertyPanel tool="rect" />);
 
-    fireEvent.mouseEnter(screen.getByTitle("Stroke width"));
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /^Stroke width:/ }));
 
     const tooltip = screen.getByRole("tooltip");
     expect(tooltip.textContent).toBe("Stroke width");
@@ -164,7 +164,7 @@ describe("Annotation property panel", () => {
       if (el.hasAttribute("data-annotation-property-panel")) {
         return rect({ top: 100, left: 20, width: 360, height: 34 });
       }
-      if (el.getAttribute("title") === "Stroke width") {
+      if (el.getAttribute("aria-label")?.startsWith("Stroke width:")) {
         return rect({ top: 107, left: 120, width: 74, height: 20 });
       }
       return rect();
@@ -172,7 +172,7 @@ describe("Annotation property panel", () => {
 
     render(<PropertyPanel tool="rect" />);
 
-    fireEvent.mouseEnter(screen.getByTitle("Stroke width"));
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /^Stroke width:/ }));
 
     const tooltip = screen.getByRole("tooltip");
     expect(tooltip.style.top).toBe("96px");
@@ -182,9 +182,9 @@ describe("Annotation property panel", () => {
   it("adds hover tooltips to property panel operations", () => {
     render(<PropertyPanel tool="line" />);
 
-    expect(screen.getByTitle("Stroke width")).not.toBeNull();
-    expect(screen.queryByTitle("Decrease Stroke width")).toBeNull();
-    expect(screen.queryByTitle("Increase Stroke width")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Stroke width:/ })).not.toBeNull();
+    expect(screen.queryByLabelText("Decrease Stroke width")).toBeNull();
+    expect(screen.queryByLabelText("Increase Stroke width")).toBeNull();
     const lineStyleButton = screen.getByLabelText("Line style: Solid");
     expect(lineStyleButton.getAttribute("title")).toBeNull();
     fireEvent.mouseEnter(lineStyleButton);
@@ -293,7 +293,7 @@ describe("Annotation property panel", () => {
     } as DOMRect);
 
     render(<PropertyPanel tool="rect" />);
-    const customColorButton = screen.getByTitle("Custom color");
+    const customColorButton = screen.getByLabelText("Custom color");
 
     fireEvent.click(customColorButton);
 
@@ -309,7 +309,7 @@ describe("Annotation property panel", () => {
     fireEvent.click(screen.getByLabelText(/^Font:/));
     expect(screen.getByPlaceholderText("Search fonts...")).not.toBeNull();
 
-    const customColorButton = screen.getByTitle("Custom color");
+    const customColorButton = screen.getByLabelText("Custom color");
     fireEvent.mouseDown(customColorButton);
     fireEvent.click(customColorButton);
 
@@ -346,9 +346,9 @@ describe("Annotation property panel", () => {
   it("keeps the hue slider thumb inside the hue track at the red edge", () => {
     render(<PropertyPanel tool="rect" />);
 
-    fireEvent.click(screen.getByTitle("Custom color"));
+    fireEvent.click(screen.getByLabelText("Custom color"));
 
-    const picker = screen.getByTitle("Custom color").nextElementSibling as HTMLElement | null;
+    const picker = screen.getByLabelText("Custom color").nextElementSibling as HTMLElement | null;
     const hueTrack = picker?.children[1] as HTMLElement | undefined;
     const hueThumb = hueTrack?.firstElementChild as HTMLElement | undefined;
     expect(hueThumb).toBeTruthy();

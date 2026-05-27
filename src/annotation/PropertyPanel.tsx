@@ -392,7 +392,7 @@ function ColorPicker({
       {PRESET_COLORS.map((c) => (
         <button
           key={c}
-          title={c}
+          aria-label={c}
           onClick={() => onChange(c)}
           style={{
             width: 18,
@@ -412,7 +412,7 @@ function ColorPicker({
       ))}
       <div ref={customColorRef} style={{ position: "relative" }}>
         <button
-          title="Custom color"
+          aria-label="Custom color"
           onClick={toggleGradient}
           style={{
             width: 18,
@@ -479,14 +479,14 @@ function NumberStepper({
   return (
     <div
       ref={stepperRef}
-      title={tooltip}
+      aria-label={tooltip}
       onMouseEnter={() => setTooltipVisible(true)}
       onMouseLeave={() => setTooltipVisible(false)}
       style={{ position: "relative", display: "flex", alignItems: "center", gap: 2 }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
         <button
-          title={tooltip ? `Decrease ${tooltip}` : "Decrease"}
+          aria-label={tooltip ? `Decrease ${tooltip}` : "Decrease"}
           style={stepperBtn}
           onClick={() => onChange(Math.max(min, value - step))}
           disabled={value <= min}
@@ -497,7 +497,7 @@ function NumberStepper({
           {value}{suffix}
         </span>
         <button
-          title={tooltip ? `Increase ${tooltip}` : "Increase"}
+          aria-label={tooltip ? `Increase ${tooltip}` : "Increase"}
           style={stepperBtn}
           onClick={() => onChange(Math.min(max, value + step))}
           disabled={value >= max}
@@ -551,7 +551,6 @@ function NumberDropdown({
       <button
         ref={triggerRef}
         type="button"
-        title={title}
         aria-label={`${title}: ${formattedValue}`}
         onMouseEnter={() => setTooltipVisible(true)}
         onMouseLeave={() => setTooltipVisible(false)}

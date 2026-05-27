@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::time::Duration;
 use tauri::{
     menu::{IconMenuItem, Menu, PredefinedMenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
@@ -7,6 +8,7 @@ use tauri::{
 
 const TRAY_ID: &str = "main";
 const MENU_ICON_IMAGE_SIZE: u32 = 36;
+const WAYLAND_MENU_DISMISSAL_CAPTURE_DELAY: Duration = Duration::from_millis(220);
 
 pub fn install(
     app: &AppHandle,
@@ -24,13 +26,13 @@ pub fn install(
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "capture" => {
-                let _ = app.emit("capture:trigger", ());
+                emit_screenshot_action_after_menu_dismissal(app, "capture:trigger");
             }
             "quick-active-screen" => {
-                let _ = app.emit("quick-shot:active-display", ());
+                emit_screenshot_action_after_menu_dismissal(app, "quick-shot:active-display");
             }
             "quick-active-window" => {
-                let _ = app.emit("quick-shot:active-window", ());
+                emit_screenshot_action_after_menu_dismissal(app, "quick-shot:active-window");
             }
             "settings" => {
                 let _ = crate::commands::open_settings_window(app.clone());
@@ -52,6 +54,69 @@ pub fn install(
         .build(app)?;
 
     Ok(())
+}
+
+fn emit_screenshot_action_after_menu_dismissal(app: &AppHandle, event: &'static str) {
+    let app = app.clone();
+    let delay = screenshot_menu_dismissal_delay();
+
+    tauri::async_runtime::spawn(async move {
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+
+        if let Err(e) = app.emit(event, ()) {
+            tracing::warn!("failed to emit tray screenshot action {event}: {e}");
+        }
+    });
+}
+
+fn screenshot_menu_dismissal_delay() -> Duration {
+    screenshot_menu_dismissal_delay_for_env(
+        current_session_type().as_deref(),
+        wayland_display_present(),
+    )
+}
+
+fn screenshot_menu_dismissal_delay_for_env(
+    session_type: Option<&str>,
+    wayland_display_present: bool,
+) -> Duration {
+    if is_linux_wayland_env(session_type, wayland_display_present) {
+        WAYLAND_MENU_DISMISSAL_CAPTURE_DELAY
+    } else {
+        Duration::ZERO
+    }
+}
+
+fn active_window_capture_menu_visible() -> bool {
+    active_window_capture_menu_visible_for_env(
+        current_session_type().as_deref(),
+        wayland_display_present(),
+    )
+}
+
+fn active_window_capture_menu_visible_for_env(
+    session_type: Option<&str>,
+    wayland_display_present: bool,
+) -> bool {
+    !is_linux_wayland_env(session_type, wayland_display_present)
+}
+
+fn is_linux_wayland_env(session_type: Option<&str>, wayland_display_present: bool) -> bool {
+    cfg!(target_os = "linux")
+        && (session_type
+            .map(|session| session.eq_ignore_ascii_case("wayland"))
+            .unwrap_or(false)
+            || wayland_display_present)
+}
+
+fn current_session_type() -> Option<String> {
+    std::env::var("XDG_SESSION_TYPE").ok()
+}
+
+fn wayland_display_present() -> bool {
+    std::env::var_os("WAYLAND_DISPLAY").is_some()
 }
 
 #[cfg(target_os = "macos")]
@@ -256,12 +321,28 @@ fn build_menu(
         quit_menu_accelerator(),
     )?;
 
+    if active_window_capture_menu_visible() {
+        return Ok(Menu::with_items(
+            app,
+            &[
+                &capture,
+                &active_screen,
+                &active_window,
+                &sep,
+                &settings,
+                &updates,
+                &about,
+                &sep,
+                &quit,
+            ],
+        )?);
+    }
+
     let menu = Menu::with_items(
         app,
         &[
             &capture,
             &active_screen,
-            &active_window,
             &sep,
             &settings,
             &updates,
@@ -307,6 +388,80 @@ fn quit_menu_accelerator() -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    #[test]
+    fn screenshot_menu_actions_wait_for_menu_dismissal() {
+        let source = include_str!("tray.rs").replace("\r\n", "\n");
+
+        assert!(
+            source.contains(
+                r#"emit_screenshot_action_after_menu_dismissal(app, "capture:trigger")"#
+            ) && source.contains(
+                r#"emit_screenshot_action_after_menu_dismissal(app, "quick-shot:active-display")"#
+            ) && source.contains(
+                r#"emit_screenshot_action_after_menu_dismissal(app, "quick-shot:active-window")"#
+            ),
+            "tray screenshot actions should wait for the menu surface to close before capture"
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn linux_wayland_menu_dismissal_delay_is_short_but_visible() {
+        assert_eq!(
+            super::screenshot_menu_dismissal_delay_for_env(Some("wayland"), false),
+            super::WAYLAND_MENU_DISMISSAL_CAPTURE_DELAY
+        );
+        assert_eq!(
+            super::screenshot_menu_dismissal_delay_for_env(Some("x11"), true),
+            super::WAYLAND_MENU_DISMISSAL_CAPTURE_DELAY
+        );
+        assert_eq!(
+            super::screenshot_menu_dismissal_delay_for_env(Some("x11"), false),
+            Duration::ZERO
+        );
+        assert!(
+            super::WAYLAND_MENU_DISMISSAL_CAPTURE_DELAY >= Duration::from_millis(150)
+                && super::WAYLAND_MENU_DISMISSAL_CAPTURE_DELAY <= Duration::from_millis(350)
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn linux_wayland_hides_active_window_capture_menu_item() {
+        assert!(!super::active_window_capture_menu_visible_for_env(
+            Some("wayland"),
+            false
+        ));
+        assert!(!super::active_window_capture_menu_visible_for_env(
+            Some("x11"),
+            true
+        ));
+        assert!(super::active_window_capture_menu_visible_for_env(
+            Some("x11"),
+            false
+        ));
+    }
+
+    #[test]
+    #[cfg(not(target_os = "linux"))]
+    fn non_linux_keeps_active_window_capture_menu_item_visible() {
+        assert!(super::active_window_capture_menu_visible_for_env(
+            Some("wayland"),
+            true
+        ));
+    }
+
+    #[test]
+    #[cfg(not(target_os = "linux"))]
+    fn non_linux_menu_dismissal_delay_is_zero() {
+        assert_eq!(
+            super::screenshot_menu_dismissal_delay_for_env(Some("wayland"), true),
+            Duration::ZERO
+        );
+    }
+
     #[test]
     fn capture_menu_uses_configured_hotkey_as_accelerator() {
         assert_eq!(super::capture_menu_accelerator("F1"), Some("F1"));

@@ -239,7 +239,7 @@ function ToolButton({ icon, label, active, onClick }: ToolButtonProps) {
     <button
       ref={buttonRef}
       type="button"
-      title={label}
+      aria-label={label}
       onClick={onClick}
       onMouseEnter={() => setTooltipVisible(true)}
       onMouseLeave={() => setTooltipVisible(false)}
@@ -303,7 +303,7 @@ function ActionButton({ icon, label, tone = "default", disabled, onClick }: Acti
     <button
       ref={buttonRef}
       type="button"
-      title={label}
+      aria-label={label}
       aria-disabled={disabled ? "true" : undefined}
       onClick={(e) => {
         if (disabled) {

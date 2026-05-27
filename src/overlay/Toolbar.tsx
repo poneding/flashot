@@ -154,7 +154,6 @@ export function Toolbar({
       >
         <div
           data-screenshot-toolbar-drag-handle
-          title="Move toolbar"
           onMouseDown={startToolbarDrag}
           style={{
             position: "relative",
@@ -330,7 +329,6 @@ function ToolbarButton({
       ref={buttonRef}
       type="button"
       aria-label={label}
-      title={label}
       aria-disabled={disabled ? "true" : undefined}
       onClick={(e) => {
         if (disabled) {

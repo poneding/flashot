@@ -175,6 +175,19 @@ describe("OverlayRoute", () => {
     expect(fullScreenMask).toBeDefined();
   });
 
+  it("keeps pointer-event cursor state when a polled cursor reports the origin", async () => {
+    vi.mocked(currentCursorPointInWindow).mockResolvedValue({ x: 0, y: 0 });
+    const { container } = render(<OverlayRoute />);
+    const captureSurface = container.firstElementChild as HTMLElement;
+
+    fireEvent.mouseMove(captureSurface, { clientX: 180, clientY: 180 });
+
+    await waitFor(() => {
+      expect(currentCursorPointInWindow).toHaveBeenCalled();
+    });
+    expect(useOverlay.getState().cursor).toEqual({ x: 180, y: 180 });
+  });
+
   it("passes exported annotations when pinning the selected screenshot", async () => {
     const annotationPng = new Uint8Array([137, 80, 78, 71]).buffer;
     const selection = { x: 100, y: 120, width: 240, height: 160 };
@@ -190,7 +203,7 @@ describe("OverlayRoute", () => {
     useOverlay.getState().commit(selection);
 
     render(<OverlayRoute />);
-    fireEvent.click(screen.getByTitle("Pin"));
+    fireEvent.click(screen.getByRole("button", { name: "Pin" }));
 
     await waitFor(() => {
       expect(exportAnnotationLayer).toHaveBeenCalledWith(2);
@@ -210,7 +223,7 @@ describe("OverlayRoute", () => {
     useOverlay.setState({ cornerRadius: 18 });
 
     render(<OverlayRoute />);
-    fireEvent.click(screen.getByTitle(buttonTitle));
+    fireEvent.click(screen.getByRole("button", { name: buttonTitle }));
 
     await waitFor(() => {
       expect(action).toHaveBeenCalledWith(1, selection, annotationPng, 18);

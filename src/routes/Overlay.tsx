@@ -35,6 +35,8 @@ import type { CursorIcon } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useEffect, useRef, useState } from "react";
 
+const ORIGIN_CURSOR_EPSILON = 1;
+
 function focusCurrentOverlay() {
   getCurrentWebviewWindow()
     .setFocus()
@@ -51,6 +53,20 @@ function ensureCurrentOverlayFocus() {
 function colorPickerShortcutsActive() {
   const { mode, colorPickerVisible } = useOverlay.getState();
   return mode === "hover" || (mode === "committed" && colorPickerVisible);
+}
+
+function isOriginCursorPoint(p: { x: number; y: number } | null): boolean {
+  return !!p && Math.abs(p.x) <= ORIGIN_CURSOR_EPSILON && Math.abs(p.y) <= ORIGIN_CURSOR_EPSILON;
+}
+
+function shouldUsePolledCursorPoint(
+  polled: { x: number; y: number },
+  lastPointer: { x: number; y: number } | null,
+): boolean {
+  // Some Wayland compositors report a transient global cursor origin for
+  // focused transparent webview windows. Mouse events are already local and
+  // reliable, so do not let that synthetic origin move the picker panel.
+  return !isOriginCursorPoint(polled) || isOriginCursorPoint(lastPointer);
 }
 
 function nativeCursorIcon(cursor: string): CursorIcon {
@@ -105,6 +121,7 @@ export function OverlayRoute() {
   const monitorRect = useOverlay((s) => s.monitorRect);
   const [flashRect, setFlashRect] = useState<Rect | null>(null);
   const flashTimerRef = useRef<number | null>(null);
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     document.body.classList.add("overlay");
@@ -169,7 +186,12 @@ export function OverlayRoute() {
       currentCursorPointInWindow()
         .then((p) => {
           if (cancelled || !p || !colorPickerShortcutsActive()) return;
-          useOverlay.getState().updateHoverAt(p);
+          const state = useOverlay.getState();
+          if (shouldUsePolledCursorPoint(p, lastPointerRef.current)) {
+            state.updateHoverAt(p);
+          } else if (!document.hasFocus() || !state.cursor) {
+            return;
+          }
           ensureCurrentOverlayFocus();
           action();
         })
@@ -289,6 +311,7 @@ export function OverlayRoute() {
           const state = useOverlay.getState();
           if (state.mode !== "hover") return;
           if (p) {
+            if (!shouldUsePolledCursorPoint(p, lastPointerRef.current)) return;
             ensureCurrentOverlayFocus();
             state.updateHoverAt(p);
           } else {
@@ -371,6 +394,7 @@ export function OverlayRoute() {
   const onMouseMove = (e: React.MouseEvent) => {
     ensureOverlayFocus();
     const p = { x: e.clientX, y: e.clientY };
+    lastPointerRef.current = p;
     updateHoverAt(p);
     const state = useOverlay.getState();
     if (state.selectionInteraction) {
@@ -378,6 +402,10 @@ export function OverlayRoute() {
       return;
     }
     if (state.mode === "dragging") { updateDrag(p); return; }
+  };
+  const onMouseLeave = () => {
+    lastPointerRef.current = null;
+    useOverlay.getState().clearHover();
   };
   const onMouseDown = (e: React.MouseEvent) => {
     if (e.button === 2) { cancelCapture(); return; }
@@ -448,6 +476,7 @@ export function OverlayRoute() {
       className={overlayCursor === "crosshair" ? "overlay-crosshair" : undefined}
       onMouseMove={onMouseMove}
       onMouseEnter={onMouseMove}
+      onMouseLeave={onMouseLeave}
       onMouseDown={onMouseDown}
       onMouseUp={onMouseUp}
       onContextMenu={onContextMenu}

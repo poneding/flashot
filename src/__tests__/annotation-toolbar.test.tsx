@@ -72,7 +72,7 @@ describe("Annotation toolbar", () => {
 
     renderToolbar();
 
-    fireEvent.click(screen.getByTitle("#33cc33"));
+    fireEvent.click(screen.getByLabelText("#33cc33"));
 
     const object = useAnnotation.getState().objects.find((o) => o.id === selectedRect.id);
     expect(object?.style.color).toBe("#33cc33");
@@ -124,7 +124,9 @@ describe("Annotation toolbar", () => {
       "Undo (Cmd+Z)",
       "Redo (Cmd+Shift+Z)",
     ].forEach((title) => {
-      expect(screen.getByTitle(title)).not.toBeNull();
+      const button = screen.getByRole("button", { name: title });
+      expect(button).not.toBeNull();
+      expect(button.getAttribute("title")).toBeNull();
     });
   });
 
@@ -132,7 +134,7 @@ describe("Annotation toolbar", () => {
     const { container } = renderToolbar();
     const toolbar = container.querySelector("[data-annotation-toolbar]") as HTMLElement;
     const labels = Array.from(toolbar.querySelectorAll("button")).map((button) =>
-      button.getAttribute("title"),
+      button.getAttribute("aria-label"),
     );
 
     expect(labels.indexOf("Measure")).toBe(labels.indexOf("Eraser") + 1);
@@ -142,7 +144,7 @@ describe("Annotation toolbar", () => {
   it("selects the measure tool from the toolbar", () => {
     renderToolbar();
 
-    fireEvent.click(screen.getByTitle("Measure"));
+    fireEvent.click(screen.getByRole("button", { name: "Measure" }));
 
     expect(useAnnotation.getState().activeTool).toBe("measure");
   });
@@ -152,14 +154,14 @@ describe("Annotation toolbar", () => {
 
     useOverlay.setState({ colorPickerVisible: true });
 
-    fireEvent.click(screen.getByTitle("Rectangle"));
+    fireEvent.click(screen.getByRole("button", { name: "Rectangle" }));
 
     expect(useOverlay.getState().colorPickerVisible).toBe(false);
   });
 
   it("toggles an active annotation tool back to move mode on the second click", () => {
     renderToolbar();
-    const rectangle = screen.getByTitle("Rectangle");
+    const rectangle = screen.getByRole("button", { name: "Rectangle" });
 
     fireEvent.click(rectangle);
 
@@ -175,15 +177,15 @@ describe("Annotation toolbar", () => {
   it("does not render screenshot output actions", () => {
     renderToolbar();
 
-    expect(screen.queryByTitle("Pin")).toBeNull();
-    expect(screen.queryByTitle("Copy (Cmd+C)")).toBeNull();
-    expect(screen.queryByTitle("Save (Cmd+S)")).toBeNull();
-    expect(screen.queryByTitle("Cancel (ESC)")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy (Cmd+C)" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save (Cmd+S)" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel (ESC)" })).toBeNull();
   });
 
   it("shows an immediate custom tooltip for undo", () => {
     renderToolbar();
-    const undo = screen.getByTitle("Undo (Cmd+Z)");
+    const undo = screen.getByRole("button", { name: "Undo (Cmd+Z)" });
 
     fireEvent.mouseEnter(undo);
 
@@ -199,13 +201,13 @@ describe("Annotation toolbar", () => {
       if (el.hasAttribute("data-annotation-toolbar")) {
         return domRect({ top: 120, left: 80, width: 420, height: 40 });
       }
-      if (el.getAttribute("title") === "Redo (Cmd+Shift+Z)") {
+      if (el.getAttribute("aria-label") === "Redo (Cmd+Shift+Z)") {
         return domRect({ top: 124, left: 390, width: 32, height: 32 });
       }
       return domRect();
     });
     renderToolbar();
-    const redo = screen.getByTitle("Redo (Cmd+Shift+Z)");
+    const redo = screen.getByRole("button", { name: "Redo (Cmd+Shift+Z)" });
 
     fireEvent.mouseEnter(redo);
 
@@ -216,7 +218,7 @@ describe("Annotation toolbar", () => {
 
   it("renders toolbar tooltips outside the filtered toolbar surface", () => {
     renderToolbar();
-    const undo = screen.getByTitle("Undo (Cmd+Z)");
+    const undo = screen.getByRole("button", { name: "Undo (Cmd+Z)" });
 
     fireEvent.mouseEnter(undo);
 
@@ -228,13 +230,13 @@ describe("Annotation toolbar", () => {
 
     renderToolbar();
 
-    expect(screen.getByTitle("Undo (Ctrl+Z)")).not.toBeNull();
-    expect(screen.getByTitle("Redo (Ctrl+Shift+Z)")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Undo (Ctrl+Z)" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Redo (Ctrl+Shift+Z)" })).not.toBeNull();
   });
 
   it("shows undo and redo tooltips even when unavailable", () => {
     renderToolbar();
-    const undo = screen.getByTitle("Undo (Cmd+Z)");
+    const undo = screen.getByRole("button", { name: "Undo (Cmd+Z)" });
 
     fireEvent.mouseEnter(undo);
 

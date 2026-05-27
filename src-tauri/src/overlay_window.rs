@@ -1,10 +1,15 @@
+use crate::types::Rect;
 use anyhow::{anyhow, Result};
 use std::sync::mpsc;
 use tauri::WebviewWindow;
 
-pub fn configure_capture_overlay(window: &WebviewWindow, monitor_id: u32) -> Result<()> {
+pub fn configure_capture_overlay(
+    window: &WebviewWindow,
+    monitor_id: u32,
+    monitor_rect: Rect,
+) -> Result<()> {
     run_on_window_main_thread(window, "configure capture overlay", move |window| {
-        configure_platform_overlay(window, monitor_id)
+        configure_platform_overlay(window, monitor_id, monitor_rect)
     })
 }
 
@@ -87,7 +92,11 @@ where
 }
 
 #[cfg(target_os = "macos")]
-fn configure_platform_overlay(window: &WebviewWindow, monitor_id: u32) -> Result<()> {
+fn configure_platform_overlay(
+    window: &WebviewWindow,
+    monitor_id: u32,
+    _monitor_rect: Rect,
+) -> Result<()> {
     use objc::{
         runtime::{Object, Sel, NO, YES},
         Message,
@@ -325,15 +334,287 @@ fn screen_frame_for_monitor(monitor_id: u32) -> Result<Option<NSRect>> {
 }
 
 #[cfg(target_os = "linux")]
-fn configure_platform_overlay(_window: &WebviewWindow, _monitor_id: u32) -> Result<()> {
+fn configure_platform_overlay(
+    window: &WebviewWindow,
+    monitor_id: u32,
+    monitor_rect: Rect,
+) -> Result<()> {
+    if !is_linux_wayland_session() {
+        return Ok(());
+    }
+
+    if let Some(layer_shell) = linux_layer_shell() {
+        configure_linux_layer_shell(window, monitor_id, monitor_rect, layer_shell)
+    } else {
+        configure_linux_fullscreen_fallback(window, monitor_rect)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn configure_linux_layer_shell(
+    window: &WebviewWindow,
+    monitor_id: u32,
+    monitor_rect: Rect,
+    layer_shell: &GtkLayerShell,
+) -> Result<()> {
+    use gtk::glib::object::ObjectType;
+    use std::ffi::CString;
+
+    let gtk_window = window
+        .gtk_window()
+        .map_err(|e| anyhow!("failed to access GTK overlay window: {e}"))?;
+    let gtk_ptr = gtk_window.as_ptr() as *mut gtk::ffi::GtkWindow;
+
+    if !layer_shell.is_layer_window(gtk_ptr) {
+        layer_shell.init_for_window(gtk_ptr);
+    }
+
+    let namespace = CString::new(format!("flashot-overlay-{monitor_id}"))?;
+    layer_shell.set_namespace(gtk_ptr, namespace.as_ptr());
+    layer_shell.set_layer(gtk_ptr, GTK_LAYER_SHELL_LAYER_OVERLAY);
+    layer_shell.set_exclusive_zone(gtk_ptr, 0);
+    layer_shell.set_keyboard_mode(gtk_ptr, GTK_LAYER_SHELL_KEYBOARD_MODE_EXCLUSIVE);
+
+    for edge in [
+        GTK_LAYER_SHELL_EDGE_LEFT,
+        GTK_LAYER_SHELL_EDGE_RIGHT,
+        GTK_LAYER_SHELL_EDGE_TOP,
+        GTK_LAYER_SHELL_EDGE_BOTTOM,
+    ] {
+        layer_shell.set_anchor(gtk_ptr, edge, true);
+        layer_shell.set_margin(gtk_ptr, edge, 0);
+    }
+
+    if let Some((monitor, _index)) = gdk_monitor_for_capture_rect(&gtk_window, monitor_rect) {
+        layer_shell.set_monitor(gtk_ptr, monitor.as_ptr());
+    } else {
+        tracing::warn!(
+            "failed to map capture monitor {monitor_id} to a GDK monitor for layer-shell"
+        );
+    }
+
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn bring_platform_overlay_to_front(window: &WebviewWindow) -> Result<()> {
-    window
-        .set_fullscreen(true)
-        .map_err(|e| anyhow!("failed to set fullscreen: {e}"))
+fn bring_platform_overlay_to_front(_window: &WebviewWindow) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn configure_linux_fullscreen_fallback(window: &WebviewWindow, monitor_rect: Rect) -> Result<()> {
+    use gtk::prelude::*;
+
+    tracing::warn!(
+        "Wayland compositor does not support layer-shell; using monitor fullscreen fallback"
+    );
+
+    let gtk_window = window
+        .gtk_window()
+        .map_err(|e| anyhow!("failed to access GTK overlay window: {e}"))?;
+
+    if let (Some(screen), Some((_monitor, index))) = (
+        gtk::prelude::GtkWindowExt::screen(&gtk_window),
+        gdk_monitor_for_capture_rect(&gtk_window, monitor_rect),
+    ) {
+        gtk_window.fullscreen_on_monitor(&screen, index);
+    } else {
+        gtk_window.fullscreen();
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn gdk_monitor_for_capture_rect(
+    gtk_window: &gtk::ApplicationWindow,
+    rect: Rect,
+) -> Option<(gdk::Monitor, i32)> {
+    use gdk::prelude::*;
+    use gtk::prelude::*;
+
+    let display = gtk_window.display();
+    let mut best: Option<(gdk::Monitor, i32, i64)> = None;
+
+    for index in 0..display.n_monitors() {
+        let Some(monitor) = display.monitor(index) else {
+            continue;
+        };
+        let geometry = monitor.geometry();
+        let area = overlap_area(
+            rect,
+            Rect {
+                x: geometry.x(),
+                y: geometry.y(),
+                width: geometry.width().max(0) as u32,
+                height: geometry.height().max(0) as u32,
+            },
+        );
+
+        if area > best.as_ref().map(|(_, _, area)| *area).unwrap_or(0) {
+            best = Some((monitor, index, area));
+        }
+    }
+
+    best.and_then(|(monitor, index, area)| (area > 0).then_some((monitor, index)))
+}
+
+#[cfg(target_os = "linux")]
+fn overlap_area(a: Rect, b: Rect) -> i64 {
+    let left = a.x.max(b.x) as i64;
+    let top = a.y.max(b.y) as i64;
+    let right = (a.x as i64 + a.width as i64).min(b.x as i64 + b.width as i64);
+    let bottom = (a.y as i64 + a.height as i64).min(b.y as i64 + b.height as i64);
+
+    let width = (right - left).max(0);
+    let height = (bottom - top).max(0);
+    width * height
+}
+
+#[cfg(target_os = "linux")]
+type GtkLayerShellEdge = std::os::raw::c_int;
+#[cfg(target_os = "linux")]
+type GtkLayerShellLayer = std::os::raw::c_int;
+#[cfg(target_os = "linux")]
+type GtkLayerShellKeyboardMode = std::os::raw::c_int;
+#[cfg(target_os = "linux")]
+type GtkLayerShellBool = std::os::raw::c_int;
+
+#[cfg(target_os = "linux")]
+const GTK_LAYER_SHELL_EDGE_LEFT: GtkLayerShellEdge = 0;
+#[cfg(target_os = "linux")]
+const GTK_LAYER_SHELL_EDGE_RIGHT: GtkLayerShellEdge = 1;
+#[cfg(target_os = "linux")]
+const GTK_LAYER_SHELL_EDGE_TOP: GtkLayerShellEdge = 2;
+#[cfg(target_os = "linux")]
+const GTK_LAYER_SHELL_EDGE_BOTTOM: GtkLayerShellEdge = 3;
+#[cfg(target_os = "linux")]
+const GTK_LAYER_SHELL_KEYBOARD_MODE_EXCLUSIVE: GtkLayerShellKeyboardMode = 1;
+#[cfg(target_os = "linux")]
+const GTK_LAYER_SHELL_LAYER_OVERLAY: GtkLayerShellLayer = 3;
+
+#[cfg(target_os = "linux")]
+struct GtkLayerShell {
+    _lib: libloading::Library,
+    init_for_window: unsafe extern "C" fn(*mut gtk::ffi::GtkWindow),
+    is_layer_window: unsafe extern "C" fn(*mut gtk::ffi::GtkWindow) -> GtkLayerShellBool,
+    is_supported: unsafe extern "C" fn() -> GtkLayerShellBool,
+    set_anchor:
+        unsafe extern "C" fn(*mut gtk::ffi::GtkWindow, GtkLayerShellEdge, GtkLayerShellBool),
+    set_exclusive_zone: unsafe extern "C" fn(*mut gtk::ffi::GtkWindow, std::os::raw::c_int),
+    set_keyboard_mode: unsafe extern "C" fn(*mut gtk::ffi::GtkWindow, GtkLayerShellKeyboardMode),
+    set_layer: unsafe extern "C" fn(*mut gtk::ffi::GtkWindow, GtkLayerShellLayer),
+    set_margin:
+        unsafe extern "C" fn(*mut gtk::ffi::GtkWindow, GtkLayerShellEdge, std::os::raw::c_int),
+    set_monitor: unsafe extern "C" fn(*mut gtk::ffi::GtkWindow, *mut gdk::ffi::GdkMonitor),
+    set_namespace: unsafe extern "C" fn(*mut gtk::ffi::GtkWindow, *const std::os::raw::c_char),
+}
+
+#[cfg(target_os = "linux")]
+impl GtkLayerShell {
+    fn load() -> Result<Self> {
+        let lib = unsafe {
+            libloading::Library::new("libgtk-layer-shell.so.0")
+                .or_else(|_| libloading::Library::new("libgtk-layer-shell.so"))
+        }
+        .map_err(|e| anyhow!("gtk-layer-shell library is not installed: {e}"))?;
+
+        unsafe {
+            Ok(Self {
+                init_for_window: *lib.get(b"gtk_layer_init_for_window")?,
+                is_layer_window: *lib.get(b"gtk_layer_is_layer_window")?,
+                is_supported: *lib.get(b"gtk_layer_is_supported")?,
+                set_anchor: *lib.get(b"gtk_layer_set_anchor")?,
+                set_exclusive_zone: *lib.get(b"gtk_layer_set_exclusive_zone")?,
+                set_keyboard_mode: *lib.get(b"gtk_layer_set_keyboard_mode")?,
+                set_layer: *lib.get(b"gtk_layer_set_layer")?,
+                set_margin: *lib.get(b"gtk_layer_set_margin")?,
+                set_monitor: *lib.get(b"gtk_layer_set_monitor")?,
+                set_namespace: *lib.get(b"gtk_layer_set_namespace")?,
+                _lib: lib,
+            })
+        }
+    }
+
+    fn is_supported(&self) -> bool {
+        unsafe { (self.is_supported)() != 0 }
+    }
+
+    fn is_layer_window(&self, window: *mut gtk::ffi::GtkWindow) -> bool {
+        unsafe { (self.is_layer_window)(window) != 0 }
+    }
+
+    fn init_for_window(&self, window: *mut gtk::ffi::GtkWindow) {
+        unsafe { (self.init_for_window)(window) };
+    }
+
+    fn set_anchor(
+        &self,
+        window: *mut gtk::ffi::GtkWindow,
+        edge: GtkLayerShellEdge,
+        anchor_to_edge: bool,
+    ) {
+        unsafe { (self.set_anchor)(window, edge, anchor_to_edge as GtkLayerShellBool) };
+    }
+
+    fn set_exclusive_zone(&self, window: *mut gtk::ffi::GtkWindow, exclusive_zone: i32) {
+        unsafe { (self.set_exclusive_zone)(window, exclusive_zone) };
+    }
+
+    fn set_keyboard_mode(&self, window: *mut gtk::ffi::GtkWindow, mode: GtkLayerShellKeyboardMode) {
+        unsafe { (self.set_keyboard_mode)(window, mode) };
+    }
+
+    fn set_layer(&self, window: *mut gtk::ffi::GtkWindow, layer: GtkLayerShellLayer) {
+        unsafe { (self.set_layer)(window, layer) };
+    }
+
+    fn set_margin(&self, window: *mut gtk::ffi::GtkWindow, edge: GtkLayerShellEdge, margin: i32) {
+        unsafe { (self.set_margin)(window, edge, margin) };
+    }
+
+    fn set_monitor(&self, window: *mut gtk::ffi::GtkWindow, monitor: *mut gdk::ffi::GdkMonitor) {
+        unsafe { (self.set_monitor)(window, monitor) };
+    }
+
+    fn set_namespace(
+        &self,
+        window: *mut gtk::ffi::GtkWindow,
+        namespace: *const std::os::raw::c_char,
+    ) {
+        unsafe { (self.set_namespace)(window, namespace) };
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_layer_shell() -> Option<&'static GtkLayerShell> {
+    static LAYER_SHELL: once_cell::sync::OnceCell<Option<GtkLayerShell>> =
+        once_cell::sync::OnceCell::new();
+
+    let layer_shell = LAYER_SHELL.get_or_init(|| match GtkLayerShell::load() {
+        Ok(layer_shell) => {
+            if layer_shell.is_supported() {
+                Some(layer_shell)
+            } else {
+                tracing::warn!("Wayland compositor does not support gtk-layer-shell");
+                None
+            }
+        }
+        Err(e) => {
+            tracing::warn!("{e:#}");
+            None
+        }
+    });
+
+    layer_shell.as_ref()
+}
+
+#[cfg(target_os = "linux")]
+fn is_linux_wayland_session() -> bool {
+    std::env::var("XDG_SESSION_TYPE")
+        .map(|session| session.eq_ignore_ascii_case("wayland"))
+        .unwrap_or(false)
+        || std::env::var_os("WAYLAND_DISPLAY").is_some()
 }
 
 #[cfg(target_os = "linux")]
@@ -349,7 +630,11 @@ fn restore_platform_after_text_input(_window: &WebviewWindow) -> Result<()> {
 }
 
 #[cfg(target_os = "windows")]
-fn configure_platform_overlay(_window: &WebviewWindow, _monitor_id: u32) -> Result<()> {
+fn configure_platform_overlay(
+    _window: &WebviewWindow,
+    _monitor_id: u32,
+    _monitor_rect: Rect,
+) -> Result<()> {
     Ok(())
 }
 
@@ -395,6 +680,50 @@ mod tests {
     #[test]
     fn non_macos_capture_overlay_can_take_focus() {
         assert!(super::capture_overlay_should_take_focus());
+    }
+
+    #[test]
+    fn linux_overlay_prefers_wayland_layer_shell() {
+        let source = include_str!("overlay_window.rs").replace("\r\n", "\n");
+        let start = source
+            .find("#[cfg(target_os = \"linux\")]\nfn configure_platform_overlay")
+            .unwrap();
+        let end = source[start..]
+            .find("#[cfg(target_os = \"linux\")]\nfn bring_platform_overlay_to_front")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        assert!(
+            body.contains("linux_layer_shell()")
+                && body.contains("configure_linux_layer_shell")
+                && body.contains("GTK_LAYER_SHELL_LAYER_OVERLAY")
+                && body.contains("set_anchor(gtk_ptr, edge, true)"),
+            "Wayland overlays should use layer-shell before falling back to native fullscreen"
+        );
+    }
+
+    #[test]
+    fn linux_layer_shell_is_loaded_dynamically() {
+        let source = include_str!("overlay_window.rs").replace("\r\n", "\n");
+        let impl_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("implementation source should be present");
+        let cargo_toml = include_str!("../Cargo.toml");
+        let tauri_config = include_str!("../tauri.conf.json");
+
+        assert!(
+            impl_source.contains("libloading::Library::new(\"libgtk-layer-shell.so.0\")"),
+            "gtk-layer-shell must stay an optional runtime enhancement"
+        );
+        assert!(
+            !impl_source.contains("use gtk_layer_shell")
+                && !impl_source.contains("gtk_layer_shell::")
+                && !cargo_toml.contains("gtk-layer-shell =")
+                && !tauri_config.contains("libgtk-layer-shell0"),
+            "deb installs should not require libgtk-layer-shell0"
+        );
     }
 
     #[cfg(target_os = "macos")]

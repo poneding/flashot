@@ -63,6 +63,9 @@ urlencoding = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = "0.8"
+gdk = { version = "0.18", features = ["v3_24"] }
+gtk = { version = "0.18", features = ["v3_24"] }
+libloading = "0.8"
 libwayshot-xcap = "0.3"
 xcb = "1.5"
 zbus = "5"

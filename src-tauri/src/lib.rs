@@ -301,7 +301,7 @@ fn ensure_overlays_for_monitors(app: &AppHandle, monitors: &[types::MonitorInfo]
                     mon.rect.height as f64,
                 )))
                 .context("Failed to update overlay size")?;
-            overlay_window::configure_capture_overlay(&window, mon.id)
+            overlay_window::configure_capture_overlay(&window, mon.id, mon.rect)
                 .context("Failed to configure overlay window")?;
             continue;
         }
@@ -326,7 +326,7 @@ fn ensure_overlays_for_monitors(app: &AppHandle, monitors: &[types::MonitorInfo]
         window
             .set_ignore_cursor_events(true)
             .context("Failed to initialize overlay cursor passthrough")?;
-        overlay_window::configure_capture_overlay(&window, mon.id)
+        overlay_window::configure_capture_overlay(&window, mon.id, mon.rect)
             .context("Failed to configure overlay window")?;
     }
 
@@ -365,78 +365,6 @@ fn set_capture_cancel_hotkey(app: &AppHandle, enabled: bool) {
     }) {
         tracing::warn!("capture cancel hotkey dispatch failed: {e}");
     }
-}
-
-#[cfg(target_os = "linux")]
-struct CaptureFocusGuard {
-    window: tauri::WebviewWindow,
-}
-
-#[cfg(target_os = "linux")]
-impl Drop for CaptureFocusGuard {
-    fn drop(&mut self) {
-        if let Err(e) = self.window.hide() {
-            tracing::warn!("failed to hide capture focus window: {e}");
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn prepare_capture_focus_window(app: &AppHandle) -> Option<CaptureFocusGuard> {
-    if !is_linux_wayland_session() {
-        return None;
-    }
-
-    match ensure_capture_focus_window(app) {
-        Ok(window) => Some(CaptureFocusGuard { window }),
-        Err(e) => {
-            tracing::warn!("failed to prepare capture focus window: {e:#}");
-            None
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn ensure_capture_focus_window(app: &AppHandle) -> Result<tauri::WebviewWindow> {
-    const LABEL: &str = "capture-focus";
-
-    let window = if let Some(window) = app.get_webview_window(LABEL) {
-        window
-    } else {
-        let url = tauri::WebviewUrl::App("index.html#/capture-focus".into());
-        tauri::WebviewWindowBuilder::new(app, LABEL, url)
-            .title("Flashot")
-            .position(0.0, 0.0)
-            .inner_size(1.0, 1.0)
-            .decorations(false)
-            .resizable(false)
-            .skip_taskbar(true)
-            .always_on_top(true)
-            .visible_on_all_workspaces(true)
-            .shadow(false)
-            .transparent(true)
-            .visible(false)
-            .build()
-            .context("Failed to create capture focus window")?
-    };
-
-    window
-        .show()
-        .context("Failed to show capture focus window")?;
-    window
-        .set_focus()
-        .context("Failed to focus capture focus window")?;
-
-    tracing::info!("capture focus window prepared for Wayland permission request");
-    Ok(window)
-}
-
-#[cfg(target_os = "linux")]
-fn is_linux_wayland_session() -> bool {
-    std::env::var("XDG_SESSION_TYPE")
-        .map(|session| session.eq_ignore_ascii_case("wayland"))
-        .unwrap_or(false)
-        || std::env::var_os("WAYLAND_DISPLAY").is_some()
 }
 
 #[cfg(test)]
@@ -548,13 +476,6 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     let current_monitors =
         capture::enumerate_monitors().context("Failed to enumerate monitors before capture")?;
     ensure_overlays_for_monitors(&app, &current_monitors)?;
-
-    #[cfg(target_os = "linux")]
-    let _capture_focus_guard = prepare_capture_focus_window(&app);
-    #[cfg(target_os = "linux")]
-    if _capture_focus_guard.is_some() {
-        tokio::time::sleep(Duration::from_millis(150)).await;
-    }
 
     // Capture all monitors and enumerate windows in parallel
     tracing::info!("run_capture: spawning capture and window enumeration tasks");
@@ -1478,6 +1399,22 @@ mod tests {
         assert_eq!(
             capture_start_target("overlay-42"),
             tauri::EventTarget::webview_window("overlay-42")
+        );
+    }
+
+    #[test]
+    fn capture_start_does_not_show_temporary_focus_window() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let start = source.find("async fn run_capture").unwrap();
+        let end = source[start..]
+            .find("#[derive(Clone, Copy)]")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        assert!(
+            !body.contains("prepare_capture_focus_window") && !body.contains("capture-focus"),
+            "capture setup must not map a temporary Wayland focus window before the overlay"
         );
     }
 
