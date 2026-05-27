@@ -13,20 +13,27 @@ type ThemeOption = {
   title: string;
 };
 
-const THEME_OPTIONS: ThemeOption[] = [
-  { value: "system", title: "System" },
-  { value: "light", title: "Light" },
-  { value: "dark", title: "Dark" },
-];
+const DEFAULT_THEME_LABELS: Record<ThemeValue, string> = {
+  system: "System",
+  light: "Light",
+  dark: "Dark",
+};
 
 export function ThemeSelect({
   value,
   onChange,
+  labels = DEFAULT_THEME_LABELS,
 }: {
   value: ThemeValue;
   onChange: (v: ThemeValue) => void;
+  labels?: Record<ThemeValue, string>;
 }) {
-  const selected = THEME_OPTIONS.find((option) => option.value === value) ?? THEME_OPTIONS[0];
+  const options: ThemeOption[] = [
+    { value: "system", title: labels.system },
+    { value: "light", title: labels.light },
+    { value: "dark", title: labels.dark },
+  ];
+  const selected = options.find((option) => option.value === value) ?? options[0];
 
   return (
     <Combobox<ThemeOption>
@@ -39,12 +46,12 @@ export function ThemeSelect({
       isItemEqualToValue={(option, current) => option.value === current.value}
     >
       <ComboboxTrigger className="w-40">
-        <ComboboxValue placeholder="System">
-          {(option: ThemeOption | null) => option?.title ?? "System"}
+        <ComboboxValue placeholder={labels.system}>
+          {(option: ThemeOption | null) => option?.title ?? labels.system}
         </ComboboxValue>
       </ComboboxTrigger>
       <ComboboxContent>
-        {THEME_OPTIONS.map((option) => (
+        {options.map((option) => (
           <ComboboxItem key={option.value} value={option}>
             {option.title}
           </ComboboxItem>

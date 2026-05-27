@@ -7,8 +7,8 @@ describe("i18n", () => {
     expect(createTranslator("zh-CN")("settings.shortcuts.title")).toBe("快捷键");
   });
 
-  it("falls back to English and then the key for missing translations", () => {
-    expect(createTranslator("zh-CN")("settings.theme.system")).toBe("System");
+  it("translates Chinese theme labels and falls back to the key for missing translations", () => {
+    expect(createTranslator("zh-CN")("settings.theme.system")).toBe("跟随系统");
     expect(createTranslator("zh-CN")("settings.missing.key")).toBe("settings.missing.key");
   });
 

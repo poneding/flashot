@@ -105,13 +105,27 @@ describe("SettingsRoute", () => {
     expect(screen.getByRole("heading", { name: "General" })).toBeTruthy();
   });
 
+  it("renders settings labels in Simplified Chinese when selected", async () => {
+    vi.mocked(getSettings).mockResolvedValue({ ...settings, language: "zh-CN" });
+
+    render(<SettingsRoute />);
+
+    expect(await screen.findByRole("heading", { name: "快捷键" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "截图" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "外观" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "通用" })).toBeTruthy();
+    expect(screen.getByText("截图区域")).toBeTruthy();
+    expect(screen.getByLabelText("语言")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "保存" })).toBeTruthy();
+  });
+
   it("saves accent color and language selections", async () => {
     render(<SettingsRoute />);
 
     await screen.findByRole("heading", { name: "Appearance" });
     fireEvent.click(screen.getByRole("button", { name: "Accent color: Rose" }));
     fireEvent.change(screen.getByLabelText("Language"), { target: { value: "zh-CN" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => {
       expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({

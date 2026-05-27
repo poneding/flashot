@@ -11,9 +11,13 @@ export function formatHotkeyForPlatform(value: string, platform = window.navigat
 export function HotkeyRecorder({
   value,
   onChange,
+  changeLabel = "Change",
+  recordingLabel = "Press keys...",
 }: {
   value: string;
   onChange: (s: string) => void;
+  changeLabel?: string;
+  recordingLabel?: string;
 }) {
   const [recording, setRecording] = useState(false);
 
@@ -40,7 +44,7 @@ export function HotkeyRecorder({
     <div className="flex items-center gap-3">
       <code className="rounded bg-muted px-2 py-1 text-sm">{formatHotkeyForPlatform(value)}</code>
       <Button onClick={startRecord} disabled={recording} variant="outline" size="sm">
-        {recording ? "Press keys…" : "Change"}
+        {recording ? recordingLabel : changeLabel}
       </Button>
     </div>
   );
