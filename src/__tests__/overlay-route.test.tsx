@@ -12,6 +12,7 @@ import {
   startScrollSession,
 } from "@/lib/ipc";
 import type { CaptureStartPayload } from "@/lib/types";
+import { DEFAULT_IMAGE_ADJUSTMENTS } from "@/overlay/imageAdjustments";
 import { useOverlay } from "@/overlay/state";
 import { OverlayRoute } from "@/routes/Overlay";
 import { clearMocks, mockConvertFileSrc } from "@tauri-apps/api/mocks";
@@ -210,7 +211,7 @@ describe("OverlayRoute", () => {
 
     await waitFor(() => {
       expect(exportAnnotationLayer).toHaveBeenCalledWith(2);
-      expect(pinImage).toHaveBeenCalledWith(1, selection, annotationPng, 0);
+      expect(pinImage).toHaveBeenCalledWith(1, selection, annotationPng, 0, DEFAULT_IMAGE_ADJUSTMENTS);
     });
   });
 
@@ -218,18 +219,20 @@ describe("OverlayRoute", () => {
     ["Copy", cropAndCopy],
     ["Save As", cropAndSave],
     ["Pin", pinImage],
-  ])("passes the live corner radius when using %s", async (buttonTitle, action) => {
+  ])("passes the live corner radius and image adjustments when using %s", async (buttonTitle, action) => {
     const annotationPng = new Uint8Array([137, 80, 78, 71]).buffer;
     const selection = { x: 100, y: 120, width: 240, height: 160 };
+    const adjustments = { ...DEFAULT_IMAGE_ADJUSTMENTS, grayscale: true, brightness: 25 };
     vi.mocked(exportAnnotationLayer).mockResolvedValue(annotationPng);
     useOverlay.getState().commit(selection);
     useOverlay.setState({ cornerRadius: 18 });
+    useOverlay.getState().setImageAdjustments(adjustments);
 
     render(<OverlayRoute />);
     fireEvent.click(screen.getByRole("button", { name: buttonTitle }));
 
     await waitFor(() => {
-      expect(action).toHaveBeenCalledWith(1, selection, annotationPng, 18);
+      expect(action).toHaveBeenCalledWith(1, selection, annotationPng, 18, adjustments);
     });
   });
 
