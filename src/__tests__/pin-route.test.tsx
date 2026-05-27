@@ -1,7 +1,8 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PinRoute } from "@/routes/Pin";
+import { closePin, setPinScale } from "@/lib/ipc";
 
 const webviewWindowMock = vi.hoisted(() => ({
   show: vi.fn().mockResolvedValue(undefined),
@@ -123,6 +124,77 @@ describe("PinRoute", () => {
 
     await waitFor(() => {
       expect(stack.getAttribute("style")).toContain("opacity: 1");
+    });
+  });
+
+
+  it("shows hover pin controls with fine-grained scale options", async () => {
+    window.location.hash = "#/pin/test-id";
+
+    render(<PinRoute />);
+
+    const root = await screen.findByTestId("pin-root");
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+
+    fireEvent.mouseEnter(root);
+
+    expect(screen.getByRole("button", { name: "Edit" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Scale: 100%" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Close" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Save" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Copy" })).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Scale: 100%" }));
+
+    const options = screen.getByTestId("pin-scale-options");
+    expect(within(options).getByRole("button", { name: "Scale: 50%" })).not.toBeNull();
+    expect(within(options).getByRole("button", { name: "Scale: 55%" })).not.toBeNull();
+    expect(within(options).getByRole("button", { name: "Scale: 300%" })).not.toBeNull();
+    expect(within(options).queryByRole("button", { name: "Scale: 305%" })).toBeNull();
+
+    fireEvent.click(within(options).getByRole("button", { name: "Scale: 155%" }));
+
+    await waitFor(() => {
+      expect(setPinScale).toHaveBeenCalledWith("test-id", 1.55);
+    });
+  });
+
+  it("closes the pin from the hover toolbar", async () => {
+    window.location.hash = "#/pin/test-id";
+
+    render(<PinRoute />);
+
+    fireEvent.mouseEnter(await screen.findByTestId("pin-root"));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    await waitFor(() => {
+      expect(closePin).toHaveBeenCalledWith("test-id");
+    });
+  });
+
+  it("maps normalized wheel notches to one 5 percent scale step", async () => {
+    window.location.hash = "#/pin/test-id";
+
+    render(<PinRoute />);
+
+    await screen.findByAltText("Pinned screenshot");
+
+    fireEvent.wheel(window, { deltaY: -20, deltaMode: 0 });
+    expect(setPinScale).not.toHaveBeenCalled();
+
+    fireEvent.wheel(window, { deltaY: -80, deltaMode: 0 });
+
+    await waitFor(() => {
+      expect(setPinScale).toHaveBeenCalledWith("test-id", 1.05);
+    });
+
+    vi.mocked(setPinScale).mockClear();
+
+    fireEvent.wheel(window, { deltaY: -1000, deltaMode: 0 });
+
+    await waitFor(() => {
+      expect(setPinScale).toHaveBeenCalledTimes(1);
+      expect(setPinScale).toHaveBeenCalledWith("test-id", 1.1);
     });
   });
 

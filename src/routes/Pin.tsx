@@ -3,12 +3,19 @@ import { ACCENT_RGB_CSS_VAR } from "@/lib/colors";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { appCacheDir } from "@tauri-apps/api/path";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { useEffect, useState, type CSSProperties } from "react";
+import { ChevronDown, CopyIcon, Pencil, SaveIcon, XIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 // Soft outer glow around the pinned image. The window itself reserves
 // PIN_SHADOW_PADDING px on each side (matched in commands.rs) so these
 // shadows have room to render without being clipped by the window edge.
 const PIN_SHADOW_PADDING = 24;
+const PIN_SCALE_MIN = 0.5;
+const PIN_SCALE_MAX = 3;
+const PIN_SCALE_STEP = 0.05;
+const PIN_WHEEL_NOTCH_DELTA = 100;
+const PIN_WHEEL_LINE_DELTA = 16;
+const PIN_WHEEL_PAGE_DELTA = 800;
 const PIN_GLOW = [
   // Tight rim - barely-there definition right at the image edge.
   `0 0 1px rgba(${ACCENT_RGB_CSS_VAR}, 0.6)`,
@@ -19,6 +26,31 @@ const PIN_GLOW = [
   // Outer feathered fall-off.
   `0 0 22px rgba(${ACCENT_RGB_CSS_VAR}, 0.2)`,
 ].join(", ");
+
+
+function clampScale(scale: number): number {
+  const clamped = Math.max(PIN_SCALE_MIN, Math.min(PIN_SCALE_MAX, scale));
+  return Math.round(clamped * 100) / 100;
+}
+
+function scalePercent(scale: number): number {
+  return Math.round(scale * 100);
+}
+
+function scaleLabel(scale: number): string {
+  return `${scalePercent(scale)}%`;
+}
+
+function buildScaleOptions(): number[] {
+  const count = Math.round((PIN_SCALE_MAX - PIN_SCALE_MIN) / PIN_SCALE_STEP) + 1;
+  return Array.from({ length: count }, (_, index) => clampScale(PIN_SCALE_MIN + index * PIN_SCALE_STEP));
+}
+
+function normalizedWheelDelta(event: WheelEvent): number {
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return event.deltaY * PIN_WHEEL_LINE_DELTA;
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) return event.deltaY * PIN_WHEEL_PAGE_DELTA;
+  return event.deltaY;
+}
 
 function parsePinRoute(): { id: string; hasAnnotation: boolean; radius: number } | null {
   const h = window.location.hash || "";
@@ -46,11 +78,20 @@ export function PinRoute() {
   const hasAnnotation = pinRoute?.hasAnnotation ?? false;
   const radius = pinRoute?.radius ?? 0;
   const [scale, setScale] = useState(1.0);
+  const scaleRef = useRef(scale);
+  const wheelRef = useRef({ remainder: 0, direction: 0 });
+  const [controlsVisible, setControlsVisible] = useState(false);
+  const [scaleMenuOpen, setScaleMenuOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [annotationUrl, setAnnotationUrl] = useState<string | null>(null);
   const [imageReady, setImageReady] = useState(false);
   const [annotationReady, setAnnotationReady] = useState(!hasAnnotation);
   const contentReady = imageReady && annotationReady;
+  const scaleOptions = useMemo(buildScaleOptions, []);
+
+  useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
 
   useEffect(() => {
     document.body.classList.add("pin");
@@ -84,50 +125,71 @@ export function PinRoute() {
     };
   }, [id, hasAnnotation]);
 
+  const updatePinScale = useCallback(async (nextScale: number) => {
+    if (!id) return;
+    const clamped = clampScale(nextScale);
+    if (clamped === scaleRef.current) return;
+    scaleRef.current = clamped;
+    setScale(clamped);
+    try {
+      await setPinScale(id, clamped);
+    } catch {
+      // ignore
+    }
+  }, [id]);
+
+  const closeCurrentPin = useCallback(async () => {
+    if (!id) return;
+    try {
+      await closePin(id);
+    } catch {
+      // ignore
+    }
+  }, [id]);
+
   useEffect(() => {
     if (!id) return;
 
-    const handleWheel = async (e: WheelEvent) => {
+    const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const delta = e.deltaY > 0 ? -0.1 : 0.1;
-      const newScale = Math.max(0.5, Math.min(3.0, scale + delta));
-      if (newScale === scale) return;
-      setScale(newScale);
-      try {
-        await setPinScale(id, newScale);
-      } catch {
-        // ignore
+      const delta = normalizedWheelDelta(e);
+      if (delta === 0) return;
+
+      const direction = delta > 0 ? -1 : 1;
+      const wheel = wheelRef.current;
+      if (wheel.direction !== direction) {
+        wheel.direction = direction;
+        wheel.remainder = 0;
       }
+
+      wheel.remainder += Math.abs(delta);
+      if (wheel.remainder < PIN_WHEEL_NOTCH_DELTA) return;
+      wheel.remainder = 0;
+
+      void updatePinScale(scaleRef.current + direction * PIN_SCALE_STEP);
     };
 
-    const handleDoubleClick = async () => {
-      try {
-        await closePin(id);
-      } catch {
-        // ignore
-      }
-    };
-
-    const handleKeyDown = async (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        try {
-          await closePin(id);
-        } catch {
-          // ignore
-        }
+        void closeCurrentPin();
       }
     };
 
     window.addEventListener("wheel", handleWheel, { passive: false });
-    window.addEventListener("dblclick", handleDoubleClick);
+    window.addEventListener("dblclick", closeCurrentPin);
     window.addEventListener("keydown", handleKeyDown);
 
     return () => {
       window.removeEventListener("wheel", handleWheel);
-      window.removeEventListener("dblclick", handleDoubleClick);
+      window.removeEventListener("dblclick", closeCurrentPin);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [id, scale]);
+  }, [id, closeCurrentPin, updatePinScale]);
+
+  const hideControls = () => {
+    setControlsVisible(false);
+    setScaleMenuOpen(false);
+  };
 
   const handleMouseDown = async () => {
     try {
@@ -138,12 +200,14 @@ export function PinRoute() {
   };
 
   const containerStyle: CSSProperties = {
+    position: "relative",
     width: "100%",
     height: "100%",
     cursor: "move",
     boxSizing: "border-box",
     padding: PIN_SHADOW_PADDING,
     background: "transparent",
+    outline: "none",
   };
 
   const imgStyle: CSSProperties = {
@@ -172,7 +236,31 @@ export function PinRoute() {
   if (!id || !imageUrl) return null;
 
   return (
-    <div style={containerStyle} onMouseDown={handleMouseDown}>
+    <div
+      data-testid="pin-root"
+      tabIndex={0}
+      style={containerStyle}
+      onMouseDown={handleMouseDown}
+      onMouseEnter={() => setControlsVisible(true)}
+      onMouseLeave={hideControls}
+      onFocusCapture={() => setControlsVisible(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) hideControls();
+      }}
+    >
+      {controlsVisible && (
+        <PinControls
+          scale={scale}
+          scaleOptions={scaleOptions}
+          scaleMenuOpen={scaleMenuOpen}
+          onToggleScaleMenu={() => setScaleMenuOpen((open) => !open)}
+          onScaleSelect={(nextScale) => {
+            setScaleMenuOpen(false);
+            void updatePinScale(nextScale);
+          }}
+          onClose={closeCurrentPin}
+        />
+      )}
       <div
         data-testid="pin-image-stack"
         style={{ ...imageStackStyle, opacity: contentReady ? 1 : 0 }}
@@ -204,4 +292,159 @@ const imageStackStyle: CSSProperties = {
   position: "relative",
   width: "100%",
   height: "100%",
+};
+
+
+type PinControlsProps = {
+  scale: number;
+  scaleOptions: number[];
+  scaleMenuOpen: boolean;
+  onToggleScaleMenu: () => void;
+  onScaleSelect: (scale: number) => void;
+  onClose: () => void;
+};
+
+function PinControls({
+  scale,
+  scaleOptions,
+  scaleMenuOpen,
+  onToggleScaleMenu,
+  onScaleSelect,
+  onClose,
+}: PinControlsProps) {
+  return (
+    <div
+      data-testid="pin-controls"
+      onMouseDown={(event) => event.stopPropagation()}
+      style={pinControlsStyle}
+    >
+      <PinControlButton label="Edit" icon={<Pencil size={18} aria-hidden="true" />} onClick={() => {}} />
+      <div style={{ position: "relative" }}>
+        <PinControlButton
+          label={`Scale: ${scaleLabel(scale)}`}
+          icon={<ChevronDown size={18} aria-hidden="true" />}
+          active={scaleMenuOpen}
+          onClick={onToggleScaleMenu}
+        />
+        {scaleMenuOpen && (
+          <div data-testid="pin-scale-options" style={pinScaleOptionsStyle}>
+            {scaleOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-label={`Scale: ${scaleLabel(option)}`}
+                onClick={() => onScaleSelect(option)}
+                style={{
+                  ...pinScaleOptionStyle,
+                  background: option === scale ? "rgba(255,255,255,0.16)" : "transparent",
+                }}
+              >
+                {scaleLabel(option)}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <PinControlButton label="Close" icon={<XIcon size={18} aria-hidden="true" />} tone="danger" onClick={onClose} />
+      <PinControlButton label="Save" icon={<SaveIcon size={18} aria-hidden="true" />} tone="primary" onClick={() => {}} />
+      <PinControlButton label="Copy" icon={<CopyIcon size={18} aria-hidden="true" />} tone="success" onClick={() => {}} />
+    </div>
+  );
+}
+
+function PinControlButton({
+  label,
+  icon,
+  onClick,
+  active,
+  tone = "default",
+}: {
+  label: string;
+  icon: ReactNode;
+  onClick: () => void;
+  active?: boolean;
+  tone?: "default" | "danger" | "primary" | "success";
+}) {
+  const color = {
+    default: "rgba(255,255,255,0.78)",
+    danger: "#f87171",
+    primary: "#60a5fa",
+    success: "#4ade80",
+  }[tone];
+
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      style={{
+        ...pinControlButtonStyle,
+        background: active ? "rgba(255,255,255,0.16)" : "transparent",
+        color,
+      }}
+    >
+      {icon}
+    </button>
+  );
+}
+
+const pinControlsStyle: CSSProperties = {
+  position: "absolute",
+  right: PIN_SHADOW_PADDING + 4,
+  top: PIN_SHADOW_PADDING + 4,
+  width: 40,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 2,
+  padding: "4px 0",
+  borderRadius: 10,
+  background: "rgba(30, 30, 30, 0.85)",
+  backdropFilter: "blur(12px)",
+  WebkitBackdropFilter: "blur(12px)",
+  boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+  border: "1px solid rgba(255,255,255,0.1)",
+  pointerEvents: "auto",
+  zIndex: 10,
+};
+
+const pinControlButtonStyle: CSSProperties = {
+  position: "relative",
+  width: 32,
+  height: 32,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 0,
+  borderRadius: 6,
+  border: "none",
+  cursor: "pointer",
+  flexShrink: 0,
+};
+
+const pinScaleOptionsStyle: CSSProperties = {
+  position: "absolute",
+  right: "calc(100% + 6px)",
+  top: 0,
+  width: 72,
+  maxHeight: 220,
+  overflowY: "auto",
+  overflowX: "hidden",
+  padding: 4,
+  borderRadius: 8,
+  background: "rgba(30, 30, 30, 0.95)",
+  border: "1px solid rgba(255,255,255,0.12)",
+  boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+};
+
+const pinScaleOptionStyle: CSSProperties = {
+  width: "100%",
+  height: 24,
+  border: "none",
+  borderRadius: 5,
+  color: "#fff",
+  cursor: "pointer",
+  fontSize: 11,
+  fontVariantNumeric: "tabular-nums",
 };
