@@ -5,6 +5,7 @@ import { Toolbar as AnnotationToolbar } from "@/annotation/Toolbar";
 import { ACCENT_RGB_CSS_VAR } from "@/lib/colors";
 import { closePin, copyPin, setPinScale, updatePinAnnotation } from "@/lib/ipc";
 import type { Rect } from "@/lib/types";
+import { useStoredAccentColor } from "@/settings/useStoredAccentColor";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { appCacheDir } from "@tauri-apps/api/path";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -106,6 +107,7 @@ function parsePinRoute(): { id: string; hasAnnotation: boolean; radius: number }
 }
 
 export function PinRoute() {
+  useStoredAccentColor();
   const [pinRoute] = useState(() => parsePinRoute());
   const id = pinRoute?.id ?? null;
   const hasAnnotation = pinRoute?.hasAnnotation ?? false;

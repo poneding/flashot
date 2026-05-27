@@ -1,6 +1,18 @@
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxItem,
+  ComboboxTrigger,
+  ComboboxValue,
+} from "@/components/ui/combobox";
 import type { Settings } from "@/lib/types";
 
 type Language = Settings["language"];
+
+type LanguageOption = {
+  value: Language;
+  title: string;
+};
 
 const DEFAULT_LANGUAGE_LABELS: Record<Language, string> = {
   system: "System",
@@ -19,25 +31,36 @@ export function LanguageSelect({
   ariaLabel?: string;
   labels?: Record<Language, string>;
 }) {
-  const options: Array<{ value: Language; label: string }> = [
-    { value: "system", label: labels.system },
-    { value: "en", label: labels.en },
-    { value: "zh-CN", label: labels["zh-CN"] },
+  const options: LanguageOption[] = [
+    { value: "system", title: labels.system },
+    { value: "en", title: labels.en },
+    { value: "zh-CN", title: labels["zh-CN"] },
   ];
 
+  const selected = options.find((option) => option.value === value) ?? options[0];
+
   return (
-    <select
-      id="settings-language"
-      aria-label={ariaLabel}
-      className="h-8 w-40 rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
-      value={value}
-      onChange={(event) => onChange(event.target.value as Language)}
+    <Combobox<LanguageOption>
+      value={selected}
+      onValueChange={(option) => {
+        if (option) onChange(option.value);
+      }}
+      itemToStringLabel={(option) => option.title}
+      itemToStringValue={(option) => option.value}
+      isItemEqualToValue={(option, current) => option.value === current.value}
     >
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
+      <ComboboxTrigger className="w-40" aria-label={ariaLabel}>
+        <ComboboxValue placeholder={labels.system}>
+          {(option: LanguageOption | null) => option?.title ?? labels.system}
+        </ComboboxValue>
+      </ComboboxTrigger>
+      <ComboboxContent>
+        {options.map((option) => (
+          <ComboboxItem key={option.value} value={option}>
+            {option.title}
+          </ComboboxItem>
+        ))}
+      </ComboboxContent>
+    </Combobox>
   );
 }

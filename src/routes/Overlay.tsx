@@ -9,10 +9,10 @@ import {
   claimSelection,
   cropAndCopy,
   cropAndSave,
-  onColorCopyRequested,
-  onColorFormatToggleRequested,
   onCaptureEnd,
   onCaptureStart,
+  onColorCopyRequested,
+  onColorFormatToggleRequested,
   onQuickShotFlash,
   onSelectionClaimed,
   onSelectionReleased,
@@ -28,8 +28,9 @@ import { DetectHighlight } from "@/overlay/DetectHighlight";
 import { DimMask } from "@/overlay/DimMask";
 import { FrozenLayer } from "@/overlay/FrozenLayer";
 import { SelectionBox } from "@/overlay/SelectionBox";
-import { Toolbar as ScreenshotToolbar } from "@/overlay/Toolbar";
 import { useOverlay } from "@/overlay/state";
+import { Toolbar as ScreenshotToolbar } from "@/overlay/Toolbar";
+import { useStoredAccentColor } from "@/settings/useStoredAccentColor";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { CursorIcon } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -97,6 +98,7 @@ function setNativeOverlayCursor(cursor: string) {
 }
 
 export function OverlayRoute() {
+  useStoredAccentColor();
   const start = useOverlay((s) => s.start);
   const end = useOverlay((s) => s.end);
   const startScroll = useOverlay((s) => s.startScroll);

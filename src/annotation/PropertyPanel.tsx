@@ -20,8 +20,8 @@ import { useDismissOnOutsideMouseDown } from "@/lib/useDismissOnOutsideMouseDown
 import {
   ChevronDown,
   Circle,
-  EyeOff,
-  Focus,
+  // EyeOff,
+  // Focus,
   Minus,
   PencilLine,
   Square,
@@ -35,7 +35,7 @@ const PROPERTY_PANEL_HEIGHT = 34;
 const PROPERTY_CONTROL_HEIGHT = 22;
 const OVERLAY_SURFACE_BACKGROUND = "rgba(30, 30, 30, 0.95)";
 const CORNER_RADIUS_OPTIONS = range(0, 60);
-const FOCUS_OPACITY_OPTIONS = range(0, 20).map((value) => value * 5);
+// const FOCUS_OPACITY_OPTIONS = range(0, 20).map((value) => value * 5);
 const MAGNIFIER_ZOOM_OPTIONS = Array.from({ length: 19 }, (_, index) => 110 + index * 5);
 
 const panelStyle: CSSProperties = {
@@ -661,25 +661,25 @@ function CornerRadiusDropdown({
   );
 }
 
-function FocusOpacityDropdown({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  const percent = Math.round(value * 100);
+// function FocusOpacityDropdown({
+//   value,
+//   onChange,
+// }: {
+//   value: number;
+//   onChange: (v: number) => void;
+// }) {
+//   const percent = Math.round(value * 100);
 
-  return (
-    <NumberDropdown
-      title="Focus opacity"
-      value={percent}
-      options={FOCUS_OPACITY_OPTIONS}
-      suffix="%"
-      onChange={(nextPercent) => onChange(nextPercent / 100)}
-    />
-  );
-}
+//   return (
+//     <NumberDropdown
+//       title="Focus opacity"
+//       value={percent}
+//       options={FOCUS_OPACITY_OPTIONS}
+//       suffix="%"
+//       onChange={(nextPercent) => onChange(nextPercent / 100)}
+//     />
+//   );
+// }
 
 function MagnifierZoomDropdown({
   value,
@@ -1148,32 +1148,32 @@ function ToggleGroup<T extends string>({
 
 // ─── Tool sections ────────────────────────────────────────────────────────────
 
-function FocusControls({
-  style,
-  set,
-}: {
-  style: AnnotationStyle;
-  set: (p: Partial<AnnotationStyle>) => void;
-}) {
-  return (
-    <>
-      <Separator />
-      <ToggleGroup
-        options={[
-          { value: "none", label: PanelIcon(EyeOff), title: "No focus" },
-          { value: "spotlight", label: PanelIcon(Focus), title: "Focus" },
-        ]}
-        value={style.focusMode ?? "none"}
-        onChange={(focusMode) => set({ focusMode })}
-      />
-      <Separator />
-      <FocusOpacityDropdown
-        value={style.focusOpacity ?? 0.45}
-        onChange={(focusOpacity) => set({ focusOpacity })}
-      />
-    </>
-  );
-}
+// function FocusControls({
+//   style,
+//   set,
+// }: {
+//   style: AnnotationStyle;
+//   set: (p: Partial<AnnotationStyle>) => void;
+// }) {
+//   return (
+//     <>
+//       <Separator />
+//       <ToggleGroup
+//         options={[
+//           { value: "none", label: PanelIcon(EyeOff), title: "No focus" },
+//           { value: "spotlight", label: PanelIcon(Focus), title: "Focus" },
+//         ]}
+//         value={style.focusMode ?? "none"}
+//         onChange={(focusMode) => set({ focusMode })}
+//       />
+//       <Separator />
+//       <FocusOpacityDropdown
+//         value={style.focusOpacity ?? 0.45}
+//         onChange={(focusOpacity) => set({ focusOpacity })}
+//       />
+//     </>
+//   );
+// }
 
 function PenSection({
   style,
@@ -1304,7 +1304,7 @@ function RectSection({
         value={style.cornerRadius ?? 0}
         onChange={(cornerRadius) => set({ cornerRadius })}
       />
-      <FocusControls style={style} set={set} />
+      {/* <FocusControls style={style} set={set} /> */}
     </>
   );
 }
@@ -1330,7 +1330,7 @@ function EllipseSection({
         value={style.fill ?? "hollow"}
         onChange={(fill) => set({ fill })}
       />
-      <FocusControls style={style} set={set} />
+      {/* <FocusControls style={style} set={set} /> */}
     </>
   );
 }

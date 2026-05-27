@@ -13,7 +13,7 @@ export function SettingsSection({
 }) {
   return (
     <section className={cn("space-y-3 rounded-lg border border-border/70 p-4", className)}>
-      <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+      {/* <h2 className="text-sm font-semibold text-foreground">{title}</h2> */}
       {children && <div className="space-y-3">{children}</div>}
     </section>
   );

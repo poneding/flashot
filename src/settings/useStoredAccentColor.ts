@@ -1,20 +1,28 @@
 import { useEffect } from "react";
 
 import { applyAccentColor } from "@/lib/colors";
-import { getSettings } from "@/lib/ipc";
+import { getSettings, onSettingsChanged } from "@/lib/ipc";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 
 export function useStoredAccentColor() {
   useEffect(() => {
     let cancelled = false;
+    let unlisten: UnlistenFn | undefined;
 
-    getSettings()
-      .then((settings) => {
-        if (!cancelled) applyAccentColor(settings.accentColor);
-      })
-      .catch(() => {});
+    const syncColor = () => {
+      getSettings()
+        .then((settings) => {
+          if (!cancelled) applyAccentColor(settings.accentColor);
+        })
+        .catch(() => { });
+    };
+
+    syncColor();
+    onSettingsChanged(syncColor).then((fn) => { unlisten = fn; }).catch(() => { });
 
     return () => {
       cancelled = true;
+      if (unlisten) unlisten();
     };
   }, []);
 }

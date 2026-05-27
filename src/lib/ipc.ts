@@ -1,6 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
-import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type {
   CaptureStartPayload,
   ImageAdjustments,
@@ -11,6 +8,9 @@ import type {
   ScrollResult,
   Settings,
 } from "@/lib/types";
+import { invoke } from "@tauri-apps/api/core";
+import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 export type SelectionClaimPayload = {
   monitorId: number;
@@ -57,6 +57,9 @@ export async function getSettings(): Promise<Settings> {
 }
 export async function setSettings(s: Settings): Promise<void> {
   await invoke("set_settings", { settings: s });
+}
+export async function onSettingsChanged(cb: () => void): Promise<UnlistenFn> {
+  return listen("settings:changed", cb);
 }
 export async function openSettingsWindow(): Promise<void> {
   await invoke("open_settings_window");

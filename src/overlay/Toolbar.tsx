@@ -3,9 +3,9 @@ import { useAnnotation } from "@/annotation/store";
 import { clampToolbarPosition, computeVerticalToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
 import { CornerRadiusPanel } from "@/overlay/CornerRadiusPanel";
-import { ImageAdjustmentsPanel } from "@/overlay/ImageAdjustmentsPanel";
+// import { ImageAdjustmentsPanel } from "@/overlay/ImageAdjustmentsPanel";
 import { useOverlay } from "@/overlay/state";
-import { CopyIcon, GripHorizontal, PinIcon, Pipette, SaveIcon, SlidersHorizontal, SquareRoundCorner, XIcon } from "lucide-react";
+import { CopyIcon, GripHorizontal, PinIcon, Pipette, SaveIcon, SquareRoundCorner, XIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 export const SCREENSHOT_TOOLBAR_RADIUS = 10;
@@ -16,9 +16,9 @@ const TOOLBAR_SIZE = { width: 40, height: 230 };
 const RADIUS_PANEL_WIDTH = 72;
 const RADIUS_PANEL_HEIGHT = 218;
 const RADIUS_PANEL_GAP = 8;
-const ADJUSTMENTS_PANEL_WIDTH = 220;
-const ADJUSTMENTS_PANEL_HEIGHT = 220;
-const ADJUSTMENTS_PANEL_GAP = 8;
+// const ADJUSTMENTS_PANEL_WIDTH = 220;
+// const ADJUSTMENTS_PANEL_HEIGHT = 220;
+// const ADJUSTMENTS_PANEL_GAP = 8;
 
 type ToolbarAction = () => void | Promise<void>;
 
@@ -63,8 +63,8 @@ export function Toolbar({
   const toolbarRef = useRef<HTMLDivElement>(null);
   const radiusPanelRef = useRef<HTMLDivElement>(null);
   const radiusButtonRef = useRef<HTMLButtonElement>(null);
-  const adjustmentsPanelRef = useRef<HTMLDivElement>(null);
-  const adjustmentsButtonRef = useRef<HTMLButtonElement>(null);
+  // const adjustmentsPanelRef = useRef<HTMLDivElement>(null);
+  // const adjustmentsButtonRef = useRef<HTMLButtonElement>(null);
   const cornerRadius = useOverlay((s) => s.cornerRadius);
   const setCornerRadius = useOverlay((s) => s.setCornerRadius);
   const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
@@ -74,19 +74,19 @@ export function Toolbar({
   const [busy, setBusy] = useState(false);
   const [customPos, setCustomPos] = useState<{ x: number; y: number } | null>(null);
   const [radiusPanelOpen, setRadiusPanelOpen] = useState(false);
-  const [adjustmentsPanelOpen, setAdjustmentsPanelOpen] = useState(false);
+  // const [adjustmentsPanelOpen, setAdjustmentsPanelOpen] = useState(false);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const toolbarSize = { width: TOOLBAR_SIZE.width, height: measuredHeight };
   const computedPos = computeVerticalToolbarPosition(selection, toolbarSize, monitorRect);
   const pos = customPos ? clampToolbarPosition(customPos, toolbarSize, monitorRect) : computedPos;
   const radiusPanelPosition = computeSidePanelPosition(pos, monitorRect, RADIUS_PANEL_WIDTH, RADIUS_PANEL_HEIGHT, RADIUS_PANEL_GAP);
-  const adjustmentsPanelPosition = computeSidePanelPosition(
-    pos,
-    monitorRect,
-    ADJUSTMENTS_PANEL_WIDTH,
-    ADJUSTMENTS_PANEL_HEIGHT,
-    ADJUSTMENTS_PANEL_GAP,
-  );
+  // const adjustmentsPanelPosition = computeSidePanelPosition(
+  //   pos,
+  //   monitorRect,
+  //   ADJUSTMENTS_PANEL_WIDTH,
+  //   ADJUSTMENTS_PANEL_HEIGHT,
+  //   ADJUSTMENTS_PANEL_GAP,
+  // );
 
   useLayoutEffect(() => {
     const nextHeight = toolbarRef.current?.offsetHeight ?? 0;
@@ -190,7 +190,7 @@ export function Toolbar({
             label={`Corner radius: ${cornerRadius} px`}
             icon={<SquareRoundCorner size={18} strokeWidth={2.2} aria-hidden="true" />}
             onClick={() => {
-              setAdjustmentsPanelOpen(false);
+              // setAdjustmentsPanelOpen(false);
               setRadiusPanelOpen((open) => !open);
             }}
           />
@@ -211,7 +211,7 @@ export function Toolbar({
             active={colorPickerVisible}
             onClick={handleColorPickerClick}
           />
-          <ToolbarButton
+          {/* <ToolbarButton
             buttonRef={adjustmentsButtonRef}
             label="Image adjustments"
             icon={<SlidersHorizontal size={18} strokeWidth={2.2} aria-hidden="true" />}
@@ -220,7 +220,7 @@ export function Toolbar({
               setRadiusPanelOpen(false);
               setAdjustmentsPanelOpen((open) => !open);
             }}
-          />
+          /> */}
           <ToolbarButton
             label={scrollSelectionTooSmall ? "Selection too small" : "Scrolling screenshot"}
             icon={<ScrollScreenshotIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
@@ -271,7 +271,7 @@ export function Toolbar({
         />
       )}
 
-      {adjustmentsPanelOpen && (
+      {/* {adjustmentsPanelOpen && (
         <ImageAdjustmentsPanel
           panelRef={adjustmentsPanelRef}
           style={{
@@ -281,7 +281,7 @@ export function Toolbar({
             width: ADJUSTMENTS_PANEL_WIDTH,
           }}
         />
-      )}
+      )} */}
     </>
   );
 }
