@@ -167,6 +167,14 @@ describe("annotation object rendering", () => {
 
   it("renders circle magnifiers with a clipped composited image and border", () => {
     const sourceImage = new Image();
+    const existingRect = object({
+      id: "rect-in-lens",
+      type: "rect",
+      start: { x: 16, y: 18 },
+      end: { x: 56, y: 48 },
+      style: { color: "#ff0000", strokeWidth: 4, fill: "hollow" },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    });
     const node = renderObject(object({
       id: "magnifier-1",
       type: "magnifier",
@@ -187,7 +195,7 @@ describe("annotation object rendering", () => {
         sourceImage,
         stageSize: { width: 320, height: 180 },
         scaleFactor: 1,
-        objects: [],
+        objects: [existingRect],
       },
     });
 
@@ -196,6 +204,8 @@ describe("annotation object rendering", () => {
 
     expect(group.findOne(".magnifier-clip")).toBeInstanceOf(Konva.Group);
     expect(group.findOne(".magnifier-image")).toBeInstanceOf(Konva.Image);
+    expect(group.findOne(".magnifier-annotations")).toBeInstanceOf(Konva.Group);
+    expect((group.findOne(".magnifier-annotations") as Konva.Group).getChildren()).toHaveLength(1);
     expect(group.findOne(".magnifier-border")).toBeInstanceOf(Konva.Circle);
     expect((group.findOne(".magnifier-image") as Konva.Image).image()).toBe(sourceImage);
   });

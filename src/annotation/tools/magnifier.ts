@@ -6,6 +6,9 @@ import type { AnnotationObject, AnnotationStyle, MagnifierShape } from "@/annota
 
 const MIN_LENS_SIZE = 12;
 
+type MagnifierAnnotationNode = Konva.Group | Konva.Shape;
+type RenderMagnifierAnnotation = (obj: AnnotationObject) => MagnifierAnnotationNode | null;
+
 let startX = 0;
 let startY = 0;
 let currentLens: Konva.Rect | null = null;
@@ -99,24 +102,78 @@ export function onMagnifierEnd(x: number, y: number): AnnotationObject | null {
   };
 }
 
-function addMagnifiedImage(clip: Konva.Group, bounds: ReturnType<typeof boundsForObject>, context: MagnifierRenderContext, zoom: number) {
-  const sourceWidth = context.stageSize.width * zoom;
-  const sourceHeight = context.stageSize.height * zoom;
+function disableMagnifierSourceInteractions(node: Konva.Node) {
+  node.id("");
+  node.listening(false);
+  node.draggable(false);
+
+  const maybeContainer = node as Konva.Container;
+  if (typeof maybeContainer.getChildren === "function") {
+    maybeContainer.getChildren().forEach(disableMagnifierSourceInteractions);
+  }
+}
+
+function addMagnifiedAnnotations(
+  content: Konva.Group,
+  context: MagnifierRenderContext,
+  renderAnnotation?: RenderMagnifierAnnotation,
+) {
+  if (!renderAnnotation) return;
+
+  const annotations = new Konva.Group({
+    name: "magnifier-annotations",
+    listening: false,
+  });
+
+  for (const object of context.objects) {
+    if (object.type === "magnifier") continue;
+    const node = renderAnnotation(object);
+    if (!node) continue;
+    disableMagnifierSourceInteractions(node);
+    annotations.add(node);
+  }
+
+  if (annotations.getChildren().length > 0) content.add(annotations);
+}
+
+function addMagnifiedContent(
+  clip: Konva.Group,
+  bounds: ReturnType<typeof boundsForObject>,
+  context: MagnifierRenderContext,
+  zoom: number,
+  renderAnnotation?: RenderMagnifierAnnotation,
+) {
   const centerX = bounds.x + bounds.width / 2;
   const centerY = bounds.y + bounds.height / 2;
 
-  clip.add(new Konva.Image({
-    name: "magnifier-image",
-    image: context.sourceImage,
+  const content = new Konva.Group({
+    name: "magnifier-content",
     x: bounds.width / 2 - centerX * zoom,
     y: bounds.height / 2 - centerY * zoom,
-    width: sourceWidth,
-    height: sourceHeight,
+    scaleX: zoom,
+    scaleY: zoom,
+    listening: false,
+  });
+
+  content.add(new Konva.Image({
+    name: "magnifier-image",
+    image: context.sourceImage,
+    x: 0,
+    y: 0,
+    width: context.stageSize.width,
+    height: context.stageSize.height,
     listening: false,
   }));
+
+  addMagnifiedAnnotations(content, context, renderAnnotation);
+  clip.add(content);
 }
 
-export function renderMagnifierObject(obj: AnnotationObject, context?: MagnifierRenderContext | null): Konva.Group {
+export function renderMagnifierObject(
+  obj: AnnotationObject,
+  context?: MagnifierRenderContext | null,
+  renderAnnotation?: RenderMagnifierAnnotation,
+): Konva.Group {
   const bounds = boundsForObject(obj);
   const transform = obj.transform;
   const shape = magnifierShape(obj.style);
@@ -150,7 +207,7 @@ export function renderMagnifierObject(obj: AnnotationObject, context?: Magnifier
   });
 
   if (context?.sourceImage) {
-    addMagnifiedImage(clip, bounds, context, zoom);
+    addMagnifiedContent(clip, bounds, context, zoom, renderAnnotation);
   }
 
   group.add(clip);

@@ -44,7 +44,13 @@ export function renderObject(obj: AnnotationObject, context?: AnnotationRenderCo
     case "blur": return renderBlurObject(obj) as LayerChild | null;
     case "text": return renderTextObject(obj);
     case "marker": return renderMarkerObject(obj);
-    case "magnifier": return renderMagnifierObject(obj, magnifierContextFromContext(context));
+    case "magnifier": {
+      const magnifier = magnifierContextFromContext(context);
+      return renderMagnifierObject(obj, magnifier, (sourceObject) => {
+        if (sourceObject.type === "magnifier") return null;
+        return renderObject(sourceObject, { stageSize: magnifier?.stageSize });
+      });
+    }
     default: return null;
   }
 }
