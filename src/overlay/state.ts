@@ -8,7 +8,8 @@ import {
 } from "@/lib/geometry";
 import { hitTestWindow } from "@/lib/hit-test";
 import { getSettings, setSettings } from "@/lib/ipc";
-import type { CaptureStartPayload, Mode, Point, Rect, WindowRect } from "@/lib/types";
+import { DEFAULT_IMAGE_ADJUSTMENTS, normalizeImageAdjustments } from "@/overlay/imageAdjustments";
+import type { CaptureStartPayload, ImageAdjustments, Mode, Point, Rect, WindowRect } from "@/lib/types";
 
 type SelectionInteraction =
   | { kind: "move"; origin: Point; startRect: Rect }
@@ -39,6 +40,7 @@ type State = {
   colorCopied: boolean;
   currentColor: { r: number; g: number; b: number } | null;
   cornerRadius: number;
+  imageAdjustments: ImageAdjustments;
 };
 
 type Actions = {
@@ -67,6 +69,8 @@ type Actions = {
   setColorCopied: (v: boolean) => void;
   setCurrentColor: (c: { r: number; g: number; b: number } | null) => void;
   setCornerRadius: (n: number) => void;
+  setImageAdjustments: (next: Partial<ImageAdjustments>) => void;
+  resetImageAdjustments: () => void;
 };
 
 let cornerRadiusPersistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -148,6 +152,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   colorCopied: false,
   currentColor: null,
   cornerRadius: 0,
+  imageAdjustments: DEFAULT_IMAGE_ADJUSTMENTS,
 
   start: (p) =>
     set({
@@ -167,6 +172,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       colorCopied: false,
       currentColor: null,
       cornerRadius: normalizeCornerRadius(p.cornerRadius ?? 0),
+      imageAdjustments: DEFAULT_IMAGE_ADJUSTMENTS,
     }),
 
   setCursor: (p) => {
@@ -336,6 +342,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       colorPickerVisible: false,
       colorCopied: false,
       currentColor: null,
+      imageAdjustments: DEFAULT_IMAGE_ADJUSTMENTS,
     }),
   toggleColorFormat: () => {
     const current = get().colorFormat;
@@ -354,4 +361,8 @@ export const useOverlay = create<State & Actions>((set, get) => ({
     set({ cornerRadius: clamped });
     persistCornerRadiusDebounced(clamped);
   },
+  setImageAdjustments: (next) => set((state) => ({
+    imageAdjustments: normalizeImageAdjustments({ ...state.imageAdjustments, ...next }),
+  })),
+  resetImageAdjustments: () => set({ imageAdjustments: DEFAULT_IMAGE_ADJUSTMENTS }),
 }));

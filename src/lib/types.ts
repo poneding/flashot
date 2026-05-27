@@ -33,6 +33,15 @@ export type QuickShotFlashPayload = {
   rect: Rect;
 };
 
+export type ImageAdjustments = {
+  grayscale: boolean;
+  autoLevels: boolean;
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  sharpness: number;
+};
+
 export type Mode =
   | "idle"
   | "hover"
