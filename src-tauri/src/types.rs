@@ -34,6 +34,30 @@ pub struct MonitorInfo {
     pub scale_factor: f32,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageAdjustments {
+    pub grayscale: bool,
+    pub auto_levels: bool,
+    pub brightness: i32,
+    pub contrast: i32,
+    pub saturation: i32,
+    pub sharpness: u32,
+}
+
+impl Default for ImageAdjustments {
+    fn default() -> Self {
+        Self {
+            grayscale: false,
+            auto_levels: false,
+            brightness: 0,
+            contrast: 0,
+            saturation: 0,
+            sharpness: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FrozenFrame {
     pub monitor_id: u32,

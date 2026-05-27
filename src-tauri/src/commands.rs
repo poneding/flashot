@@ -3,7 +3,7 @@ use crate::{
     pin_mgr::{PinEntry, PinManager},
     saver, settings_store,
     settings_store::Settings,
-    types::Rect,
+    types::{ImageAdjustments, Rect},
     window_mgr::WindowMgr,
 };
 use std::sync::Arc;
@@ -195,6 +195,7 @@ pub async fn crop_and_copy(
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
     corner_radius: u32,
+    _adjustments: Option<ImageAdjustments>,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
@@ -231,6 +232,7 @@ pub async fn crop_and_save(
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
     corner_radius: u32,
+    _adjustments: Option<ImageAdjustments>,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
@@ -422,6 +424,7 @@ pub async fn pin_image(
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
     corner_radius: u32,
+    _adjustments: Option<ImageAdjustments>,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
     pin_mgr: State<'_, Arc<PinManager>>,

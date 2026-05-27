@@ -3,6 +3,7 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type {
   CaptureStartPayload,
+  ImageAdjustments,
   QuickShotFlashPayload,
   Rect,
   ScrollEndReason,
@@ -23,12 +24,14 @@ export async function cropAndCopy(
   rect: Rect,
   annotationPng?: ArrayBuffer,
   cornerRadius: number = 0,
+  adjustments?: ImageAdjustments,
 ): Promise<void> {
   await invoke("crop_and_copy", {
     monitorId,
     rect,
     annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
     cornerRadius,
+    adjustments: adjustments ?? null,
   });
 }
 export async function cropAndSave(
@@ -36,12 +39,14 @@ export async function cropAndSave(
   rect: Rect,
   annotationPng?: ArrayBuffer,
   cornerRadius: number = 0,
+  adjustments?: ImageAdjustments,
 ): Promise<string | null> {
   return await invoke<string | null>("crop_and_save", {
     monitorId,
     rect,
     annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
     cornerRadius,
+    adjustments: adjustments ?? null,
   });
 }
 export async function cancelCapture(): Promise<void> {
@@ -70,12 +75,14 @@ export async function pinImage(
   rect: Rect,
   annotationPng?: ArrayBuffer,
   cornerRadius: number = 0,
+  adjustments?: ImageAdjustments,
 ): Promise<string> {
   return await invoke<string>("pin_image", {
     monitorId,
     rect,
     annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
     cornerRadius,
+    adjustments: adjustments ?? null,
   });
 }
 export async function closePin(pinId: string): Promise<void> {

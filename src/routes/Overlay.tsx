@@ -118,6 +118,7 @@ export function OverlayRoute() {
   const frameUrl = useOverlay((s) => s.frameUrl);
   const scaleFactor = useOverlay((s) => s.scaleFactor);
   const cornerRadius = useOverlay((s) => s.cornerRadius);
+  const imageAdjustments = useOverlay((s) => s.imageAdjustments);
   const monitorRect = useOverlay((s) => s.monitorRect);
   const [flashRect, setFlashRect] = useState<Rect | null>(null);
   const flashTimerRef = useRef<number | null>(null);
@@ -338,19 +339,19 @@ export function OverlayRoute() {
   const handleCopy = async () => {
     if (monitorId == null || !selection) return;
     const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await cropAndCopy(monitorId, selection, annotationPng ?? undefined, cornerRadius);
+    await cropAndCopy(monitorId, selection, annotationPng ?? undefined, cornerRadius, imageAdjustments);
   };
 
   const handleSave = async () => {
     if (monitorId == null || !selection) return;
     const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await cropAndSave(monitorId, selection, annotationPng ?? undefined, cornerRadius);
+    await cropAndSave(monitorId, selection, annotationPng ?? undefined, cornerRadius, imageAdjustments);
   };
 
   const handlePin = async () => {
     if (monitorId == null || !selection) return;
     const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await pinImage(monitorId, selection, annotationPng ?? undefined, cornerRadius);
+    await pinImage(monitorId, selection, annotationPng ?? undefined, cornerRadius, imageAdjustments);
   };
 
   const handleScroll = async () => {

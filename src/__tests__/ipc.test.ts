@@ -2,7 +2,7 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
 import { cropAndCopy, cropAndSave, pinImage } from "@/lib/ipc";
-import type { Rect } from "@/lib/types";
+import type { ImageAdjustments, Rect } from "@/lib/types";
 
 function captureInvocations() {
   const invocations: Array<{ cmd: string; payload?: unknown }> = [];
@@ -47,8 +47,41 @@ describe("ipc wrappers", () => {
         rect,
         annotationPng: [1, 2, 255],
         cornerRadius: 0,
+        adjustments: null,
       },
     });
+  });
+
+  it("serializes image adjustments for copy, save, and pin outputs", async () => {
+    const rect: Rect = { x: 0, y: 0, width: 10, height: 10 };
+    const adjustments: ImageAdjustments = {
+      grayscale: true,
+      autoLevels: true,
+      brightness: 12,
+      contrast: -8,
+      saturation: 25,
+      sharpness: 40,
+    };
+    const invocations = captureInvocations();
+
+    await cropAndCopy(1, rect, undefined, 0, adjustments);
+    await cropAndSave(1, rect, undefined, 0, adjustments);
+    await pinImage(1, rect, undefined, 0, adjustments);
+
+    expect(invocations).toEqual([
+      {
+        cmd: "crop_and_copy",
+        payload: expect.objectContaining({ adjustments }),
+      },
+      {
+        cmd: "crop_and_save",
+        payload: expect.objectContaining({ adjustments }),
+      },
+      {
+        cmd: "pin_image",
+        payload: expect.objectContaining({ adjustments }),
+      },
+    ]);
   });
 
   describe("cropAndCopy/Save/pinImage forward cornerRadius", () => {
