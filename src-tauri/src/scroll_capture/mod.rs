@@ -2,6 +2,8 @@ use crate::types::{MonitorInfo, Rect};
 use anyhow::Result;
 use std::time::Duration;
 
+pub(crate) mod mapping;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScrollCaptureBackend {
     Xcap,
