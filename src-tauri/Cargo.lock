@@ -1530,6 +1530,7 @@ dependencies = [
  "objc",
  "once_cell",
  "parking_lot",
+ "pipewire",
  "resvg",
  "rfd",
  "serde",

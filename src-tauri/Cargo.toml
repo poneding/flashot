@@ -67,6 +67,7 @@ gdk = { version = "0.18", features = ["v3_24"] }
 gtk = { version = "0.18", features = ["v3_24"] }
 libloading = "0.8"
 libwayshot-xcap = "0.3"
+pipewire = "0.9"
 xcb = "1.5"
 zbus = "5"
 
