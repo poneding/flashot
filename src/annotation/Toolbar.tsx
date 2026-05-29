@@ -2,6 +2,7 @@ import { PropertyPanel } from "@/annotation/PropertyPanel";
 import { useAnnotation } from "@/annotation/store";
 import { TooltipBubble } from "@/annotation/Tooltip";
 import type { ToolType } from "@/annotation/types";
+import { createTranslator, type Locale } from "@/i18n";
 import { ACCENT_COLOR_CSS_VAR } from "@/lib/colors";
 import { clampToolbarPosition, computeToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
@@ -28,41 +29,41 @@ const PROPERTY_PANEL_GAP = 4;
 
 type ToolDef = {
   id: ToolType;
-  icon: React.ReactNode;
-  label: string;
+  icon?: React.ReactNode;
+  labelKey: string;
 };
 
-function MarkerIcon() {
+function MarkerIcon({ markerNumber }: { markerNumber: number }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="8" fill="currentColor" opacity="0.92" />
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" />
       <text
         x="12"
-        y="15"
+        y="15.75"
         textAnchor="middle"
-        fontSize="9"
+        fontSize={markerNumber >= 100 ? "7.5" : "11"}
         fontWeight="700"
-        fill="#111827"
+        fill="currentColor"
       >
-        1
+        {markerNumber}
       </text>
     </svg>
   );
 }
 
 const TOOLS: ToolDef[] = [
-  { id: "draw", icon: <Pencil size={18} />, label: "Pen" },
-  { id: "line", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="19" x2="19" y2="5" /></svg>, label: "Line" },
-  { id: "arrow", icon: <MoveUpRight size={18} />, label: "Arrow" },
-  { id: "rect", icon: <Square size={18} />, label: "Rectangle" },
-  { id: "ellipse", icon: <Circle size={18} />, label: "Ellipse" },
-  { id: "text", icon: <Type size={18} />, label: "Text" },
-  { id: "blur", icon: <Droplets size={18} />, label: "Blur" },
-  { id: "highlight", icon: <Highlighter size={18} />, label: "Highlight" },
-  { id: "marker", icon: <MarkerIcon />, label: "Marker" },
-  { id: "magnifier", icon: <Search size={18} />, label: "Magnifier" },
-  { id: "eraser", icon: <Eraser size={18} />, label: "Eraser" },
-  { id: "measure", icon: <RulerDimensionLine size={18} />, label: "Measure" },
+  { id: "draw", icon: <Pencil size={18} />, labelKey: "annotation.tool.pen" },
+  { id: "line", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="19" x2="19" y2="5" /></svg>, labelKey: "annotation.tool.line" },
+  { id: "arrow", icon: <MoveUpRight size={18} />, labelKey: "annotation.tool.arrow" },
+  { id: "rect", icon: <Square size={18} />, labelKey: "annotation.tool.rectangle" },
+  { id: "ellipse", icon: <Circle size={18} />, labelKey: "annotation.tool.ellipse" },
+  { id: "text", icon: <Type size={18} />, labelKey: "annotation.tool.text" },
+  { id: "blur", icon: <Droplets size={18} />, labelKey: "annotation.tool.blur" },
+  { id: "highlight", icon: <Highlighter size={18} />, labelKey: "annotation.tool.highlight" },
+  { id: "marker", labelKey: "annotation.tool.marker" },
+  { id: "magnifier", icon: <Search size={18} />, labelKey: "annotation.tool.magnifier" },
+  { id: "eraser", icon: <Eraser size={18} />, labelKey: "annotation.tool.eraser" },
+  { id: "measure", icon: <RulerDimensionLine size={18} />, labelKey: "annotation.tool.measure" },
 ];
 
 function shortcutTitle(action: string, key: string, options: { shift?: boolean } = {}): string {
@@ -74,10 +75,14 @@ function shortcutTitle(action: string, key: string, options: { shift?: boolean }
 type Props = {
   selection: Rect;
   monitorRect: Rect;
+  opaqueSurface?: boolean;
+  locale?: Locale;
 };
 
-export function Toolbar({ selection, monitorRect }: Props) {
+export function Toolbar({ selection, monitorRect, opaqueSurface = false, locale = "en" }: Props) {
+  const t = createTranslator(locale);
   const { activeTool, setActiveTool, canUndo, canRedo, undo, redo } = useAnnotation();
+  const currentMarkerNumber = useAnnotation((s) => s.currentMarkerNumber);
   const hideColorPicker = useOverlay((s) => s.hideColorPicker);
   const objects = useAnnotation((s) => s.objects);
   const selectedObjectId = useAnnotation((s) => s.selectedObjectId);
@@ -143,8 +148,8 @@ export function Toolbar({ selection, monitorRect }: Props) {
 
   const panelTool = selectedObject?.type ?? activeTool;
   const shouldShowPanel = Boolean(selectedObject) || (showPanel && activeTool !== "select" && activeTool !== "eraser");
-  const undoTitle = shortcutTitle("Undo", "Z");
-  const redoTitle = shortcutTitle("Redo", "Z", { shift: true });
+  const undoTitle = shortcutTitle(t("annotation.undo"), "Z");
+  const redoTitle = shortcutTitle(t("annotation.redo"), "Z", { shift: true });
   const panelTop = (() => {
     const belowY = pos.y + TOOLBAR_SIZE.height + PROPERTY_PANEL_GAP;
     if (belowY + propertyPanelHeight > window.innerHeight) {
@@ -158,6 +163,7 @@ export function Toolbar({ selection, monitorRect }: Props) {
       {/* Property panel */}
       {shouldShowPanel && panelTool !== "select" && panelTool !== "eraser" && (
         <PropertyPanel
+          locale={locale}
           panelRef={propertyPanelRef}
           tool={panelTool}
           object={selectedObject}
@@ -185,7 +191,7 @@ export function Toolbar({ selection, monitorRect }: Props) {
           gap: 2,
           padding: "0 8px",
           borderRadius: 10,
-          background: "rgba(30, 30, 30, 0.85)",
+          background: opaqueSurface ? "rgb(30, 30, 30)" : "rgba(30, 30, 30, 0.85)",
           backdropFilter: "blur(12px)",
           boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
           border: "1px solid rgba(255,255,255,0.1)",
@@ -211,14 +217,12 @@ export function Toolbar({ selection, monitorRect }: Props) {
           <GripVertical size={14} />
         </div>
 
-        <Separator />
-
         {/* Group 1: Tool buttons */}
         {TOOLS.map((tool) => (
           <ToolButton
             key={tool.id}
-            icon={tool.icon}
-            label={tool.label}
+            icon={tool.id === "marker" ? <MarkerIcon markerNumber={currentMarkerNumber} /> : tool.icon}
+            label={t(tool.labelKey)}
             active={activeTool === tool.id}
             onClick={() => handleToolClick(tool.id)}
           />

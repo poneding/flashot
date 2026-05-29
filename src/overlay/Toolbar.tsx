@@ -1,11 +1,12 @@
 import { TooltipBubble } from "@/annotation/Tooltip";
+import { createTranslator, type Locale } from "@/i18n";
 import { useAnnotation } from "@/annotation/store";
-import { clampToolbarPosition, computeVerticalToolbarPosition } from "@/lib/geometry";
+import { clampToolbarPosition, computeSidePanelPosition, computeVerticalToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
-import { CornerRadiusPanel } from "@/overlay/CornerRadiusPanel";
+import { CornerRadiusPanel, CORNER_RADIUS_PANEL_SIZE } from "@/overlay/CornerRadiusPanel";
 import { ImageAdjustmentsPanel } from "@/overlay/ImageAdjustmentsPanel";
 import { useOverlay } from "@/overlay/state";
-import { CopyIcon, GripHorizontal, PinIcon, Pipette, SaveIcon, SlidersHorizontal, SquareRoundCorner, XIcon } from "lucide-react";
+import { CopyIcon, GripHorizontal, Image, PinIcon, Pipette, SaveIcon, SquareRoundCorner, XIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 export const SCREENSHOT_TOOLBAR_RADIUS = 10;
@@ -13,18 +14,21 @@ export const SCREENSHOT_TOOLBAR_BACKGROUND = "rgba(30, 30, 30, 0.85)";
 export const SCREENSHOT_TOOLBAR_BORDER = "1px solid rgba(255,255,255,0.1)";
 
 const TOOLBAR_SIZE = { width: 40, height: 308 };
-const RADIUS_PANEL_WIDTH = 72;
-const RADIUS_PANEL_HEIGHT = 218;
-const RADIUS_PANEL_GAP = 8;
-const ADJUSTMENTS_PANEL_WIDTH = 220;
-const ADJUSTMENTS_PANEL_HEIGHT = 220;
-const ADJUSTMENTS_PANEL_GAP = 8;
+const SIDE_PANEL_GAP = 8;
+const ADJUSTMENTS_PANEL_SIZE = { width: 220, height: 220 };
+
+function shortcutTitle(action: string, key: string): string {
+  const isMac = /Mac|iPhone|iPad|iPod/.test(window.navigator.platform);
+  const modifier = isMac ? "Cmd" : "Ctrl";
+  return `${action} (${modifier}+${key})`;
+}
 
 type ToolbarAction = () => void | Promise<void>;
 
 type Props = {
   selection: Rect;
   monitorRect: Rect;
+  locale?: Locale;
   onCopy: ToolbarAction;
   onSave: ToolbarAction;
   onPin: ToolbarAction;
@@ -35,6 +39,7 @@ type Props = {
 
 type ToolbarButtonProps = {
   label: string;
+  tooltipLabel?: string;
   icon: ReactNode;
   onClick: ToolbarAction;
   buttonRef?: RefObject<HTMLButtonElement>;
@@ -53,6 +58,7 @@ const ACTION_COLORS: Record<NonNullable<ToolbarButtonProps["tone"]>, string> = {
 export function Toolbar({
   selection,
   monitorRect,
+  locale = "en",
   onCopy,
   onSave,
   onPin,
@@ -60,6 +66,7 @@ export function Toolbar({
   onScroll,
   scrollSelectionTooSmall,
 }: Props) {
+  const t = createTranslator(locale);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const radiusPanelRef = useRef<HTMLDivElement>(null);
   const radiusButtonRef = useRef<HTMLButtonElement>(null);
@@ -79,14 +86,16 @@ export function Toolbar({
   const toolbarSize = { width: TOOLBAR_SIZE.width, height: measuredHeight };
   const computedPos = computeVerticalToolbarPosition(selection, toolbarSize, monitorRect);
   const pos = customPos ? clampToolbarPosition(customPos, toolbarSize, monitorRect) : computedPos;
-  const radiusPanelPosition = computeSidePanelPosition(pos, monitorRect, RADIUS_PANEL_WIDTH, RADIUS_PANEL_HEIGHT, RADIUS_PANEL_GAP);
+  const radiusPanelPosition = computeSidePanelPosition(pos, monitorRect, CORNER_RADIUS_PANEL_SIZE, SIDE_PANEL_GAP);
   const adjustmentsPanelPosition = computeSidePanelPosition(
     pos,
     monitorRect,
-    ADJUSTMENTS_PANEL_WIDTH,
-    ADJUSTMENTS_PANEL_HEIGHT,
-    ADJUSTMENTS_PANEL_GAP,
+    ADJUSTMENTS_PANEL_SIZE,
+    SIDE_PANEL_GAP,
   );
+  const closeLabel = `${t("screenshot.close")} (Esc)`;
+  const saveLabel = shortcutTitle(t("screenshot.saveAs"), "S");
+  const copyLabel = shortcutTitle(t("screenshot.copy"), "C");
 
   useLayoutEffect(() => {
     const nextHeight = toolbarRef.current?.offsetHeight ?? 0;
@@ -187,7 +196,8 @@ export function Toolbar({
         <ToolbarGroup name="radius">
           <ToolbarButton
             buttonRef={radiusButtonRef}
-            label={`Corner radius: ${cornerRadius} px`}
+            label={t("screenshot.cornerRadius", { value: cornerRadius })}
+            tooltipLabel={t("screenshot.cornerRadiusUnit")}
             icon={<SquareRoundCorner size={18} strokeWidth={2.2} aria-hidden="true" />}
             onClick={() => {
               setAdjustmentsPanelOpen(false);
@@ -196,25 +206,23 @@ export function Toolbar({
           />
         </ToolbarGroup>
 
-        <Separator />
-
         <ToolbarGroup name="pin-scroll">
           <ToolbarButton
-            label="Pin"
+            label={t("screenshot.pin")}
             icon={<PinIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
             onClick={() => runAction(onPin)}
             disabled={busy}
           />
           <ToolbarButton
-            label="Color Picker"
+            label={t("screenshot.colorPicker")}
             icon={<Pipette size={18} strokeWidth={2.2} aria-hidden="true" />}
             active={colorPickerVisible}
             onClick={handleColorPickerClick}
           />
           <ToolbarButton
             buttonRef={adjustmentsButtonRef}
-            label="Image adjustments"
-            icon={<SlidersHorizontal size={18} strokeWidth={2.2} aria-hidden="true" />}
+            label={t("screenshot.imageAdjustments")}
+            icon={<Image size={18} strokeWidth={2.2} aria-hidden="true" />}
             active={adjustmentsPanelOpen}
             onClick={() => {
               setRadiusPanelOpen(false);
@@ -222,7 +230,7 @@ export function Toolbar({
             }}
           />
           <ToolbarButton
-            label={scrollSelectionTooSmall ? "Selection too small" : "Scrolling screenshot"}
+            label={scrollSelectionTooSmall ? t("screenshot.selectionTooSmall") : t("screenshot.scrollingScreenshot")}
             icon={<ScrollScreenshotIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
             onClick={() => runAction(onScroll)}
             disabled={scrollSelectionTooSmall}
@@ -233,20 +241,20 @@ export function Toolbar({
 
         <ToolbarGroup name="close">
           <ToolbarButton
-            label="Close"
+            label={closeLabel}
             icon={<XIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
             tone="danger"
             onClick={onClose}
           />
           <ToolbarButton
-            label="Save As"
+            label={saveLabel}
             icon={<SaveIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
             tone="primary"
             onClick={() => runAction(onSave)}
             disabled={busy}
           />
           <ToolbarButton
-            label="Copy"
+            label={copyLabel}
             icon={<CopyIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
             tone="success"
             onClick={() => runAction(onCopy)}
@@ -257,6 +265,7 @@ export function Toolbar({
 
       {radiusPanelOpen && (
         <CornerRadiusPanel
+          locale={locale}
           panelRef={radiusPanelRef}
           value={cornerRadius}
           onChange={setCornerRadius}
@@ -266,61 +275,24 @@ export function Toolbar({
             position: "fixed",
             left: radiusPanelPosition.left,
             top: radiusPanelPosition.top,
-            width: RADIUS_PANEL_WIDTH,
           }}
         />
       )}
 
       {adjustmentsPanelOpen && (
         <ImageAdjustmentsPanel
+          locale={locale}
           panelRef={adjustmentsPanelRef}
           style={{
             position: "fixed",
             left: adjustmentsPanelPosition.left,
             top: adjustmentsPanelPosition.top,
-            width: ADJUSTMENTS_PANEL_WIDTH,
+            width: ADJUSTMENTS_PANEL_SIZE.width,
           }}
         />
       )}
     </>
   );
-}
-
-function computeSidePanelPosition(
-  toolbarPos: { x: number; y: number },
-  monitorRect: Rect,
-  panelWidth: number,
-  panelHeight: number,
-  gap: number,
-): { left: number; top: number } {
-  const monitorLeft = monitorRect.x;
-  const monitorTop = monitorRect.y;
-  const monitorRight = monitorRect.x + monitorRect.width;
-  const monitorBottom = monitorRect.y + monitorRect.height;
-
-  if (toolbarPos.x >= monitorLeft + panelWidth + gap) {
-    return {
-      left: toolbarPos.x - panelWidth - gap,
-      top: clamp(
-        toolbarPos.y + 4,
-        monitorTop + gap,
-        monitorBottom - panelHeight - gap,
-      ),
-    };
-  }
-
-  return {
-    left: clamp(
-      toolbarPos.x,
-      monitorLeft + gap,
-      monitorRight - panelWidth - gap,
-    ),
-    top: clamp(
-      toolbarPos.y - panelHeight - gap,
-      monitorTop + gap,
-      monitorBottom - panelHeight - gap,
-    ),
-  };
 }
 
 function ScrollScreenshotIcon({ size = 24, strokeWidth = 2, ...props }: {
@@ -354,6 +326,7 @@ function ScrollScreenshotIcon({ size = 24, strokeWidth = 2, ...props }: {
 
 function ToolbarButton({
   label,
+  tooltipLabel,
   icon,
   onClick,
   buttonRef: providedButtonRef,
@@ -401,7 +374,7 @@ function ToolbarButton({
       }}
     >
       {icon}
-      {tooltipVisible && <TooltipBubble label={label} anchorRef={buttonRef} placement="right" />}
+      {tooltipVisible && <TooltipBubble label={tooltipLabel ?? label} anchorRef={buttonRef} placement="right" />}
     </button>
   );
 }
@@ -434,8 +407,3 @@ const separatorStyle: CSSProperties = {
   margin: "4px 0",
   flexShrink: 0,
 };
-
-function clamp(value: number, min: number, max: number): number {
-  if (max < min) return min;
-  return Math.max(min, Math.min(value, max));
-}

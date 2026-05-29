@@ -303,6 +303,7 @@ function createHighlightNode(
     height: geometry.height,
     stroke: "#000",
     strokeWidth: geometry.strokeWidth,
+    strokeEnabled: false,
     hitStrokeWidth: geometry.strokeWidth,
     lineCap: "round",
     lineJoin: "round",

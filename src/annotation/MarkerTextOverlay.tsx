@@ -1,4 +1,17 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  MARKER_BUBBLE_BACKGROUND,
+  MARKER_BUBBLE_FONT_FAMILY,
+  MARKER_BUBBLE_PADDING_X,
+  MARKER_BUBBLE_PADDING_Y,
+  MARKER_BUBBLE_POINTER_HALF_HEIGHT,
+  MARKER_BUBBLE_POINTER_WIDTH,
+  MARKER_BUBBLE_RADIUS,
+  MARKER_BUBBLE_TEXT_COLOR,
+  MARKER_DEFAULT_FONT_SIZE,
+  markerBadgeRadius,
+  markerBubbleMetrics,
+} from "@/annotation/markerStyle";
 import type { AnnotationObject } from "@/annotation/types";
 import type { Rect } from "@/lib/types";
 import { beginTextInputSession, endTextInputSession } from "@/lib/ipc";
@@ -8,28 +21,28 @@ type Props = {
   selection: Rect;
   onConfirm: (text: string) => void;
   onCancel: () => void;
+  viewportOrigin?: { x: number; y: number };
 };
 
-function markerTextColor(object: AnnotationObject): string {
-  return object.style.markerTextColor ?? "#ffffff";
-}
-
-function markerBubbleFill(object: AnnotationObject): string {
-  return object.style.markerBubbleFill ?? "#111827";
-}
-
-function markerBorderColor(object: AnnotationObject): string {
-  return object.style.markerFill ?? object.style.color;
-}
-
-export function MarkerTextOverlay({ object, selection, onConfirm, onCancel }: Props) {
+export function MarkerTextOverlay({ object, selection, onConfirm, onCancel, viewportOrigin }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const confirmedRef = useRef(false);
   const composingRef = useRef(false);
   const pendingBlurRef = useRef(false);
+  const [textValue, setTextValue] = useState(object.text ?? "");
+  const textValueRef = useRef(object.text ?? "");
+  const origin = viewportOrigin ?? { x: selection.x, y: selection.y };
   const start = object.start ?? { x: 0, y: 0 };
-  const left = selection.x + start.x + object.transform.x + 22;
-  const top = selection.y + start.y + object.transform.y - 13;
+  const fontSize = object.style.fontSize ?? MARKER_DEFAULT_FONT_SIZE;
+  const badgeRadius = markerBadgeRadius(object.style.fontSize);
+  const metrics = markerBubbleMetrics(textValue, fontSize, badgeRadius);
+  const left = origin.x + start.x + object.transform.x + metrics.bubbleX;
+  const top = origin.y + start.y + object.transform.y + metrics.bubbleY;
+
+  const updateTextValue = (value: string) => {
+    textValueRef.current = value;
+    setTextValue(value);
+  };
 
   useEffect(() => {
     beginTextInputSession().catch((error) => {
@@ -52,7 +65,7 @@ export function MarkerTextOverlay({ object, selection, onConfirm, onCancel }: Pr
   const confirm = () => {
     if (confirmedRef.current) return;
     confirmedRef.current = true;
-    onConfirm((textareaRef.current?.value ?? "").trim());
+    onConfirm((textValueRef.current ?? "").trim());
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -75,47 +88,71 @@ export function MarkerTextOverlay({ object, selection, onConfirm, onCancel }: Pr
     confirm();
   };
 
+  const markerX = origin.x + start.x + object.transform.x;
+  const markerY = origin.y + start.y + object.transform.y;
+
   return (
-    <textarea
-      ref={textareaRef}
-      rows={1}
-      defaultValue={object.text ?? ""}
-      spellCheck={false}
-      onMouseDown={(e) => e.stopPropagation()}
-      style={{
-        position: "fixed",
-        left,
-        top,
-        zIndex: 10002,
-        pointerEvents: "auto",
-        boxSizing: "border-box",
-        width: 220,
-        height: 26,
-        padding: "3px 8px",
-        margin: 0,
-        border: `1px solid ${markerBorderColor(object)}`,
-        borderRadius: 7,
-        background: markerBubbleFill(object),
-        color: markerTextColor(object),
-        fontSize: 14,
-        lineHeight: "18px",
-        outline: "none",
-        overflow: "hidden",
-        resize: "none",
-        caretColor: markerTextColor(object),
-      }}
-      onKeyDown={handleKeyDown}
-      onBlur={handleBlur}
-      onCompositionStart={() => {
-        composingRef.current = true;
-      }}
-      onCompositionEnd={() => {
-        composingRef.current = false;
-        if (pendingBlurRef.current) {
-          pendingBlurRef.current = false;
-          setTimeout(() => confirm(), 0);
-        }
-      }}
-    />
+    <>
+      <div
+        aria-hidden="true"
+        style={{
+          position: "fixed",
+          left: markerX + metrics.bubbleX - MARKER_BUBBLE_POINTER_WIDTH,
+          top: markerY - MARKER_BUBBLE_POINTER_HALF_HEIGHT,
+          zIndex: 10001,
+          width: 0,
+          height: 0,
+          pointerEvents: "none",
+          borderTop: `${MARKER_BUBBLE_POINTER_HALF_HEIGHT}px solid transparent`,
+          borderBottom: `${MARKER_BUBBLE_POINTER_HALF_HEIGHT}px solid transparent`,
+          borderRight: `${MARKER_BUBBLE_POINTER_WIDTH}px solid ${MARKER_BUBBLE_BACKGROUND}`,
+        }}
+      />
+      <textarea
+        ref={textareaRef}
+        rows={1}
+        wrap="off"
+        value={textValue}
+        spellCheck={false}
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{
+          position: "fixed",
+          left,
+          top,
+          zIndex: 10002,
+          pointerEvents: "auto",
+          boxSizing: "border-box",
+          width: metrics.bubbleWidth,
+          height: metrics.bubbleHeight,
+          padding: `${MARKER_BUBBLE_PADDING_Y}px ${MARKER_BUBBLE_PADDING_X}px`,
+          margin: 0,
+          border: "none",
+          borderRadius: MARKER_BUBBLE_RADIUS,
+          background: MARKER_BUBBLE_BACKGROUND,
+          color: MARKER_BUBBLE_TEXT_COLOR,
+          fontSize,
+          fontFamily: MARKER_BUBBLE_FONT_FAMILY,
+          lineHeight: `${metrics.lineHeight}px`,
+          outline: "none",
+          overflow: "hidden",
+          resize: "none",
+          caretColor: MARKER_BUBBLE_TEXT_COLOR,
+          whiteSpace: "pre",
+        }}
+        onKeyDown={handleKeyDown}
+        onBlur={handleBlur}
+        onChange={(event) => updateTextValue(event.currentTarget.value)}
+        onCompositionStart={() => {
+          composingRef.current = true;
+        }}
+        onCompositionEnd={() => {
+          composingRef.current = false;
+          if (pendingBlurRef.current) {
+            pendingBlurRef.current = false;
+            setTimeout(() => confirm(), 0);
+          }
+        }}
+      />
+    </>
   );
 }

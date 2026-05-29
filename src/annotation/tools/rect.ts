@@ -2,7 +2,7 @@ import Konva from "konva";
 import { getLayer } from "@/annotation/Stage";
 import { useAnnotation } from "@/annotation/store";
 import type { AnnotationObject } from "@/annotation/types";
-import { createRectFocusMask, shouldRenderFocus, type StageSize } from "@/annotation/focus";
+import { isSpotlightStyle, type StageSize } from "@/annotation/focus";
 
 let startX = 0;
 let startY = 0;
@@ -17,6 +17,7 @@ export function onRectStart(x: number, y: number) {
   startY = y;
 
   const isSolid = activeStyle.fill === "solid";
+  const isSpotlight = isSpotlightStyle(activeStyle);
 
   currentRect = new Konva.Rect({
     x,
@@ -24,8 +25,8 @@ export function onRectStart(x: number, y: number) {
     width: 0,
     height: 0,
     fill: isSolid ? activeStyle.color : "rgba(0,0,0,0)",
-    stroke: isSolid ? undefined : activeStyle.color,
-    strokeWidth: isSolid ? 0 : activeStyle.strokeWidth,
+    stroke: isSolid || isSpotlight ? undefined : activeStyle.color,
+    strokeWidth: isSolid || isSpotlight ? 0 : activeStyle.strokeWidth,
     strokeScaleEnabled: false,
     cornerRadius: activeStyle.cornerRadius ?? 0,
     listening: false,
@@ -96,6 +97,7 @@ export function renderRectObject(obj: AnnotationObject, stageSize?: StageSize): 
   const height = Math.abs(end.y - start.y);
 
   const isSolid = obj.style.fill === "solid";
+  const isSpotlight = isSpotlightStyle(obj.style);
 
   const node = new Konva.Rect({
     id: obj.id,
@@ -108,15 +110,13 @@ export function renderRectObject(obj: AnnotationObject, stageSize?: StageSize): 
     width,
     height,
     fill: isSolid ? obj.style.color : "rgba(0,0,0,0)",
-    stroke: isSolid ? undefined : obj.style.color,
-    strokeWidth: isSolid ? 0 : obj.style.strokeWidth,
+    stroke: isSolid || isSpotlight ? undefined : obj.style.color,
+    strokeWidth: isSolid || isSpotlight ? 0 : obj.style.strokeWidth,
     strokeScaleEnabled: false,
     cornerRadius: obj.style.cornerRadius ?? 0,
   });
 
-  if (stageSize && shouldRenderFocus(obj.style)) {
-    return createRectFocusMask(obj, stageSize, node);
-  }
+  void stageSize;
 
   return node;
 }

@@ -1,6 +1,5 @@
 import {
   SYSTEM_FONT_VALUE,
-  getSystemFontDisplayName,
   getSystemFonts,
   normalizeTextFontFamilyValue,
   resolveSystemFont,
@@ -14,20 +13,26 @@ import {
   type AnnotationObject,
   type AnnotationStyle,
   type MagnifierShape,
+  type MeasureMode,
   type ToolType,
 } from "@/annotation/types";
+import { MARKER_DEFAULT_FONT_SIZE, MARKER_NUMBER_MAX, MARKER_NUMBER_MIN } from "@/annotation/markerStyle";
+import { constrainMeasureObjectToAxisAroundMidpoint } from "@/annotation/tools/measure";
+import { createTranslator, type Locale } from "@/i18n";
+import { scrollSelectedOptionIntoView } from "@/lib/scrollSelectedOptionIntoView";
 import { useDismissOnOutsideMouseDown } from "@/lib/useDismissOnOutsideMouseDown";
 import {
   ChevronDown,
   Circle,
-  EyeOff,
-  Focus,
   Minus,
+  MoveDiagonal,
+  MoveHorizontal,
+  MoveVertical,
   PencilLine,
   Square,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
@@ -35,8 +40,14 @@ const PROPERTY_PANEL_HEIGHT = 34;
 const PROPERTY_CONTROL_HEIGHT = 22;
 const OVERLAY_SURFACE_BACKGROUND = "rgba(30, 30, 30, 0.95)";
 const CORNER_RADIUS_OPTIONS = range(0, 60);
-const FOCUS_OPACITY_OPTIONS = range(0, 20).map((value) => value * 5);
-const MAGNIFIER_ZOOM_OPTIONS = Array.from({ length: 19 }, (_, index) => 110 + index * 5);
+const MAGNIFIER_ZOOM_OPTIONS = Array.from({ length: 21 }, (_, index) => 200 + index * 10);
+type Translator = ReturnType<typeof createTranslator>;
+const defaultTranslator = createTranslator("en");
+const PropertyPanelI18nContext = createContext<Translator>(defaultTranslator);
+
+function usePanelT(): Translator {
+  return useContext(PropertyPanelI18nContext);
+}
 
 const panelStyle: CSSProperties = {
   display: "flex",
@@ -87,6 +98,15 @@ const darkScrollbarStyle: CSSProperties = {
 
 function range(min: number, max: number): number[] {
   return Array.from({ length: max - min + 1 }, (_, index) => min + index);
+}
+
+function visibleNumberSuffix(suffix: string): string {
+  return suffix === "px" ? "" : suffix;
+}
+
+function tooltipWithUnit(label: string | undefined, suffix: string): string | undefined {
+  if (!label) return undefined;
+  return suffix === "px" ? `${label} [px]` : label;
 }
 
 // ─── Separator ────────────────────────────────────────────────────────────────
@@ -197,6 +217,7 @@ function GradientPicker({
   onClose: () => void;
   flipUp: boolean;
 }) {
+  const t = usePanelT();
   const [hsv, setHsv] = useState<[number, number, number]>(() => hexToHsv(value));
   const [colorInput, setColorInput] = useState("");
   const [inputError, setInputError] = useState(false);
@@ -331,7 +352,7 @@ function GradientPicker({
       <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
         <input
           type="text"
-          placeholder="HEX or RGB"
+          placeholder={t("annotation.colorInputPlaceholder")}
           value={colorInput}
           onChange={(e) => handleColorInput(e.target.value)}
           onKeyDown={(e) => {
@@ -371,6 +392,7 @@ function ColorPicker({
   onChange: (color: string) => void;
   label?: string;
 }) {
+  const t = usePanelT();
   const [showGradient, setShowGradient] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
   const customColorRef = useRef<HTMLDivElement>(null);
@@ -419,7 +441,7 @@ function ColorPicker({
       ))}
       <div ref={customColorRef} style={{ position: "relative" }}>
         <button
-          aria-label="Custom color"
+          aria-label={t("annotation.customColor")}
           onClick={toggleGradient}
           style={{
             width: 18,
@@ -471,7 +493,10 @@ function NumberStepper({
   title?: string;
   label?: string;
 }) {
+  const t = usePanelT();
   const tooltip = title ?? label;
+  const visibleSuffix = visibleNumberSuffix(suffix);
+  const tooltipLabel = tooltipWithUnit(tooltip, suffix);
   const [tooltipVisible, setTooltipVisible] = useState(false);
   const stepperRef = useRef<HTMLDivElement>(null);
   const stepperBtn: CSSProperties = {
@@ -493,7 +518,7 @@ function NumberStepper({
     >
       <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
         <button
-          aria-label={tooltip ? `Decrease ${tooltip}` : "Decrease"}
+          aria-label={tooltip ? t("annotation.decrease", { label: tooltip }) : "Decrease"}
           style={stepperBtn}
           onClick={() => onChange(Math.max(min, value - step))}
           disabled={value <= min}
@@ -501,10 +526,10 @@ function NumberStepper({
           −
         </button>
         <span style={{ minWidth: 32, textAlign: "center", fontSize: 11, color: "#fff" }}>
-          {value}{suffix}
+          {value}{visibleSuffix}
         </span>
         <button
-          aria-label={tooltip ? `Increase ${tooltip}` : "Increase"}
+          aria-label={tooltip ? t("annotation.increase", { label: tooltip }) : "Increase"}
           style={stepperBtn}
           onClick={() => onChange(Math.min(max, value + step))}
           disabled={value >= max}
@@ -512,7 +537,115 @@ function NumberStepper({
           +
         </button>
       </div>
-      {tooltipVisible && tooltip && <TooltipBubble label={tooltip} anchorRef={stepperRef} />}
+      {tooltipVisible && tooltipLabel && <TooltipBubble label={tooltipLabel} anchorRef={stepperRef} />}
+    </div>
+  );
+}
+
+function IntegerNumberControl({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  step = 1,
+  minTooltip,
+  maxTooltip,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  step?: number;
+  minTooltip?: string;
+  maxTooltip?: string;
+}) {
+  const t = usePanelT();
+  const [tooltip, setTooltip] = useState<{
+    label: string;
+    anchorRef: { current: HTMLElement | null };
+  } | null>(null);
+  const decreaseRef = useRef<HTMLSpanElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const increaseRef = useRef<HTMLSpanElement>(null);
+  const stepperBtn: CSSProperties = {
+    ...btnBase,
+    width: 20,
+    height: 20,
+    fontSize: 14,
+    fontWeight: "bold",
+    padding: 0,
+  };
+  const clampValue = (next: number) => Math.max(min, Math.min(max, Math.trunc(next)));
+  const atMin = value <= min;
+  const atMax = value >= max;
+  const decreaseLabel = t("annotation.decrease", { label });
+  const increaseLabel = t("annotation.increase", { label });
+
+  return (
+    <div
+      style={{ position: "relative", display: "flex", alignItems: "center", gap: 2 }}
+    >
+      <span
+        ref={decreaseRef}
+        onMouseEnter={() => setTooltip({ label: atMin ? (minTooltip ?? label) : decreaseLabel, anchorRef: decreaseRef })}
+        onMouseLeave={() => setTooltip(null)}
+        style={{ display: "flex" }}
+      >
+        <button
+          aria-label={decreaseLabel}
+          style={{ ...stepperBtn, cursor: atMin ? "default" : stepperBtn.cursor }}
+          onClick={() => onChange(clampValue(value - step))}
+          disabled={atMin}
+        >
+          −
+        </button>
+      </span>
+      <input
+        ref={inputRef}
+        aria-label={label}
+        type="text"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onMouseEnter={() => setTooltip({ label, anchorRef: inputRef })}
+        onMouseLeave={() => setTooltip(null)}
+        onChange={(event) => {
+          const next = Number(event.currentTarget.value);
+          if (Number.isFinite(next)) onChange(clampValue(next));
+        }}
+        style={{
+          width: 36,
+          height: 20,
+          boxSizing: "border-box",
+          padding: "0 2px",
+          borderRadius: 5,
+          background: "rgba(255,255,255,0.08)",
+          color: "#fff",
+          fontSize: 11,
+          lineHeight: 1,
+          textAlign: "center",
+        }}
+      />
+      <span
+        ref={increaseRef}
+        onMouseEnter={() => setTooltip({ label: atMax ? (maxTooltip ?? label) : increaseLabel, anchorRef: increaseRef })}
+        onMouseLeave={() => setTooltip(null)}
+        style={{ display: "flex" }}
+      >
+        <button
+          aria-label={increaseLabel}
+          style={{ ...stepperBtn, cursor: atMax ? "default" : stepperBtn.cursor }}
+          onClick={() => onChange(clampValue(value + step))}
+          disabled={atMax}
+        >
+          +
+        </button>
+      </span>
+      {tooltip && <TooltipBubble label={tooltip.label} anchorRef={tooltip.anchorRef} />}
     </div>
   );
 }
@@ -539,10 +672,17 @@ function NumberDropdown({
   const [tooltipVisible, setTooltipVisible] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const formattedValue = `${value}${suffix}`;
+  const listRef = useRef<HTMLDivElement>(null);
+  const visibleSuffix = visibleNumberSuffix(suffix);
+  const formattedValue = `${value}${visibleSuffix}`;
+  const tooltipLabel = tooltipWithUnit(title, suffix);
   const listId = `annotation-number-list-${numberListId(title)}`;
 
   useDismissOnOutsideMouseDown(open, ref, () => setOpen(false));
+
+  useLayoutEffect(() => {
+    if (open) scrollSelectedOptionIntoView(listRef.current);
+  }, [open, value]);
 
   const handleOpen = () => {
     if (!open && ref.current) {
@@ -569,7 +709,7 @@ function NumberDropdown({
         </span>
         <ChevronDown size={12} style={{ opacity: 0.6 }} />
       </button>
-      {tooltipVisible && <TooltipBubble label={title} anchorRef={triggerRef} />}
+      {tooltipVisible && tooltipLabel && <TooltipBubble label={tooltipLabel} anchorRef={triggerRef} />}
       {open && (
         <div
           style={{
@@ -589,6 +729,7 @@ function NumberDropdown({
           }}
         >
           <div
+            ref={listRef}
             data-testid={listId}
             className="flashot-dark-scrollbar"
             style={{
@@ -602,7 +743,8 @@ function NumberDropdown({
               <button
                 key={option}
                 type="button"
-                aria-label={`${title}: ${option}${suffix}`}
+                aria-label={`${title}: ${option}${visibleSuffix}`}
+                data-selected={option === value ? "true" : undefined}
                 onClick={() => {
                   onChange(option);
                   setOpen(false);
@@ -617,7 +759,7 @@ function NumberDropdown({
                   fontVariantNumeric: "tabular-nums",
                 }}
               >
-                {option}{suffix}
+                {option}{visibleSuffix}
               </button>
             ))}
           </div>
@@ -634,9 +776,10 @@ function StrokeWidthDropdown({
   value: number;
   onChange: (v: number) => void;
 }) {
+  const t = usePanelT();
   return (
     <NumberDropdown
-      title="Stroke width"
+      title={t("annotation.strokeWidth")}
       value={value}
       options={STROKE_WIDTHS}
       onChange={onChange}
@@ -651,32 +794,13 @@ function CornerRadiusDropdown({
   value: number;
   onChange: (v: number) => void;
 }) {
+  const t = usePanelT();
   return (
     <NumberDropdown
-      title="Corner radius"
+      title={t("annotation.cornerRadius")}
       value={value}
       options={CORNER_RADIUS_OPTIONS}
       onChange={onChange}
-    />
-  );
-}
-
-function FocusOpacityDropdown({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  const percent = Math.round(value * 100);
-
-  return (
-    <NumberDropdown
-      title="Focus opacity"
-      value={percent}
-      options={FOCUS_OPACITY_OPTIONS}
-      suffix="%"
-      onChange={(nextPercent) => onChange(nextPercent / 100)}
     />
   );
 }
@@ -688,49 +812,16 @@ function MagnifierZoomDropdown({
   value: number;
   onChange: (v: number) => void;
 }) {
+  const t = usePanelT();
   const percent = Math.round(value * 100);
 
   return (
     <NumberDropdown
-      title="Magnifier zoom"
+      title={t("annotation.magnifierZoom")}
       value={percent}
       options={MAGNIFIER_ZOOM_OPTIONS}
       suffix="%"
       onChange={(nextPercent) => onChange(nextPercent / 100)}
-    />
-  );
-}
-
-function MagnifierBorderWidthDropdown({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <NumberDropdown
-      title="Magnifier border width"
-      value={value}
-      options={STROKE_WIDTHS}
-      onChange={onChange}
-    />
-  );
-}
-
-function MagnifierCornerRadiusDropdown({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <NumberDropdown
-      title="Magnifier corner radius"
-      value={value}
-      options={CORNER_RADIUS_OPTIONS}
-      onChange={onChange}
     />
   );
 }
@@ -742,9 +833,10 @@ function FontSizeDropdown({
   value: number;
   onChange: (v: number) => void;
 }) {
+  const t = usePanelT();
   return (
     <NumberDropdown
-      title="Font size"
+      title={t("annotation.fontSize")}
       value={value}
       options={FONT_SIZES}
       onChange={onChange}
@@ -846,6 +938,25 @@ function FilledArrowIcon() {
   );
 }
 
+function AxisMeasureIcon() {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        position: "relative",
+        width: 18,
+        height: 16,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <MoveHorizontal size={15} strokeWidth={2} style={{ position: "absolute" }} />
+      <MoveVertical size={15} strokeWidth={2} style={{ position: "absolute" }} />
+    </span>
+  );
+}
+
 function FilledSquareIcon() {
   return (
     <svg
@@ -882,7 +993,7 @@ function FilledCircleIcon() {
   );
 }
 
-function RoundedRectLensIcon() {
+function SpotlightSquareIcon() {
   return (
     <svg
       width="16"
@@ -895,7 +1006,41 @@ function RoundedRectLensIcon() {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <rect x="3" y="5" width="18" height="14" rx="5" />
+      <path
+        data-spotlight-shadow
+        d="M3 3H21V21H3Z M8 8H16V16H8Z"
+        fill="currentColor"
+        opacity="0.28"
+        stroke="none"
+        fillRule="evenodd"
+      />
+      <rect data-spotlight-hole x="8" y="8" width="8" height="8" rx="1.25" fill="none" />
+    </svg>
+  );
+}
+
+function SpotlightCircleIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path
+        data-spotlight-shadow
+        d="M12 2a10 10 0 1 0 0 20 10 10 0 1 0 0-20Z M12 8a4 4 0 1 0 0 8 4 4 0 1 0 0-8Z"
+        fill="currentColor"
+        opacity="0.28"
+        stroke="none"
+        fillRule="evenodd"
+      />
+      <circle data-spotlight-hole cx="12" cy="12" r="4" fill="none" />
     </svg>
   );
 }
@@ -977,6 +1122,7 @@ function DropdownOptionButton<T extends string>({
         ref={optionRef}
         type="button"
         aria-label={option.label}
+        data-selected={selected ? "true" : undefined}
         onMouseEnter={() => setTooltipVisible(true)}
         onMouseLeave={() => setTooltipVisible(false)}
         onClick={() => onSelect(option.value)}
@@ -1019,8 +1165,13 @@ function DropdownSelect<T extends string>({
   const [tooltipVisible, setTooltipVisible] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useDismissOnOutsideMouseDown(open, ref, () => setOpen(false));
+
+  useLayoutEffect(() => {
+    if (open) scrollSelectedOptionIntoView(menuRef.current);
+  }, [open, value]);
 
   const handleOpen = () => {
     if (!open && ref.current) {
@@ -1054,6 +1205,7 @@ function DropdownSelect<T extends string>({
       {tooltipVisible && <TooltipBubble label={selectedTitle} anchorRef={triggerRef} />}
       {open && (
         <div
+          ref={menuRef}
           style={{
             position: "absolute",
             ...(flipUp
@@ -1148,33 +1300,6 @@ function ToggleGroup<T extends string>({
 
 // ─── Tool sections ────────────────────────────────────────────────────────────
 
-function FocusControls({
-  style,
-  set,
-}: {
-  style: AnnotationStyle;
-  set: (p: Partial<AnnotationStyle>) => void;
-}) {
-  return (
-    <>
-      <Separator />
-      <ToggleGroup
-        options={[
-          { value: "none", label: PanelIcon(EyeOff), title: "No focus" },
-          { value: "spotlight", label: PanelIcon(Focus), title: "Focus" },
-        ]}
-        value={style.focusMode ?? "none"}
-        onChange={(focusMode) => set({ focusMode })}
-      />
-      <Separator />
-      <FocusOpacityDropdown
-        value={style.focusOpacity ?? 0.45}
-        onChange={(focusOpacity) => set({ focusOpacity })}
-      />
-    </>
-  );
-}
-
 function PenSection({
   style,
   set,
@@ -1198,6 +1323,7 @@ function LineSection({
   style: AnnotationStyle;
   set: (p: Partial<AnnotationStyle>) => void;
 }) {
+  const t = usePanelT();
   return (
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
@@ -1205,12 +1331,12 @@ function LineSection({
       <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
       <Separator />
       <DropdownSelect
-        title="Line style"
+        title={t("annotation.lineStyle")}
         options={[
-          { value: "solid", label: "Solid", icon: <LineStyleIcon variant="solid" /> },
-          { value: "wavy", label: "Wavy", icon: <LineStyleIcon variant="wavy" /> },
-          { value: "dotted", label: "Dotted", icon: <LineStyleIcon variant="dotted" /> },
-          { value: "dashed", label: "Dashed", icon: <LineStyleIcon variant="dashed" /> },
+          { value: "solid", label: t("annotation.solid"), icon: <LineStyleIcon variant="solid" /> },
+          { value: "wavy", label: t("annotation.wavy"), icon: <LineStyleIcon variant="wavy" /> },
+          { value: "dotted", label: t("annotation.dotted"), icon: <LineStyleIcon variant="dotted" /> },
+          { value: "dashed", label: t("annotation.dashed"), icon: <LineStyleIcon variant="dashed" /> },
         ]}
         value={(() => {
           if (style.lineShape === "wavy") return "wavy";
@@ -1232,11 +1358,21 @@ function MeasureSection({
   style: AnnotationStyle;
   set: (p: Partial<AnnotationStyle>) => void;
 }) {
+  const t = usePanelT();
   return (
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
       <Separator />
       <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
+      <Separator />
+      <ToggleGroup<MeasureMode>
+        options={[
+          { value: "free", label: PanelIcon(MoveDiagonal), title: t("annotation.freeMeasure") },
+          { value: "axis", label: <AxisMeasureIcon />, title: t("annotation.axisMeasure") },
+        ]}
+        value={style.measureMode ?? "free"}
+        onChange={(measureMode) => set({ measureMode })}
+      />
     </>
   );
 }
@@ -1248,6 +1384,7 @@ function ArrowSection({
   style: AnnotationStyle;
   set: (p: Partial<AnnotationStyle>) => void;
 }) {
+  const t = usePanelT();
   return (
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
@@ -1255,21 +1392,21 @@ function ArrowSection({
       <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
       <Separator />
       <DropdownSelect
-        title="Line style"
+        title={t("annotation.lineStyle")}
         options={[
-          { value: "solid", label: "Solid", icon: <LineStyleIcon variant="solid" /> },
-          { value: "dotted", label: "Dotted", icon: <LineStyleIcon variant="dotted" /> },
-          { value: "dashed", label: "Dashed", icon: <LineStyleIcon variant="dashed" /> },
+          { value: "solid", label: t("annotation.solid"), icon: <LineStyleIcon variant="solid" /> },
+          { value: "dotted", label: t("annotation.dotted"), icon: <LineStyleIcon variant="dotted" /> },
+          { value: "dashed", label: t("annotation.dashed"), icon: <LineStyleIcon variant="dashed" /> },
         ]}
         value={style.lineStyle ?? "solid"}
         onChange={(lineStyle) => set({ lineStyle })}
       />
       <Separator />
       <DropdownSelect
-        title="Arrowhead"
+        title={t("annotation.arrowhead")}
         options={[
-          { value: "v-shape", label: "Open", icon: <OpenArrowIcon /> },
-          { value: "filled-triangle", label: "Filled", icon: <FilledArrowIcon /> },
+          { value: "v-shape", label: t("annotation.open"), icon: <OpenArrowIcon /> },
+          { value: "filled-triangle", label: t("annotation.filled"), icon: <FilledArrowIcon /> },
         ]}
         value={style.arrowStyle === "filled-triangle" ? "filled-triangle" : "v-shape"}
         onChange={(arrowStyle) => set({ arrowStyle })}
@@ -1285,18 +1422,25 @@ function RectSection({
   style: AnnotationStyle;
   set: (p: Partial<AnnotationStyle>) => void;
 }) {
+  const t = usePanelT();
+  const isSpotlight = style.fill === "spotlight" || style.focusMode === "spotlight";
   return (
     <>
-      <ColorPicker value={style.color} onChange={(color) => set({ color })} />
-      <Separator />
-      <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
-      <Separator />
+      {!isSpotlight && (
+        <>
+          <ColorPicker value={style.color} onChange={(color) => set({ color })} />
+          <Separator />
+          <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
+          <Separator />
+        </>
+      )}
       <ToggleGroup
         options={[
-          { value: "hollow", label: PanelIcon(Square), title: "Hollow" },
-          { value: "solid", label: <FilledSquareIcon />, title: "Filled" },
+          { value: "hollow", label: PanelIcon(Square), title: t("annotation.hollow") },
+          { value: "solid", label: <FilledSquareIcon />, title: t("annotation.filled") },
+          { value: "spotlight", label: <SpotlightSquareIcon />, title: t("annotation.focus") },
         ]}
-        value={style.fill ?? "hollow"}
+        value={isSpotlight ? "spotlight" : (style.fill ?? "hollow")}
         onChange={(fill) => set({ fill })}
       />
       <Separator />
@@ -1304,7 +1448,6 @@ function RectSection({
         value={style.cornerRadius ?? 0}
         onChange={(cornerRadius) => set({ cornerRadius })}
       />
-      <FocusControls style={style} set={set} />
     </>
   );
 }
@@ -1316,21 +1459,27 @@ function EllipseSection({
   style: AnnotationStyle;
   set: (p: Partial<AnnotationStyle>) => void;
 }) {
+  const t = usePanelT();
+  const isSpotlight = style.fill === "spotlight" || style.focusMode === "spotlight";
   return (
     <>
-      <ColorPicker value={style.color} onChange={(color) => set({ color })} />
-      <Separator />
-      <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
-      <Separator />
+      {!isSpotlight && (
+        <>
+          <ColorPicker value={style.color} onChange={(color) => set({ color })} />
+          <Separator />
+          <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
+          <Separator />
+        </>
+      )}
       <ToggleGroup
         options={[
-          { value: "hollow", label: PanelIcon(Circle), title: "Hollow" },
-          { value: "solid", label: <FilledCircleIcon />, title: "Filled" },
+          { value: "hollow", label: PanelIcon(Circle), title: t("annotation.hollow") },
+          { value: "solid", label: <FilledCircleIcon />, title: t("annotation.filled") },
+          { value: "spotlight", label: <SpotlightCircleIcon />, title: t("annotation.focus") },
         ]}
-        value={style.fill ?? "hollow"}
+        value={isSpotlight ? "spotlight" : (style.fill ?? "hollow")}
         onChange={(fill) => set({ fill })}
       />
-      <FocusControls style={style} set={set} />
     </>
   );
 }
@@ -1341,6 +1490,7 @@ function getFontStyleForOption(fontValue: string): CSSProperties {
 }
 
 function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const t = usePanelT();
   const [fonts, setFonts] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
@@ -1348,6 +1498,7 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const [tooltipVisible, setTooltipVisible] = useState(false);
 
   useEffect(() => {
@@ -1362,6 +1513,10 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
     }
   }, [open]);
 
+  useLayoutEffect(() => {
+    if (open) scrollSelectedOptionIntoView(listRef.current);
+  }, [fonts.length, open, searchQuery, value]);
+
   const handleOpen = () => {
     if (!open && ref.current) {
       const rect = ref.current.getBoundingClientRect();
@@ -1373,7 +1528,7 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
     }
   };
 
-  const systemFontName = getSystemFontDisplayName();
+  const systemFontName = t("annotation.systemFont");
   const allOptions = [
     { value: SYSTEM_FONT_VALUE, label: systemFontName },
     ...fonts.map((f) => ({ value: f, label: f })),
@@ -1386,7 +1541,7 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
     : allOptions;
 
   const selectedLabel = allOptions.find((o) => o.value === value)?.label ?? value;
-  const title = `Font: ${selectedLabel}`;
+  const title = t("annotation.font", { font: selectedLabel });
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
@@ -1425,7 +1580,7 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
           <input
             ref={searchInputRef}
             type="text"
-            placeholder="Search fonts..."
+            placeholder={t("annotation.searchFonts")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -1450,6 +1605,7 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
             }}
           />
           <div
+            ref={listRef}
             data-testid="annotation-font-list"
             className="flashot-dark-scrollbar"
             style={{
@@ -1461,13 +1617,14 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
           >
             {filteredOptions.length === 0 ? (
               <div style={{ padding: "8px", color: "rgba(255,255,255,0.5)", fontSize: 11, textAlign: "center" }}>
-                No fonts found
+                {t("annotation.noFontsFound")}
               </div>
             ) : (
               filteredOptions.map((opt) => (
                 <button
                   key={opt.value}
                   type="button"
+                  data-selected={opt.value === value ? "true" : undefined}
                   onClick={() => { onChange(opt.value); setOpen(false); }}
                   style={{
                     ...btnBase,
@@ -1524,24 +1681,28 @@ function MarkerSection({
   style: AnnotationStyle;
   set: (p: Partial<AnnotationStyle>) => void;
 }) {
+  const t = usePanelT();
+  const currentMarkerNumber = useAnnotation((s) => s.currentMarkerNumber);
+  const setCurrentMarkerNumber = useAnnotation((s) => s.setCurrentMarkerNumber);
   return (
     <>
       <ColorPicker
-        label="Marker fill"
+        label={t("annotation.markerFill")}
         value={style.markerFill ?? style.color}
         onChange={(markerFill) => set({ markerFill })}
       />
       <Separator />
-      <ColorPicker
-        label="Marker text color"
-        value={style.markerTextColor ?? "#ffffff"}
-        onChange={(markerTextColor) => set({ markerTextColor })}
-      />
+      <FontSizeDropdown value={style.fontSize ?? MARKER_DEFAULT_FONT_SIZE} onChange={(fontSize) => set({ fontSize })} />
       <Separator />
-      <ColorPicker
-        label="Marker bubble background"
-        value={style.markerBubbleFill ?? "#111827"}
-        onChange={(markerBubbleFill) => set({ markerBubbleFill })}
+      <IntegerNumberControl
+        label={t("annotation.markerNumber")}
+        value={currentMarkerNumber}
+        onChange={setCurrentMarkerNumber}
+        min={MARKER_NUMBER_MIN}
+        max={MARKER_NUMBER_MAX}
+        step={1}
+        minTooltip={t("annotation.markerNumberMin")}
+        maxTooltip={t("annotation.markerNumberMax")}
       />
     </>
   );
@@ -1554,37 +1715,22 @@ function MagnifierSection({
   style: AnnotationStyle;
   set: (p: Partial<AnnotationStyle>) => void;
 }) {
+  const t = usePanelT();
   return (
     <>
       <DropdownSelect<MagnifierShape>
-        title="Magnifier shape"
+        title={t("annotation.magnifierShape")}
         options={[
-          { value: "circle", label: "Circle", icon: PanelIcon(Circle) },
-          { value: "rounded-rect", label: "Rounded rectangle lens", icon: <RoundedRectLensIcon /> },
+          { value: "circle", label: t("annotation.circle"), icon: PanelIcon(Circle) },
+          { value: "rounded-rect", label: t("annotation.roundedRectangleLens"), icon: PanelIcon(Square) },
         ]}
         value={style.magnifierShape ?? "circle"}
         onChange={(magnifierShape) => set({ magnifierShape })}
       />
       <Separator />
       <MagnifierZoomDropdown
-        value={style.magnifierZoom ?? 1.5}
+        value={style.magnifierZoom ?? 2}
         onChange={(magnifierZoom) => set({ magnifierZoom })}
-      />
-      <Separator />
-      <ColorPicker
-        label="Magnifier border color"
-        value={style.magnifierBorderColor ?? "#ffffff"}
-        onChange={(magnifierBorderColor) => set({ magnifierBorderColor })}
-      />
-      <Separator />
-      <MagnifierBorderWidthDropdown
-        value={style.magnifierBorderWidth ?? 2}
-        onChange={(magnifierBorderWidth) => set({ magnifierBorderWidth })}
-      />
-      <Separator />
-      <MagnifierCornerRadiusDropdown
-        value={style.magnifierCornerRadius ?? 12}
-        onChange={(magnifierCornerRadius) => set({ magnifierCornerRadius })}
       />
     </>
   );
@@ -1597,6 +1743,7 @@ function BlurSection({
   style: AnnotationStyle;
   set: (p: Partial<AnnotationStyle>) => void;
 }) {
+  const t = usePanelT();
   const mode = style.blurMode ?? "mosaic";
   const showIntensity = mode === "mosaic" || mode === "gaussian";
   const showColorPicker = mode === "solid";
@@ -1605,9 +1752,9 @@ function BlurSection({
     <>
       <ToggleGroup
         options={[
-          { value: "mosaic", label: <MosaicIcon />, title: "Mosaic" },
-          { value: "gaussian", label: <GaussianIcon />, title: "Gaussian Blur" },
-          { value: "solid", label: <SolidIcon />, title: "Solid Color" },
+          { value: "mosaic", label: <MosaicIcon />, title: t("annotation.mosaic") },
+          { value: "gaussian", label: <GaussianIcon />, title: t("annotation.gaussianBlur") },
+          { value: "solid", label: <SolidIcon />, title: t("annotation.solidColor") },
         ]}
         value={mode}
         onChange={(blurMode) => set({ blurMode })}
@@ -1621,7 +1768,7 @@ function BlurSection({
       {showIntensity && (
         <>
           <Separator />
-          <NumberStepper label="Strength" title="Blur intensity" value={style.blurIntensity ?? 10} onChange={(blurIntensity) => set({ blurIntensity })} min={3} max={30} step={1} suffix="" />
+          <NumberStepper label={t("annotation.strength")} title={t("annotation.blurIntensity")} value={style.blurIntensity ?? 10} onChange={(blurIntensity) => set({ blurIntensity })} min={3} max={30} step={1} suffix="" />
         </>
       )}
     </>
@@ -1635,6 +1782,7 @@ function HighlightSection({
   style: AnnotationStyle;
   set: (p: Partial<AnnotationStyle>) => void;
 }) {
+  const t = usePanelT();
   return (
     <>
       <ColorPicker value={style.color} onChange={(color) => set({ color })} />
@@ -1648,8 +1796,8 @@ function HighlightSection({
       <Separator />
       <ToggleGroup
         options={[
-          { value: "freehand", label: PanelIcon(PencilLine), title: "Freehand highlight" },
-          { value: "straight", label: PanelIcon(Minus), title: "Straight highlight" },
+          { value: "freehand", label: PanelIcon(PencilLine), title: t("annotation.freehandHighlight") },
+          { value: "straight", label: PanelIcon(Minus), title: t("annotation.straightHighlight") },
         ]}
         value={style.highlightMode ?? "freehand"}
         onChange={(highlightMode) => set({ highlightMode })}
@@ -1665,16 +1813,26 @@ type Props = {
   style?: CSSProperties;
   object?: AnnotationObject;
   panelRef?: Ref<HTMLDivElement>;
+  locale?: Locale;
 };
 
-export function PropertyPanel({ tool, style: containerStyle, object, panelRef }: Props) {
+export function PropertyPanel({ tool, style: containerStyle, object, panelRef, locale = "en" }: Props) {
+  const t = createTranslator(locale);
   const activeStyle = useAnnotation((s) => s.activeStyle);
   const setActiveStyle = useAnnotation((s) => s.setActiveStyle);
   const modifyStyle = useAnnotation((s) => s.modifyStyle);
+  const resizeObject = useAnnotation((s) => s.resizeObject);
   const style = object?.style ?? activeStyle;
   const set = (partial: Partial<AnnotationStyle>) => {
     if (object) {
       modifyStyle(object.id, partial);
+      if (object.type === "measure" && partial.measureMode === "axis") {
+        const next = constrainMeasureObjectToAxisAroundMidpoint({
+          ...object,
+          style: { ...object.style, ...partial },
+        });
+        resizeObject(object.id, { start: next.start, end: next.end });
+      }
       return;
     }
     setActiveStyle(partial);
@@ -1683,23 +1841,25 @@ export function PropertyPanel({ tool, style: containerStyle, object, panelRef }:
   if (tool === "select") return null;
 
   return (
-    <div
-      ref={panelRef}
-      data-annotation-property-panel
-      style={{ ...panelStyle, ...containerStyle }}
-      onMouseDown={(e) => e.stopPropagation()}
-    >
-      {tool === "draw" && <PenSection style={style} set={set} />}
-      {tool === "line" && <LineSection style={style} set={set} />}
-      {tool === "measure" && <MeasureSection style={style} set={set} />}
-      {tool === "arrow" && <ArrowSection style={style} set={set} />}
-      {tool === "rect" && <RectSection style={style} set={set} />}
-      {tool === "ellipse" && <EllipseSection style={style} set={set} />}
-      {tool === "text" && <TextSection style={style} set={set} />}
-      {tool === "marker" && <MarkerSection style={style} set={set} />}
-      {tool === "magnifier" && <MagnifierSection style={style} set={set} />}
-      {tool === "blur" && <BlurSection style={style} set={set} />}
-      {tool === "highlight" && <HighlightSection style={style} set={set} />}
-    </div>
+    <PropertyPanelI18nContext.Provider value={t}>
+      <div
+        ref={panelRef}
+        data-annotation-property-panel
+        style={{ ...panelStyle, ...containerStyle }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {tool === "draw" && <PenSection style={style} set={set} />}
+        {tool === "line" && <LineSection style={style} set={set} />}
+        {tool === "measure" && <MeasureSection style={style} set={set} />}
+        {tool === "arrow" && <ArrowSection style={style} set={set} />}
+        {tool === "rect" && <RectSection style={style} set={set} />}
+        {tool === "ellipse" && <EllipseSection style={style} set={set} />}
+        {tool === "text" && <TextSection style={style} set={set} />}
+        {tool === "marker" && <MarkerSection style={style} set={set} />}
+        {tool === "magnifier" && <MagnifierSection style={style} set={set} />}
+        {tool === "blur" && <BlurSection style={style} set={set} />}
+        {tool === "highlight" && <HighlightSection style={style} set={set} />}
+      </div>
+    </PropertyPanelI18nContext.Provider>
   );
 }

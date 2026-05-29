@@ -36,19 +36,49 @@ describe("FrozenLayer", () => {
     );
   });
 
-  it("applies image adjustment preview filters only to the frozen base image", () => {
+  it("applies image adjustment previews through an adjusted overlay layer", () => {
     useOverlay.getState().setImageAdjustments({
       grayscale: true,
       brightness: 25,
       contrast: -20,
       saturation: 35,
-      sharpness: 40,
     });
 
     const { container } = render(<FrozenLayer />);
+    const baseImage = container.querySelector<HTMLImageElement>("img[data-frozen-layer]");
+    const previewImage = container.querySelector("svg[data-adjusted-frozen-layer] image");
 
-    expect(container.querySelector("img")?.style.filter).toBe(
-      "grayscale(1) brightness(1.25) contrast(0.8) saturate(1.35)",
-    );
+    expect(baseImage?.style.filter).toBe("");
+    expect(previewImage?.getAttribute("href")).toBe(baseImage?.getAttribute("src"));
+    expect(previewImage?.getAttribute("filter")).toBe("url(#preview-image-adjustments-filter)");
+    expect(container.querySelector("feColorMatrix")).not.toBeNull();
+    expect(container.querySelector("feComponentTransfer")).not.toBeNull();
+    expect(container.querySelector("feConvolveMatrix")).toBeNull();
+  });
+
+  it("limits the adjusted preview layer to the committed selection", () => {
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    useOverlay.getState().commit(selection);
+    useOverlay.getState().setImageAdjustments({ brightness: 40 });
+
+    const { container } = render(<FrozenLayer />);
+    const preview = container.querySelector<SVGSVGElement>("svg[data-adjusted-frozen-layer]");
+    const image = preview?.querySelector("image");
+    const filter = preview?.querySelector("filter");
+
+    expect(preview?.style.left).toBe("100px");
+    expect(preview?.style.top).toBe("120px");
+    expect(preview?.style.width).toBe("240px");
+    expect(preview?.style.height).toBe("160px");
+    expect(preview?.getAttribute("viewBox")).toBe("0 0 240 160");
+    expect(image?.getAttribute("x")).toBe("-100");
+    expect(image?.getAttribute("y")).toBe("-120");
+    expect(image?.getAttribute("width")).toBe("800");
+    expect(image?.getAttribute("height")).toBe("600");
+    expect(filter?.getAttribute("filterUnits")).toBe("userSpaceOnUse");
+    expect(filter?.getAttribute("x")).toBe("0");
+    expect(filter?.getAttribute("y")).toBe("0");
+    expect(filter?.getAttribute("width")).toBe("240");
+    expect(filter?.getAttribute("height")).toBe("160");
   });
 });

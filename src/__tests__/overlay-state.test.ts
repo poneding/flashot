@@ -220,20 +220,16 @@ describe("overlay image adjustments", () => {
   it("clamps numeric adjustments and resets them on request", () => {
     useOverlay.getState().setImageAdjustments({
       grayscale: true,
-      autoLevels: true,
       brightness: 180,
       contrast: -180,
       saturation: 240,
-      sharpness: -20,
     });
 
     expect(useOverlay.getState().imageAdjustments).toEqual({
       grayscale: true,
-      autoLevels: true,
       brightness: 100,
       contrast: -100,
       saturation: 100,
-      sharpness: 0,
     });
 
     useOverlay.getState().resetImageAdjustments();
@@ -246,11 +242,9 @@ describe("overlay image adjustments", () => {
 
     expect(frozenLayerFilterForImageAdjustments({
       grayscale: true,
-      autoLevels: false,
       brightness: 25,
       contrast: -20,
       saturation: 35,
-      sharpness: 40,
-    })).toBe("grayscale(1) brightness(1.25) contrast(0.8) saturate(1.35)");
+    })).toBe("url(#preview-image-adjustments-filter)");
   });
 });

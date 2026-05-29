@@ -1,14 +1,13 @@
+import { TooltipBubble } from "@/annotation/Tooltip";
+import { createTranslator, type Locale } from "@/i18n";
 import { useOverlay } from "@/overlay/state";
-import type { ImageAdjustments } from "@/lib/types";
 import {
+  Blend,
   Contrast,
-  Droplets,
-  RotateCcw,
-  Sparkles,
-  SunMedium,
+  Sun,
   type LucideIcon,
 } from "lucide-react";
-import type { CSSProperties, Ref } from "react";
+import { useRef, useState, type CSSProperties, type Ref } from "react";
 
 const PANEL_BACKGROUND = "rgba(30, 30, 30, 0.95)";
 
@@ -29,19 +28,6 @@ const panelStyle: CSSProperties = {
   zIndex: 10001,
 };
 
-const iconButtonStyle: CSSProperties = {
-  width: 28,
-  height: 28,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 0,
-  border: "none",
-  borderRadius: 6,
-  color: "rgba(255,255,255,0.78)",
-  cursor: "pointer",
-};
-
 const rowStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "20px 1fr 34px",
@@ -54,53 +40,33 @@ const rangeStyle: CSSProperties = {
   accentColor: "var(--flashot-accent)",
 };
 
-function ToggleButton({
-  label,
-  active,
-  onClick,
-  Icon,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  Icon: LucideIcon;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={active}
-      title={label}
-      onClick={onClick}
-      style={{
-        ...iconButtonStyle,
-        background: active ? "rgba(255,255,255,0.16)" : "transparent",
-      }}
-    >
-      <Icon size={16} aria-hidden="true" />
-    </button>
-  );
-}
-
 function SliderRow({
-  label,
+  displayLabel,
   value,
   min,
   max,
   onChange,
   Icon,
 }: {
-  label: keyof Pick<ImageAdjustments, "brightness" | "contrast" | "saturation" | "sharpness">;
+  displayLabel: string;
   value: number;
   min: number;
   max: number;
   onChange: (value: number) => void;
   Icon: LucideIcon;
 }) {
-  const displayLabel = label[0].toUpperCase() + label.slice(1);
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div style={rowStyle}>
+    <div
+      ref={rowRef}
+      onMouseEnter={() => setTooltipVisible(true)}
+      onMouseLeave={() => setTooltipVisible(false)}
+      onFocus={() => setTooltipVisible(true)}
+      onBlur={() => setTooltipVisible(false)}
+      style={rowStyle}
+    >
       <Icon size={16} aria-hidden="true" />
       <input
         type="range"
@@ -115,6 +81,7 @@ function SliderRow({
       <span aria-hidden="true" style={{ fontSize: 11, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
         {value}
       </span>
+      {tooltipVisible && <TooltipBubble label={displayLabel} anchorRef={rowRef} placement="left" />}
     </div>
   );
 }
@@ -122,13 +89,17 @@ function SliderRow({
 export function ImageAdjustmentsPanel({
   panelRef,
   style,
+  locale = "en",
 }: {
   panelRef?: Ref<HTMLDivElement>;
   style?: CSSProperties;
+  locale?: Locale;
 }) {
+  const t = createTranslator(locale);
   const adjustments = useOverlay((s) => s.imageAdjustments);
   const setImageAdjustments = useOverlay((s) => s.setImageAdjustments);
   const resetImageAdjustments = useOverlay((s) => s.resetImageAdjustments);
+  const [resetActive, setResetActive] = useState(false);
 
   return (
     <div
@@ -138,40 +109,16 @@ export function ImageAdjustmentsPanel({
       onMouseDown={(event) => event.stopPropagation()}
       style={{ ...panelStyle, ...style }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-        <ToggleButton
-          label="Grayscale"
-          active={adjustments.grayscale}
-          Icon={Droplets}
-          onClick={() => setImageAdjustments({ grayscale: !adjustments.grayscale })}
-        />
-        <ToggleButton
-          label="Auto enhance"
-          active={adjustments.autoLevels}
-          Icon={Sparkles}
-          onClick={() => setImageAdjustments({ autoLevels: !adjustments.autoLevels })}
-        />
-        <button
-          type="button"
-          aria-label="Reset image adjustments"
-          title="Reset image adjustments"
-          onClick={resetImageAdjustments}
-          style={{ ...iconButtonStyle, marginLeft: "auto", background: "transparent" }}
-        >
-          <RotateCcw size={16} aria-hidden="true" />
-        </button>
-      </div>
-
       <SliderRow
-        label="brightness"
+        displayLabel={t("imageAdjustments.brightness")}
         value={adjustments.brightness}
         min={-100}
         max={100}
-        Icon={SunMedium}
+        Icon={Sun}
         onChange={(brightness) => setImageAdjustments({ brightness })}
       />
       <SliderRow
-        label="contrast"
+        displayLabel={t("imageAdjustments.contrast")}
         value={adjustments.contrast}
         min={-100}
         max={100}
@@ -179,22 +126,62 @@ export function ImageAdjustmentsPanel({
         onChange={(contrast) => setImageAdjustments({ contrast })}
       />
       <SliderRow
-        label="saturation"
+        displayLabel={t("imageAdjustments.saturation")}
         value={adjustments.saturation}
         min={-100}
         max={100}
-        Icon={Droplets}
+        Icon={Blend}
         onChange={(saturation) => setImageAdjustments({ saturation })}
       />
-      <SliderRow
-        label="sharpness"
-        value={adjustments.sharpness}
-        min={0}
-        max={100}
-        Icon={Sparkles}
-        onChange={(sharpness) => setImageAdjustments({ sharpness })}
-      />
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          paddingTop: 4,
+        }}
+      >
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+            color: "rgba(255,255,255,0.82)",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={adjustments.grayscale}
+            onChange={(event) => setImageAdjustments({ grayscale: event.currentTarget.checked })}
+            style={{ accentColor: "var(--flashot-accent)" }}
+          />
+          <span>{t("imageAdjustments.grayscale")}</span>
+        </label>
+        <button
+          type="button"
+          onClick={resetImageAdjustments}
+          onMouseEnter={() => setResetActive(true)}
+          onMouseLeave={() => setResetActive(false)}
+          onFocus={() => setResetActive(true)}
+          onBlur={() => setResetActive(false)}
+          style={{
+            height: 24,
+            padding: "0 6px",
+            borderRadius: 6,
+            border: "1px solid transparent",
+            borderColor: resetActive ? "rgba(255,255,255,0.18)" : "transparent",
+            background: resetActive ? "rgba(255,255,255,0.08)" : "transparent",
+            color: "rgba(255,255,255,0.78)",
+            fontSize: 12,
+            cursor: "pointer",
+            transition: "background 0.1s, border-color 0.1s",
+          }}
+        >
+          {t("imageAdjustments.reset")}
+        </button>
+      </div>
     </div>
   );
 }
-

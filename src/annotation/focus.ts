@@ -3,9 +3,13 @@ import type { AnnotationObject, AnnotationStyle } from "@/annotation/types";
 
 export type StageSize = { width: number; height: number };
 
+export const FOCUS_MASK_NAME = "focus-mask";
+const FOCUS_DIM_COLOR = "#000000";
+const FOCUS_DIM_OPACITY = 0.5;
+
 type FocusKind = "rect" | "ellipse";
 
-type FocusAttrs = {
+export type FocusHole = {
   kind: FocusKind;
   x: number;
   y: number;
@@ -17,18 +21,72 @@ type FocusAttrs = {
   cornerRadius?: number;
 };
 
-function normalizedOpacity(style: AnnotationStyle): number {
-  const opacity = style.focusOpacity ?? 0.45;
-  if (!Number.isFinite(opacity)) return 0.45;
-  return Math.max(0, Math.min(1, opacity));
+export function isSpotlightStyle(style: AnnotationStyle): boolean {
+  return style.fill === "spotlight" || style.focusMode === "spotlight";
 }
 
 export function shouldRenderFocus(style: AnnotationStyle): boolean {
-  return style.focusMode === "spotlight" && normalizedOpacity(style) > 0;
+  return isSpotlightStyle(style);
 }
 
-function focusColor(style: AnnotationStyle): string {
-  return style.focusColor || "#000000";
+export function rectFocusHole(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  style: AnnotationStyle,
+  transform: AnnotationObject["transform"] = { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+): FocusHole {
+  return {
+    kind: "rect",
+    x: x + transform.x,
+    y: y + transform.y,
+    width,
+    height,
+    scaleX: transform.scaleX,
+    scaleY: transform.scaleY,
+    rotation: transform.rotation,
+    cornerRadius: style.cornerRadius ?? 0,
+  };
+}
+
+export function ellipseFocusHole(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  transform: AnnotationObject["transform"] = { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+): FocusHole {
+  return {
+    kind: "ellipse",
+    x: x + width / 2 + transform.x,
+    y: y + height / 2 + transform.y,
+    width,
+    height,
+    scaleX: transform.scaleX,
+    scaleY: transform.scaleY,
+    rotation: transform.rotation,
+  };
+}
+
+export function focusHoleFromObject(obj: AnnotationObject): FocusHole | null {
+  if (!isSpotlightStyle(obj.style)) return null;
+  const start = obj.start ?? { x: 0, y: 0 };
+  const end = obj.end ?? start;
+  const x = Math.min(start.x, end.x);
+  const y = Math.min(start.y, end.y);
+  const width = Math.abs(end.x - start.x);
+  const height = Math.abs(end.y - start.y);
+
+  if (obj.type === "rect") {
+    return rectFocusHole(x, y, width, height, obj.style, obj.transform);
+  }
+
+  if (obj.type === "ellipse") {
+    return ellipseFocusHole(x, y, width, height, obj.transform);
+  }
+
+  return null;
 }
 
 function roundedRectPath(ctx: CanvasRenderingContext2D, width: number, height: number, radius: number) {
@@ -49,7 +107,7 @@ function roundedRectPath(ctx: CanvasRenderingContext2D, width: number, height: n
   ctx.closePath();
 }
 
-function drawFocusHole(ctx: CanvasRenderingContext2D, attrs: FocusAttrs) {
+function drawFocusHole(ctx: CanvasRenderingContext2D, attrs: FocusHole) {
   ctx.save();
   ctx.translate(attrs.x, attrs.y);
   ctx.rotate((attrs.rotation * Math.PI) / 180);
@@ -67,23 +125,33 @@ function drawFocusHole(ctx: CanvasRenderingContext2D, attrs: FocusAttrs) {
 function drawFocusScene(context: Konva.Context, shape: Konva.Shape) {
   const stageWidth = shape.getAttr("focusStageWidth") as number;
   const stageHeight = shape.getAttr("focusStageHeight") as number;
-  const attrs = shape.getAttr("focusAttrs") as FocusAttrs | undefined;
-  if (!attrs || stageWidth <= 0 || stageHeight <= 0) return;
+  const holes = shape.getAttr("focusHoles") as FocusHole[] | undefined;
+  if (!holes?.length || stageWidth <= 0 || stageHeight <= 0) return;
 
   const ctx = context._context;
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, stageWidth, stageHeight);
-  drawFocusHole(ctx, attrs);
-  ctx.globalAlpha = shape.getAttr("focusOpacity") as number;
-  ctx.fillStyle = shape.getAttr("focusColor") as string;
+  holes.forEach((hole) => drawFocusHole(ctx, hole));
+  ctx.globalAlpha = FOCUS_DIM_OPACITY;
+  ctx.fillStyle = FOCUS_DIM_COLOR;
   ctx.fill("evenodd");
   ctx.restore();
 }
 
-function createFocusMask(stageSize: StageSize, style: AnnotationStyle, attrs: FocusAttrs): Konva.Shape {
+export function updateFocusMask(mask: Konva.Shape, stageSize: StageSize, holes: FocusHole[]) {
+  mask.setAttrs({
+    width: stageSize.width,
+    height: stageSize.height,
+    focusStageWidth: stageSize.width,
+    focusStageHeight: stageSize.height,
+    focusHoles: holes,
+  });
+}
+
+export function createFocusMask(stageSize: StageSize, holes: FocusHole[]): Konva.Shape {
   return new Konva.Shape({
-    name: "focus-mask",
+    name: FOCUS_MASK_NAME,
     x: 0,
     y: 0,
     width: stageSize.width,
@@ -92,58 +160,7 @@ function createFocusMask(stageSize: StageSize, style: AnnotationStyle, attrs: Fo
     perfectDrawEnabled: false,
     focusStageWidth: stageSize.width,
     focusStageHeight: stageSize.height,
-    focusAttrs: attrs,
-    focusColor: focusColor(style),
-    focusOpacity: normalizedOpacity(style),
+    focusHoles: holes,
     sceneFunc: drawFocusScene,
-  });
-}
-
-function createFocusGroup(obj: AnnotationObject, stageSize: StageSize, boundary: Konva.Shape, attrs: FocusAttrs): Konva.Group {
-  const group = new Konva.Group({ id: obj.id, draggable: true });
-  const mask = createFocusMask(stageSize, obj.style, attrs);
-
-  boundary.id("");
-  boundary.name(`${boundary.name()} focus-boundary`.trim());
-  boundary.draggable(false);
-
-  group.add(mask);
-  group.add(boundary);
-
-  return group;
-}
-
-export function createRectFocusMask(
-  obj: AnnotationObject,
-  stageSize: StageSize,
-  boundary: Konva.Rect,
-): Konva.Group {
-  return createFocusGroup(obj, stageSize, boundary, {
-    kind: "rect",
-    x: boundary.x(),
-    y: boundary.y(),
-    width: boundary.width(),
-    height: boundary.height(),
-    scaleX: boundary.scaleX(),
-    scaleY: boundary.scaleY(),
-    rotation: boundary.rotation(),
-    cornerRadius: obj.style.cornerRadius ?? 0,
-  });
-}
-
-export function createEllipseFocusMask(
-  obj: AnnotationObject,
-  stageSize: StageSize,
-  boundary: Konva.Ellipse,
-): Konva.Group {
-  return createFocusGroup(obj, stageSize, boundary, {
-    kind: "ellipse",
-    x: boundary.x(),
-    y: boundary.y(),
-    width: boundary.radiusX() * 2,
-    height: boundary.radiusY() * 2,
-    scaleX: boundary.scaleX(),
-    scaleY: boundary.scaleY(),
-    rotation: boundary.rotation(),
   });
 }

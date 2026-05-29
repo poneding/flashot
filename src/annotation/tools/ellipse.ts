@@ -2,7 +2,7 @@ import Konva from "konva";
 import { getLayer } from "@/annotation/Stage";
 import { useAnnotation } from "@/annotation/store";
 import type { AnnotationObject } from "@/annotation/types";
-import { createEllipseFocusMask, shouldRenderFocus, type StageSize } from "@/annotation/focus";
+import { isSpotlightStyle, type StageSize } from "@/annotation/focus";
 
 let startX = 0;
 let startY = 0;
@@ -17,6 +17,7 @@ export function onEllipseStart(x: number, y: number) {
   startY = y;
 
   const isSolid = activeStyle.fill === "solid";
+  const isSpotlight = isSpotlightStyle(activeStyle);
 
   currentEllipse = new Konva.Ellipse({
     x,
@@ -24,8 +25,8 @@ export function onEllipseStart(x: number, y: number) {
     radiusX: 0,
     radiusY: 0,
     fill: isSolid ? activeStyle.color : "rgba(0,0,0,0)",
-    stroke: isSolid ? undefined : activeStyle.color,
-    strokeWidth: isSolid ? 0 : activeStyle.strokeWidth,
+    stroke: isSolid || isSpotlight ? undefined : activeStyle.color,
+    strokeWidth: isSolid || isSpotlight ? 0 : activeStyle.strokeWidth,
     strokeScaleEnabled: false,
     listening: false,
   });
@@ -95,6 +96,7 @@ export function renderEllipseObject(obj: AnnotationObject, stageSize?: StageSize
   const ry = Math.abs(end.y - start.y) / 2;
 
   const isSolid = obj.style.fill === "solid";
+  const isSpotlight = isSpotlightStyle(obj.style);
 
   const node = new Konva.Ellipse({
     id: obj.id,
@@ -107,14 +109,12 @@ export function renderEllipseObject(obj: AnnotationObject, stageSize?: StageSize
     radiusX: rx,
     radiusY: ry,
     fill: isSolid ? obj.style.color : "rgba(0,0,0,0)",
-    stroke: isSolid ? undefined : obj.style.color,
-    strokeWidth: isSolid ? 0 : obj.style.strokeWidth,
+    stroke: isSolid || isSpotlight ? undefined : obj.style.color,
+    strokeWidth: isSolid || isSpotlight ? 0 : obj.style.strokeWidth,
     strokeScaleEnabled: false,
   });
 
-  if (stageSize && shouldRenderFocus(obj.style)) {
-    return createEllipseFocusMask(obj, stageSize, node);
-  }
+  void stageSize;
 
   return node;
 }

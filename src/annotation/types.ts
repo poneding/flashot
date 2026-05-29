@@ -21,11 +21,12 @@ export type LineShape = "straight" | "wavy";
 export type LineStyle = "solid" | "dotted" | "dashed";
 export type ArrowDirection = "none" | "start" | "end" | "both";
 export type ArrowStyle = "v-shape" | "filled-triangle";
-export type FillMode = "hollow" | "solid";
+export type FillMode = "hollow" | "solid" | "spotlight";
 export type BlurMode = "mosaic" | "gaussian" | "solid";
 export type HighlightMode = "freehand" | "straight";
 export type FocusMode = "none" | "spotlight";
 export type MagnifierShape = "circle" | "rounded-rect";
+export type MeasureMode = "free" | "axis";
 
 export type AnnotationStyle = {
   color: string;
@@ -46,6 +47,7 @@ export type AnnotationStyle = {
   focusMode?: FocusMode;
   focusOpacity?: number;
   focusColor?: string;
+  measureMode?: MeasureMode;
   markerFill?: string;
   markerTextColor?: string;
   markerBubbleFill?: string;
@@ -116,15 +118,11 @@ export const DEFAULT_STYLE: AnnotationStyle = {
   blurSolidColor: "#000000",
   highlightMode: "freehand",
   opacity: 0.35,
-  focusMode: "none",
-  focusOpacity: 0.45,
-  focusColor: "#000000",
+  measureMode: "free",
   markerFill: "#ff0000",
-  markerTextColor: "#ffffff",
-  markerBubbleFill: "#111827",
   magnifierShape: "circle",
-  magnifierZoom: 1.5,
-  magnifierBorderColor: "#ffffff",
-  magnifierBorderWidth: 2,
+  magnifierZoom: 2,
+  magnifierBorderColor: "#9CA3AF",
+  magnifierBorderWidth: 8,
   magnifierCornerRadius: 12,
 };

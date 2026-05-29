@@ -8,6 +8,39 @@ let startX = 0;
 let startY = 0;
 let currentRect: Konva.Rect | null = null;
 
+export function blurSampleRectForObject(obj: AnnotationObject): { x: number; y: number; width: number; height: number } {
+  const start = obj.start ?? { x: 0, y: 0 };
+  const end = obj.end ?? { x: 0, y: 0 };
+  const transform = obj.transform;
+  const baseX = Math.min(start.x, end.x) + transform.x;
+  const baseY = Math.min(start.y, end.y) + transform.y;
+  const baseWidth = Math.abs(end.x - start.x);
+  const baseHeight = Math.abs(end.y - start.y);
+  const width = baseWidth * Math.abs(transform.scaleX);
+  const height = baseHeight * Math.abs(transform.scaleY);
+
+  return {
+    x: transform.scaleX < 0 ? baseX - width : baseX,
+    y: transform.scaleY < 0 ? baseY - height : baseY,
+    width,
+    height,
+  };
+}
+
+export function blurResizeUpdatesFromNode(node: Konva.Node): Partial<AnnotationObject> {
+  const shape = node as Konva.Shape;
+  const width = Math.max(1, shape.width() * Math.abs(node.scaleX()));
+  const height = Math.max(1, shape.height() * Math.abs(node.scaleY()));
+  const x = node.scaleX() < 0 ? node.x() - width : node.x();
+  const y = node.scaleY() < 0 ? node.y() - height : node.y();
+
+  return {
+    start: { x, y },
+    end: { x: x + width, y: y + height },
+    transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+  };
+}
+
 function pixelate(imageData: ImageData, blockSize: number): ImageData {
   const { data, width, height } = imageData;
   const out = new ImageData(width, height);
@@ -173,24 +206,55 @@ export function onBlurEnd(x: number, y: number): AnnotationObject | null {
 }
 
 export function renderBlurObject(obj: AnnotationObject): Konva.Image | Konva.Rect | null {
-  const start = obj.start ?? { x: 0, y: 0 };
-  const end = obj.end ?? { x: 0, y: 0 };
-  const transform = obj.transform;
-  const w = end.x - start.x;
-  const h = end.y - start.y;
-  if (w < 1 || h < 1) return null;
+  const rect = blurSampleRectForObject(obj);
+  if (rect.width < 1 || rect.height < 1) return null;
   const mode = obj.style.blurMode ?? "mosaic";
   const intensity = obj.style.blurIntensity ?? 10;
   const solidColor = obj.style.blurSolidColor;
-  const node = applyBlur(start.x, start.y, w, h, mode, intensity, solidColor);
+  const node = applyBlur(rect.x, rect.y, rect.width, rect.height, mode, intensity, solidColor);
   if (!node) return null;
   node.id(obj.id);
-  node.x(start.x + transform.x);
-  node.y(start.y + transform.y);
-  node.scaleX(transform.scaleX);
-  node.scaleY(transform.scaleY);
-  node.rotation(transform.rotation);
+  node.scaleX(1);
+  node.scaleY(1);
+  node.rotation(0);
   node.listening(true);
   node.draggable(true);
   return node;
+}
+
+export function refreshBlurObjectNode(node: Konva.Node, obj: AnnotationObject): boolean {
+  const rect = blurSampleRectForObject(obj);
+  const mode = obj.style.blurMode ?? "mosaic";
+  const intensity = obj.style.blurIntensity ?? 10;
+  const solidColor = obj.style.blurSolidColor;
+
+  if (mode === "solid" && node instanceof Konva.Rect) {
+    node.setAttrs({
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      fill: solidColor ?? "#000000",
+      scaleX: 1,
+      scaleY: 1,
+      rotation: 0,
+    });
+    return true;
+  }
+
+  if (!(node instanceof Konva.Image)) return false;
+  const nextNode = applyBlur(rect.x, rect.y, rect.width, rect.height, mode, intensity, solidColor);
+  if (!(nextNode instanceof Konva.Image)) return false;
+
+  node.setAttrs({
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+    image: nextNode.image(),
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+  });
+  return true;
 }

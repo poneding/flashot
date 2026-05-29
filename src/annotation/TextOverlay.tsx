@@ -18,9 +18,10 @@ type Props = {
   onCancel: () => void;
   editingObject?: AnnotationObject | null;
   flushRef?: MutableRefObject<(() => void) | null>;
+  viewportOrigin?: { x: number; y: number };
 };
 
-export function TextOverlay({ position, selection, onConfirm, onCancel, editingObject, flushRef }: Props) {
+export function TextOverlay({ position, selection, onConfirm, onCancel, editingObject, flushRef, viewportOrigin }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { activeStyle } = useAnnotation.getState();
   const style = normalizeTextStyle(editingObject?.style ?? activeStyle);
@@ -31,10 +32,11 @@ export function TextOverlay({ position, selection, onConfirm, onCancel, editingO
   const fontSize = style.fontSize ?? 24;
   const editorHeight = textEditorHeight(fontSize);
   const fontFamily = resolveTextFontFamily(style.fontFamily);
+  const origin = viewportOrigin ?? { x: selection.x, y: selection.y };
   const editorPosition = editingObject?.start
     ? {
-        x: selection.x + editingObject.start.x + editingObject.transform.x,
-        y: selection.y + editingObject.start.y + editingObject.transform.y,
+        x: origin.x + editingObject.start.x + editingObject.transform.x,
+        y: origin.y + editingObject.start.y + editingObject.transform.y,
       }
     : {
         x: position.x,
@@ -108,7 +110,7 @@ export function TextOverlay({ position, selection, onConfirm, onCancel, editingO
     const obj: AnnotationObject = {
       id: editingObject?.id ?? crypto.randomUUID(),
       type: "text",
-      start: editingObject?.start ?? { x: editorPosition.x - selection.x, y: editorPosition.y - selection.y },
+      start: editingObject?.start ?? { x: editorPosition.x - origin.x, y: editorPosition.y - origin.y },
       text,
       style: { ...style },
       transform: editingObject?.transform ?? { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },

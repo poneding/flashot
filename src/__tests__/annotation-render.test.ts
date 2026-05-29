@@ -10,6 +10,7 @@ import { highlightMaskPixelRatio, renderHighlightObject } from "@/annotation/too
 import { lineControlPoint, renderLineObject } from "@/annotation/tools/line";
 import { renderMeasureObject } from "@/annotation/tools/measure";
 import { renderRectObject } from "@/annotation/tools/rect";
+import { blurSampleRectForObject } from "@/annotation/tools/blur";
 import { renderObject } from "@/annotation/render";
 import { renderTextObject } from "@/annotation/tools/text";
 import type { AnnotationObject } from "@/annotation/types";
@@ -74,46 +75,36 @@ describe("annotation object rendering", () => {
     expect(node.strokeScaleEnabled()).toBe(false);
   });
 
-  it("renders focused rectangles as a mask group preserving the object id", () => {
+  it("renders spotlight rectangles as borderless transparent hit targets", () => {
     const node = renderRectObject(object({
       type: "rect",
       style: {
         color: "#ff0000",
         strokeWidth: 4,
-        fill: "hollow",
-        focusMode: "spotlight",
-        focusOpacity: 0.6,
-        focusColor: "#111111",
+        fill: "spotlight",
       },
-    }), { width: 320, height: 180 });
+    }));
 
-    expect(node).toBeInstanceOf(Konva.Group);
-    const group = node as unknown as Konva.Group;
-
-    expect(group.id()).toBe("object-1");
-    expect(group.findOne(".focus-mask")).toBeInstanceOf(Konva.Shape);
-    expect(group.findOne(".focus-boundary")).toBeInstanceOf(Konva.Rect);
+    expect(node).toBeInstanceOf(Konva.Rect);
+    expect(node.id()).toBe("object-1");
+    expect(node.fill()).toBe("rgba(0,0,0,0)");
+    expect(node.strokeWidth()).toBe(0);
   });
 
-  it("renders focused ellipses as a mask group preserving the object id", () => {
+  it("renders spotlight ellipses as borderless transparent hit targets", () => {
     const node = renderEllipseObject(object({
       type: "ellipse",
       style: {
         color: "#ff0000",
         strokeWidth: 4,
-        fill: "hollow",
-        focusMode: "spotlight",
-        focusOpacity: 0.5,
-        focusColor: "#000000",
+        fill: "spotlight",
       },
-    }), { width: 320, height: 180 });
+    }));
 
-    expect(node).toBeInstanceOf(Konva.Group);
-    const group = node as unknown as Konva.Group;
-
-    expect(group.id()).toBe("object-1");
-    expect(group.findOne(".focus-mask")).toBeInstanceOf(Konva.Shape);
-    expect(group.findOne(".focus-boundary")).toBeInstanceOf(Konva.Ellipse);
+    expect(node).toBeInstanceOf(Konva.Ellipse);
+    expect(node.id()).toBe("object-1");
+    expect(node.fill()).toBe("rgba(0,0,0,0)");
+    expect(node.strokeWidth()).toBe(0);
   });
 
   it("renders empty markers as a numbered badge without a bubble", () => {
@@ -160,9 +151,64 @@ describe("annotation object rendering", () => {
 
     expect(node).toBeInstanceOf(Konva.Group);
     const group = node as Konva.Group;
+    const bubble = group.findOne(".marker-bubble") as Konva.Rect;
+    const pointer = group.findOne(".marker-bubble-pointer") as Konva.Line;
+    const text = group.findOne(".marker-bubble-text") as Konva.Text;
 
-    expect(group.findOne(".marker-bubble")).toBeInstanceOf(Konva.Rect);
-    expect((group.findOne(".marker-bubble-text") as Konva.Text).text()).toBe("Review this");
+    expect(bubble).toBeInstanceOf(Konva.Rect);
+    expect(pointer).toBeInstanceOf(Konva.Line);
+    expect(text.text()).toBe("Review this");
+    expect(bubble.fill()).toBe("#111827");
+    expect(bubble.strokeEnabled()).toBe(false);
+    expect(bubble.strokeWidth()).toBe(0);
+    expect(pointer.fill()).toBe("#111827");
+    expect(pointer.strokeEnabled()).toBe(false);
+    expect(pointer.strokeWidth()).toBe(0);
+    expect(text.fill()).toBe("#ffffff");
+  });
+
+  it("uses marker font size for the marker note bubble", () => {
+    const node = renderObject(object({
+      id: "marker-3",
+      type: "marker",
+      start: { x: 30, y: 40 },
+      markerNumber: 3,
+      text: "Larger note",
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        markerFill: "#ff6600",
+        fontSize: 20,
+      },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    })) as Konva.Group;
+
+    const text = node.findOne(".marker-bubble-text") as Konva.Text;
+
+    expect(text.fontSize()).toBe(20);
+  });
+
+  it("uses marker font size for the numbered marker badge", () => {
+    const node = renderObject(object({
+      id: "marker-4",
+      type: "marker",
+      start: { x: 30, y: 40 },
+      markerNumber: 4,
+      text: "",
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        markerFill: "#ff6600",
+        fontSize: 20,
+      },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    })) as Konva.Group;
+
+    const badge = node.findOne(".marker-badge") as Konva.Circle;
+    const number = node.findOne(".marker-number") as Konva.Text;
+
+    expect(number.fontSize()).toBe(20);
+    expect(badge.radius()).toBeGreaterThan(12);
   });
 
   it("renders circle magnifiers with a clipped composited image and border", () => {
@@ -210,7 +256,60 @@ describe("annotation object rendering", () => {
     expect((group.findOne(".magnifier-image") as Konva.Image).image()).toBe(sourceImage);
   });
 
-  it("renders rounded-rectangle magnifiers with a clipped composited image and border", () => {
+  it("uses a fixed inward-fading gray border for magnifiers", () => {
+    const node = renderObject(object({
+      id: "magnifier-default-border",
+      type: "magnifier",
+      start: { x: 40, y: 50 },
+      end: { x: 140, y: 150 },
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        magnifierShape: "circle",
+      },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    })) as Konva.Group;
+    const rings = node.find(".magnifier-border-ring") as Konva.Circle[];
+
+    expect(rings).toHaveLength(4);
+    expect(rings.map((ring) => ring.stroke())).toEqual([
+      "rgba(156, 163, 175, 0.72)",
+      "rgba(156, 163, 175, 0.5)",
+      "rgba(156, 163, 175, 0.3)",
+      "rgba(156, 163, 175, 0.14)",
+    ]);
+    expect(rings.every((ring) => ring.strokeWidth() === 1)).toBe(true);
+  });
+
+  it("keeps circle magnifier bounds square so selection follows the visible lens", () => {
+    const node = renderObject(object({
+      id: "magnifier-wide-circle",
+      type: "magnifier",
+      start: { x: 40, y: 50 },
+      end: { x: 160, y: 130 },
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        magnifierShape: "circle",
+        magnifierZoom: 2,
+        magnifierBorderColor: "#0099ff",
+        magnifierBorderWidth: 3,
+      },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    })) as Konva.Group;
+    const rings = node.find(".magnifier-border-ring") as Konva.Circle[];
+    const outerRing = rings[0];
+
+    expect(node.x()).toBe(60);
+    expect(node.y()).toBe(50);
+    expect(node.width()).toBe(80);
+    expect(node.height()).toBe(80);
+    expect(outerRing.x()).toBe(40);
+    expect(outerRing.y()).toBe(40);
+    expect(outerRing.radius()).toBe(39.5);
+  });
+
+  it("renders rectangular magnifiers with a clipped composited image and square border", () => {
     const sourceImage = new Image();
     const node = renderObject(object({
       id: "magnifier-2",
@@ -244,7 +343,116 @@ describe("annotation object rendering", () => {
     expect(group.findOne(".magnifier-clip")).toBeInstanceOf(Konva.Group);
     expect(group.findOne(".magnifier-image")).toBeInstanceOf(Konva.Image);
     expect(border).toBeInstanceOf(Konva.Rect);
-    expect(border.cornerRadius()).toBe(16);
+    expect(border.cornerRadius()).toBe(0);
+  });
+
+  it("samples transformed magnifiers from their visual position", () => {
+    const sourceImage = new Image();
+    const node = renderObject(object({
+      id: "magnifier-transformed",
+      type: "magnifier",
+      start: { x: 40, y: 50 },
+      end: { x: 140, y: 150 },
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        magnifierShape: "circle",
+        magnifierZoom: 1.5,
+      },
+      transform: { x: 20, y: 10, scaleX: 1, scaleY: 1, rotation: 0 },
+    }), {
+      stageSize: { width: 320, height: 180 },
+      magnifier: {
+        sourceImage,
+        stageSize: { width: 320, height: 180 },
+        scaleFactor: 1,
+        objects: [],
+      },
+    }) as Konva.Group;
+
+    const content = node.findOne(".magnifier-content") as Konva.Group;
+
+    expect(content.x()).toBe(-170);
+    expect(content.y()).toBe(-170);
+  });
+
+  it("samples resized magnifiers from the visual area underneath the lens", () => {
+    const sourceImage = new Image();
+    const node = renderObject(object({
+      id: "magnifier-resized",
+      type: "magnifier",
+      start: { x: 40, y: 50 },
+      end: { x: 140, y: 150 },
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        magnifierShape: "rounded-rect",
+        magnifierZoom: 2,
+      },
+      transform: { x: 20, y: 10, scaleX: 2, scaleY: 1.5, rotation: 0 },
+    }), {
+      stageSize: { width: 320, height: 180 },
+      magnifier: {
+        sourceImage,
+        stageSize: { width: 320, height: 180 },
+        scaleFactor: 1,
+        objects: [],
+      },
+    }) as Konva.Group;
+
+    const content = node.findOne(".magnifier-content") as Konva.Group;
+
+    expect(node.x()).toBe(60);
+    expect(node.y()).toBe(60);
+    expect(node.width()).toBe(200);
+    expect(node.height()).toBe(150);
+    expect(node.scaleX()).toBe(1);
+    expect(node.scaleY()).toBe(1);
+    expect(content.x()).toBe(-220);
+    expect(content.y()).toBe(-195);
+  });
+
+  it("samples transformed blur effects from their visual position", () => {
+    const rect = blurSampleRectForObject(object({
+      type: "blur",
+      start: { x: 60, y: 70 },
+      end: { x: 140, y: 100 },
+      transform: { x: 25, y: -10, scaleX: 1, scaleY: 1, rotation: 0 },
+    }));
+
+    expect(rect).toEqual({ x: 85, y: 60, width: 80, height: 30 });
+  });
+
+  it("samples resized blur effects from the resized region instead of stretching", () => {
+    const rect = blurSampleRectForObject(object({
+      type: "blur",
+      start: { x: 60, y: 70 },
+      end: { x: 140, y: 100 },
+      transform: { x: 25, y: -10, scaleX: 2, scaleY: 3, rotation: 0 },
+    }));
+
+    expect(rect).toEqual({ x: 85, y: 60, width: 160, height: 90 });
+  });
+
+  it("renders solid resized blur effects at natural scale", () => {
+    const node = renderObject(object({
+      type: "blur",
+      start: { x: 60, y: 70 },
+      end: { x: 140, y: 100 },
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        blurMode: "solid",
+        blurSolidColor: "#000000",
+      },
+      transform: { x: 25, y: -10, scaleX: 2, scaleY: 3, rotation: 12 },
+    })) as Konva.Rect;
+
+    expect(node.width()).toBe(160);
+    expect(node.height()).toBe(90);
+    expect(node.scaleX()).toBe(1);
+    expect(node.scaleY()).toBe(1);
+    expect(node.rotation()).toBe(0);
   });
 
   it("renders lines as endpoint-editable curves without whole-object dragging", () => {
@@ -276,14 +484,15 @@ describe("annotation object rendering", () => {
     const label = node.findOne(".measure-label") as Konva.Text;
     const background = node.findOne(".measure-label-bg") as Konva.Rect;
 
-    expect(node.draggable()).toBe(false);
+    expect(node.draggable()).toBe(true);
     expect(node.x()).toBe(5);
     expect(node.y()).toBe(6);
     expect(label.text()).toBe("50 px");
     expect(label.fill()).toBe("#ffffff");
+    expect(label.fontStyle()).not.toBe("bold");
     expect(background.fill()).toBe("#111827");
-    expect(background.stroke()).toBe("#ff0000");
-    expect(background.strokeWidth()).toBe(1);
+    expect(background.strokeEnabled()).toBe(false);
+    expect(background.strokeWidth()).toBe(0);
   });
 
   it("dispatches measurement objects through renderObject", () => {
@@ -395,6 +604,22 @@ describe("annotation object rendering", () => {
     expect(mask.opacity()).toBe(1);
     expect(mask.getAttr("highlightOpacity")).toBe(0.35);
     expect(mask.globalCompositeOperation()).toBe("source-over");
+  });
+
+  it("keeps highlight client rect aligned with its computed visual bounds", () => {
+    const node = renderHighlightObject(object({
+      type: "highlight",
+      points: [0, 0, 80, 0],
+      style: { color: "#ffcc00", strokeWidth: 4, cornerRadius: 12, opacity: 0.35 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    }));
+
+    const rect = node.getClientRect({ skipTransform: true });
+
+    expect(rect.x).toBeCloseTo(0);
+    expect(rect.y).toBeCloseTo(0);
+    expect(rect.width).toBeCloseTo(node.width());
+    expect(rect.height).toBeCloseTo(node.height());
   });
 
   it("smooths freehand highlight points before drawing the mask", () => {

@@ -20,22 +20,40 @@ import { onArrowStart, onArrowMove, onArrowEnd } from "@/annotation/tools/arrow"
 import { onRectStart, onRectMove, onRectEnd } from "@/annotation/tools/rect";
 import { onEllipseStart, onEllipseMove, onEllipseEnd } from "@/annotation/tools/ellipse";
 import { highlightBasePosition, onHighlightStart, onHighlightMove, onHighlightEnd } from "@/annotation/tools/highlight";
-import { onBlurStart, onBlurMove, onBlurEnd } from "@/annotation/tools/blur";
+import { blurResizeUpdatesFromNode, onBlurStart, onBlurMove, onBlurEnd, refreshBlurObjectNode } from "@/annotation/tools/blur";
 import { onMarkerStart, onMarkerMove, onMarkerEnd } from "@/annotation/tools/marker";
-import { onMagnifierStart, onMagnifierMove, onMagnifierEnd } from "@/annotation/tools/magnifier";
+import {
+  magnifierBasePosition,
+  magnifierResizeUpdatesFromNode,
+  onMagnifierStart,
+  onMagnifierMove,
+  onMagnifierEnd,
+  refreshMagnifierObjectNode,
+} from "@/annotation/tools/magnifier";
 import { onEraserStart, onEraserMove, onEraserEnd } from "@/annotation/tools/eraser";
-import type { AnnotationObject, ToolType } from "@/annotation/types";
+import type { AnnotationObject, AnnotationStyle, ToolType } from "@/annotation/types";
 import { TextOverlay } from "@/annotation/TextOverlay";
 import { MarkerTextOverlay } from "@/annotation/MarkerTextOverlay";
 import { addTextToLayer } from "@/annotation/tools/text";
 import { hitTestHandle } from "@/lib/geometry";
 import { renderObject } from "@/annotation/render";
 import {
+  FOCUS_MASK_NAME,
+  createFocusMask,
+  ellipseFocusHole,
+  focusHoleFromObject,
+  isSpotlightStyle,
+  rectFocusHole,
+  updateFocusMask,
+  type FocusHole,
+} from "@/annotation/focus";
+import {
   annotationFrameSourceFromUrl,
   createMagnifierRenderContext,
   type MagnifierRenderContext,
 } from "@/annotation/magnifierContext";
 import { useOverlay } from "@/overlay/state";
+import { SELECTION_COLOR } from "@/lib/colors";
 
 type Props = {
   selection: Rect;
@@ -50,6 +68,12 @@ let transformer: Konva.Transformer | null = null;
 let lineEditGroup: Konva.Group | null = null;
 let magnifierSourceImage: HTMLImageElement | null = null;
 let magnifierScaleFactor = 1;
+let focusPreview: {
+  tool: "rect" | "ellipse";
+  start: Point;
+  end: Point;
+  style: AnnotationStyle;
+} | null = null;
 
 type LineEditHandle = "start" | "control" | "end";
 
@@ -64,6 +88,16 @@ const TRANSFORMER_ANCHORS = [
   "middle-left",
 ];
 const EDIT_OVERLAY_NAME = "annotation-edit-overlay";
+const ROTATE_ANCHOR_SIZE = 20;
+const ROTATE_ICON_SIZE = 15;
+const RIGHT_ANGLE_SNAP_THRESHOLD = 5;
+export const ANNOTATION_ROTATE_ANCHOR_OFFSET = 22;
+const REFRESH_CCW_DOT_PATHS = [
+  "M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8",
+  "M3 3v5h5",
+  "M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16",
+  "M16 16h5v5",
+];
 
 export function getStage(): Konva.Stage | null {
   return stage;
@@ -75,6 +109,79 @@ export function getLayer(): Konva.Layer | null {
 
 export function getTransformer(): Konva.Transformer | null {
   return transformer;
+}
+
+export function annotationAccentColor(): string {
+  if (typeof document === "undefined") return SELECTION_COLOR;
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue("--flashot-accent")
+    .trim();
+  return value || SELECTION_COLOR;
+}
+
+export function transformerAccentConfig(): { borderStroke: string; anchorStroke: string } {
+  const stroke = annotationAccentColor();
+  return { borderStroke: stroke, anchorStroke: stroke };
+}
+
+function drawFallbackRotateIcon(ctx: CanvasRenderingContext2D, color: string) {
+  ctx.save();
+  ctx.translate(10, 10);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2.1;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.arc(0, 0, 5.5, Math.PI * 0.15, Math.PI * 1.55);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-5.3, -5);
+  ctx.lineTo(-5.3, -8);
+  ctx.lineTo(-8.3, -8);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 0, 1, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawRotateAnchorScene(context: Konva.Context, shape: Konva.Shape) {
+  const ctx = context._context;
+  const size = shape.width();
+  const accent = annotationAccentColor();
+
+  ctx.save();
+
+  if (typeof Path2D === "undefined") {
+    drawFallbackRotateIcon(ctx, accent);
+    ctx.restore();
+    return;
+  }
+
+  const iconOffset = (size - ROTATE_ICON_SIZE) / 2;
+  ctx.translate(iconOffset, iconOffset);
+  ctx.scale(ROTATE_ICON_SIZE / 24, ROTATE_ICON_SIZE / 24);
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 2.7;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const d of REFRESH_CCW_DOT_PATHS) {
+    ctx.stroke(new Path2D(d));
+  }
+  ctx.beginPath();
+  ctx.arc(12, 12, 1, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawRotateAnchorHit(context: Konva.Context, shape: Konva.Shape) {
+  const size = shape.width();
+  const ctx = context._context;
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 + 5, 0, Math.PI * 2);
+  ctx.closePath();
+  context.fillStrokeShape(shape);
 }
 
 type ToolHandlers = {
@@ -112,12 +219,20 @@ function objectBasePosition(obj: AnnotationObject): { x: number; y: number } {
     return start;
   }
 
+  if (obj.type === "marker") {
+    return start;
+  }
+
   if (obj.type === "line" || obj.type === "arrow" || obj.type === "measure") {
     return start;
   }
 
   if (obj.type === "highlight") {
     return highlightBasePosition(obj);
+  }
+
+  if (obj.type === "magnifier") {
+    return magnifierBasePosition(obj);
   }
 
   return { x: 0, y: 0 };
@@ -176,8 +291,56 @@ export function shouldDeselectOnEmptyClick(selectedObjectId: string | null, tool
 
 export function styleTransformerAnchor(anchor: Konva.Rect): string | null {
   if (!anchor.hasName("rotater")) return null;
-  anchor.cornerRadius(Math.min(anchor.width(), anchor.height()) / 2);
+  anchor.setAttrs({
+    width: ROTATE_ANCHOR_SIZE,
+    height: ROTATE_ANCHOR_SIZE,
+    offsetX: ROTATE_ANCHOR_SIZE / 2,
+    offsetY: ROTATE_ANCHOR_SIZE / 2,
+    fill: "rgba(0,0,0,0)",
+    stroke: "rgba(0,0,0,0)",
+    strokeWidth: 0,
+    hitStrokeWidth: 14,
+  });
+  anchor.cornerRadius(0);
+  anchor.sceneFunc(drawRotateAnchorScene);
+  anchor.hitFunc(drawRotateAnchorHit);
   return cursorForAnnotationInteraction("rotate");
+}
+
+export function snapRotationToRightAngle(degrees: number, threshold = RIGHT_ANGLE_SNAP_THRESHOLD): number {
+  if (!Number.isFinite(degrees)) return degrees;
+  const normalized = ((degrees % 360) + 360) % 360;
+  let target = Math.round(normalized / 90) * 90;
+  if (target === 360) target = 0;
+  const distance = Math.min(Math.abs(normalized - target), 360 - Math.abs(normalized - target));
+  return distance <= threshold ? target : degrees;
+}
+
+function nodeClientCenter(node: Konva.Node): Point {
+  const rect = node.getClientRect({ skipShadow: true });
+  return {
+    x: rect.x + rect.width / 2,
+    y: rect.y + rect.height / 2,
+  };
+}
+
+export function snapNodeRotationToRightAngle(node: Konva.Node): boolean {
+  const snapped = snapRotationToRightAngle(node.rotation());
+  if (snapped === node.rotation()) return false;
+
+  const before = nodeClientCenter(node);
+  node.rotation(snapped);
+  const after = nodeClientCenter(node);
+  node.position({
+    x: node.x() + before.x - after.x,
+    y: node.y() + before.y - after.y,
+  });
+  return true;
+}
+
+function snapNodeRotationIfEnabled(obj: AnnotationObject, node: Konva.Node) {
+  if (!transformerConfigForObject(obj).rotateEnabled) return;
+  snapNodeRotationToRightAngle(node);
 }
 
 export function transformerConfigForObject(obj: AnnotationObject | undefined): {
@@ -187,7 +350,11 @@ export function transformerConfigForObject(obj: AnnotationObject | undefined): {
 } {
   if (!obj) return { useTransformer: false, rotateEnabled: false, enabledAnchors: [] };
   if (isEndpointEditableObject(obj)) return { useTransformer: false, rotateEnabled: false, enabledAnchors: [] };
-  if (obj.type === "draw") return { useTransformer: true, rotateEnabled: true, enabledAnchors: [] };
+  if (obj.type === "draw") return { useTransformer: true, rotateEnabled: false, enabledAnchors: [] };
+  if (obj.type === "marker") return { useTransformer: true, rotateEnabled: false, enabledAnchors: [] };
+  if (obj.type === "text" || obj.type === "blur") {
+    return { useTransformer: true, rotateEnabled: false, enabledAnchors: TRANSFORMER_ANCHORS };
+  }
   return { useTransformer: true, rotateEnabled: true, enabledAnchors: TRANSFORMER_ANCHORS };
 }
 
@@ -236,6 +403,80 @@ function currentStageSize(): { width: number; height: number } | undefined {
   return { width: stage.width(), height: stage.height() };
 }
 
+function focusPreviewHole(): FocusHole | null {
+  if (!focusPreview) return null;
+  const x = Math.min(focusPreview.start.x, focusPreview.end.x);
+  const y = Math.min(focusPreview.start.y, focusPreview.end.y);
+  const width = Math.abs(focusPreview.end.x - focusPreview.start.x);
+  const height = Math.abs(focusPreview.end.y - focusPreview.start.y);
+
+  if (focusPreview.tool === "rect") {
+    return rectFocusHole(x, y, width, height, focusPreview.style);
+  }
+
+  return ellipseFocusHole(x, y, width, height);
+}
+
+function currentFocusHoles(previewObject?: AnnotationObject): FocusHole[] {
+  const objectHoles = useAnnotation.getState().objects
+    .map((obj) => (previewObject?.id === obj.id ? previewObject : obj))
+    .map((obj) => focusHoleFromObject(obj))
+    .filter((hole): hole is FocusHole => Boolean(hole));
+  const previewHole = focusPreviewHole();
+  return previewHole ? [...objectHoles, previewHole] : objectHoles;
+}
+
+function syncFocusMask(previewObject?: AnnotationObject) {
+  if (!layer) return;
+  const stageSize = currentStageSize();
+  const existingMask = layer.findOne(`.${FOCUS_MASK_NAME}`) as Konva.Shape | undefined;
+  if (!stageSize) {
+    existingMask?.destroy();
+    layer.batchDraw();
+    return;
+  }
+
+  const holes = currentFocusHoles(previewObject);
+  if (holes.length === 0) {
+    existingMask?.destroy();
+    layer.batchDraw();
+    return;
+  }
+
+  const mask = existingMask ?? createFocusMask(stageSize, holes);
+  if (!existingMask) layer.add(mask);
+  else updateFocusMask(mask, stageSize, holes);
+  mask.moveToBottom();
+  layer.batchDraw();
+}
+
+function beginFocusPreview(tool: ToolType, point: Point, style: AnnotationStyle) {
+  if ((tool !== "rect" && tool !== "ellipse") || !isSpotlightStyle(style)) {
+    focusPreview = null;
+    return;
+  }
+
+  focusPreview = {
+    tool,
+    start: point,
+    end: point,
+    style: { ...style },
+  };
+  syncFocusMask();
+}
+
+function updateFocusPreview(point: Point) {
+  if (!focusPreview) return;
+  focusPreview = { ...focusPreview, end: point };
+  syncFocusMask();
+}
+
+function clearFocusPreview(sync = true) {
+  if (!focusPreview) return;
+  focusPreview = null;
+  if (sync) syncFocusMask();
+}
+
 
 export function getMagnifierRenderContext(excludeObjectId?: string): MagnifierRenderContext | null {
   if (!magnifierSourceImage) return null;
@@ -251,12 +492,8 @@ export function getMagnifierRenderContext(excludeObjectId?: string): MagnifierRe
   });
 }
 
-function usesStageSizedRendering(obj: AnnotationObject): boolean {
-  return (obj.type === "rect" || obj.type === "ellipse") && obj.style.focusMode === "spotlight";
-}
-
 function usesRenderContext(obj: AnnotationObject): boolean {
-  return usesStageSizedRendering(obj) || obj.type === "magnifier";
+  return obj.type === "magnifier" || obj.type === "blur";
 }
 
 function currentRenderContext(excludeObjectId?: string) {
@@ -264,6 +501,55 @@ function currentRenderContext(excludeObjectId?: string) {
     stageSize: currentStageSize(),
     magnifier: getMagnifierRenderContext(excludeObjectId),
   };
+}
+
+function objectWithNodeTransform(obj: AnnotationObject, node: Konva.Node): AnnotationObject {
+  return {
+    ...obj,
+    transform: getNodeTransform(obj, node),
+  };
+}
+
+function previewObjectForNodeTransform(obj: AnnotationObject, node: Konva.Node): AnnotationObject {
+  if (obj.type === "blur") {
+    return { ...obj, ...blurResizeUpdatesFromNode(node) };
+  }
+  if (obj.type === "magnifier") {
+    return { ...obj, ...magnifierResizeUpdatesFromNode(obj, node) };
+  }
+  return objectWithNodeTransform(obj, node);
+}
+
+function resizeUpdatesForTransformedObject(obj: AnnotationObject, node: Konva.Node): Partial<AnnotationObject> {
+  if (obj.type === "blur") return blurResizeUpdatesFromNode(node);
+  if (obj.type === "magnifier") return magnifierResizeUpdatesFromNode(obj, node);
+  return { transform: getNodeTransform(obj, node) };
+}
+
+function refreshLivePositionDependentNode(obj: AnnotationObject, node: Konva.Node) {
+  if (obj.type === "blur") {
+    refreshBlurObjectNode(node, obj);
+  } else if (obj.type === "magnifier") {
+    refreshMagnifierObjectNode(node, obj);
+  }
+
+  if (isSpotlightStyle(obj.style)) {
+    syncFocusMask(obj);
+  }
+}
+
+function viewportOriginForStage(container: HTMLDivElement | null, selection: Rect): Point {
+  const rect = container?.getBoundingClientRect();
+  if (!rect) return { x: selection.x, y: selection.y };
+  return { x: rect.left, y: rect.top };
+}
+
+function isTextInputLike(element: Element | null): boolean {
+  if (!element) return false;
+  if (element instanceof HTMLInputElement) return true;
+  if (element instanceof HTMLTextAreaElement) return true;
+  if (element instanceof HTMLSelectElement) return true;
+  return element instanceof HTMLElement && element.isContentEditable;
 }
 
 function replaceRenderedObjectNode(obj: AnnotationObject): Konva.Node | null {
@@ -400,12 +686,13 @@ function persistLineHandleDrag(
 
 function createLineEditHandle(obj: AnnotationObject, handle: LineEditHandle): Konva.Circle {
   const point = lineHandlePoint(obj, handle);
+  const accent = annotationAccentColor();
   const circle = new Konva.Circle({
     x: point.x,
     y: point.y,
     radius: handle === "control" ? 5 : 6,
     fill: "#ffffff",
-    stroke: "#0099ff",
+    stroke: accent,
     strokeWidth: 2,
     draggable: true,
     name: `${EDIT_OVERLAY_NAME} line-edit-handle line-edit-${handle}`,
@@ -429,6 +716,7 @@ function renderLineEditHandles(obj: AnnotationObject) {
   if (!layer) return;
   clearLineEditHandles();
   lineEditGroup = new Konva.Group({ name: EDIT_OVERLAY_NAME });
+  const accent = annotationAccentColor();
 
   const handles = editableLineHandles(obj);
   const start = lineHandlePoint(obj, "start");
@@ -442,7 +730,7 @@ function renderLineEditHandles(obj: AnnotationObject) {
 
   lineEditGroup.add(new Konva.Line({
     points: guidePoints,
-    stroke: "#0099ff",
+    stroke: accent,
     strokeWidth: 1,
     dash: [4, 4],
     listening: false,
@@ -459,6 +747,9 @@ function renderLineEditHandles(obj: AnnotationObject) {
 
 function syncSelectionWithStore(selectedObjectId = useAnnotation.getState().selectedObjectId) {
   if (!layer || !transformer) return;
+  const accentConfig = transformerAccentConfig();
+  transformer.borderStroke(accentConfig.borderStroke);
+  transformer.anchorStroke(accentConfig.anchorStroke);
   clearLineEditHandles();
   if (!selectedObjectId) {
     transformer.nodes([]);
@@ -515,6 +806,7 @@ function syncLayerWithStore(prevObjects: AnnotationObject[] = []) {
 
     if (prevObj?.transform !== obj.transform) {
       applyObjectTransformToNode(obj, existingNode);
+      refreshLivePositionDependentNode(obj, existingNode);
     }
   }
 
@@ -522,6 +814,7 @@ function syncLayerWithStore(prevObjects: AnnotationObject[] = []) {
     findRenderedObjectNode(obj.id)?.zIndex(index);
   });
 
+  syncFocusMask();
   syncSelectionWithStore(selectedObjectId);
 }
 
@@ -535,8 +828,10 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
   const textFlushRef = useRef<(() => void) | null>(null);
   const textKeyRef = useRef(0);
   const markerKeyRef = useRef(0);
+  const viewportOrigin = viewportOriginForStage(containerRef.current, selection);
 
   const openMarkerEditor = (object: AnnotationObject) => {
+    useAnnotation.getState().setSelectedObject(null);
     markerKeyRef.current++;
     setMarkerEditing({ object, key: markerKeyRef.current });
   };
@@ -557,10 +852,11 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
     transformer = new Konva.Transformer({
       rotateEnabled: true,
       rotateAnchorCursor: cursorForAnnotationInteraction("rotate"),
-      borderStroke: "#0099ff",
-      anchorStroke: "#0099ff",
+      ...transformerAccentConfig(),
       anchorFill: "#ffffff",
       anchorSize: 8,
+      rotateLineVisible: false,
+      rotateAnchorOffset: ANNOTATION_ROTATE_ANCHOR_OFFSET,
       anchorStyleFunc: styleTransformerAnchor,
     });
     layer.add(transformer);
@@ -578,14 +874,24 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
     transformer.on("transformend", () => {
       const node = transformer?.nodes()[0];
       if (!node) return;
-      setStageCursor(cursorForAnnotationInteraction("drag"));
       const { resizeObject } = useAnnotation.getState();
       const obj = useAnnotation.getState().objects.find((o) => o.id === node.id());
       if (!obj) return;
-      resizeObject(obj.id, { transform: getNodeTransform(obj, node) });
+      snapNodeRotationIfEnabled(obj, node);
+      setStageCursor(cursorForAnnotationInteraction("drag"));
+      resizeObject(obj.id, resizeUpdatesForTransformedObject(obj, node));
     });
     transformer.on("transformstart", (e) => {
       setStageCursor(isNodeInTree(e.target, transformer) ? "grabbing" : cursorForAnnotationInteraction("rotate"));
+    });
+    transformer.on("transform", () => {
+      const node = transformer?.nodes()[0];
+      if (!node) return;
+      const obj = useAnnotation.getState().objects.find((o) => o.id === node.id());
+      if (!obj) return;
+      snapNodeRotationIfEnabled(obj, node);
+      refreshLivePositionDependentNode(previewObjectForNodeTransform(obj, node), node);
+      layer?.batchDraw();
     });
     transformer.on("mouseenter", (e) => {
       const isRotater = e.target.name().includes("rotater");
@@ -608,6 +914,22 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
       transformer?.nodes([node]);
       transformer?.moveToTop();
       getLayer()?.batchDraw();
+    });
+    stage.on("dragmove", (e) => {
+      if (isEditOverlayNode(e.target)) return;
+      if (isTransformerNode(e.target)) return;
+      const node = getObjectNodeFromHit(e.target);
+      if (!node) return;
+
+      const obj = useAnnotation.getState().objects.find((o) => o.id === node.id());
+      if (!obj) return;
+
+      const nextObj = objectWithNodeTransform(obj, node);
+      refreshLivePositionDependentNode(nextObj, node);
+      if (isEndpointEditableObject(obj)) {
+        moveLineEditHandles(nextObj);
+      }
+      layer?.batchDraw();
     });
     stage.on("dragend", () => setStageCursor(cursorForAnnotationInteraction("drag")));
     stage.on("mousemove", (e) => {
@@ -640,6 +962,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
       transformer = null;
       lineEditGroup = null;
       magnifierSourceImage = null;
+      focusPreview = null;
     };
   }, []);
 
@@ -694,6 +1017,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
       syncSelectionWithStore(useAnnotation.getState().selectedObjectId);
     }
 
+    syncFocusMask();
     stage.batchDraw();
   }, [selection.width, selection.height, scaleFactor, interacting]);
 
@@ -710,11 +1034,35 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
     });
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isTextInputLike(document.activeElement)) return;
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+
+      const { selectedObjectId, deleteObject } = useAnnotation.getState();
+      if (!selectedObjectId) return;
+
+      event.preventDefault();
+      deleteObject(selectedObjectId);
+      setMarkerEditing((editing) => (
+        editing?.object.id === selectedObjectId ? null : editing
+      ));
+      setTextEditing((editing) => (
+        editing?.editingObject?.id === selectedObjectId ? null : editing
+      ));
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+
     // Let resize handle clicks pass through to overlay
     if (hitTestHandle({ x: e.clientX, y: e.clientY }, selection, 10)) return;
 
-    const { activeTool: tool, objects, selectedObjectId, setSelectedObject, setDrawingState } = useAnnotation.getState();
+    const { activeTool: tool, activeStyle, objects, selectedObjectId, setSelectedObject, setDrawingState } = useAnnotation.getState();
     const rect = containerRef.current!.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -733,8 +1081,11 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
 
     if (tool !== "eraser" && hitObject?.type === "marker" && hitNode) {
       e.stopPropagation();
-      setSelectedObject(hitObject.id);
-      openMarkerEditor(hitObject);
+      if (e.detail >= 2) {
+        openMarkerEditor(hitObject);
+      } else {
+        setSelectedObject(hitObject.id);
+      }
       return;
     }
 
@@ -790,6 +1141,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
     // Eraser
     if (tool === "eraser") {
       setDrawingState("active");
+      clearFocusPreview();
       onEraserStart(x, y);
       return;
     }
@@ -799,6 +1151,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
     if (handlers) {
       setDrawingState("active");
       handlers.start(x, y);
+      beginFocusPreview(tool, { x, y }, activeStyle);
     }
   };
 
@@ -817,11 +1170,15 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
     }
 
     const handlers = TOOL_HANDLERS[tool];
-    if (handlers) handlers.move(x, y);
+    if (handlers) {
+      handlers.move(x, y);
+      updateFocusPreview({ x, y });
+    }
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
-    const { activeTool: tool, drawingState, setDrawingState, addObject, setSelectedObject } = useAnnotation.getState();
+    const { activeTool: tool, drawingState, setDrawingState, addObject } = useAnnotation.getState();
+
     if (drawingState !== "active") return;
 
     e.stopPropagation();
@@ -838,12 +1195,14 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
     const handlers = TOOL_HANDLERS[tool];
     if (handlers) {
       const obj = handlers.end(x, y);
+      clearFocusPreview(false);
       if (obj) {
         addObject(obj);
         if (obj.type === "marker") {
-          setSelectedObject(obj.id);
           openMarkerEditor(obj);
         }
+      } else {
+        syncFocusMask();
       }
     }
     setDrawingState("idle");
@@ -875,6 +1234,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
           key={markerEditing.key}
           object={markerEditing.object}
           selection={selection}
+          viewportOrigin={viewportOrigin}
           onConfirm={(text) => {
             useAnnotation.getState().resizeObject(markerEditing.object.id, { text });
             setMarkerEditing(null);
@@ -888,6 +1248,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
           position={textEditing.position}
           selection={selection}
           editingObject={textEditing.editingObject}
+          viewportOrigin={viewportOrigin}
           flushRef={textFlushRef}
           onConfirm={(obj) => {
             addTextToLayer(obj);

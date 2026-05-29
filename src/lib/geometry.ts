@@ -71,6 +71,42 @@ export function clampToolbarPosition(
   };
 }
 
+export function computeSidePanelPosition(
+  toolbarPos: { x: number; y: number },
+  monitor: Rect,
+  panel: { width: number; height: number },
+  gap: number,
+): { left: number; top: number } {
+  const monitorLeft = monitor.x;
+  const monitorTop = monitor.y;
+  const monitorRight = monitor.x + monitor.width;
+  const monitorBottom = monitor.y + monitor.height;
+
+  if (toolbarPos.x >= monitorLeft + panel.width + gap) {
+    return {
+      left: toolbarPos.x - panel.width - gap,
+      top: clamp(
+        toolbarPos.y + TOOLBAR_GAP,
+        monitorTop + gap,
+        monitorBottom - panel.height - gap,
+      ),
+    };
+  }
+
+  return {
+    left: clamp(
+      toolbarPos.x,
+      monitorLeft + gap,
+      monitorRight - panel.width - gap,
+    ),
+    top: clamp(
+      toolbarPos.y - panel.height - gap,
+      monitorTop + gap,
+      monitorBottom - panel.height - gap,
+    ),
+  };
+}
+
 export type HandleId = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
 export function hitTestHandle(p: Point, sel: Rect, tol = 8): HandleId | null {

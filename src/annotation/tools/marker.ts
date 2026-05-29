@@ -1,26 +1,26 @@
 import Konva from "konva";
+import {
+  MARKER_BADGE_TEXT_COLOR,
+  MARKER_BUBBLE_BACKGROUND,
+  MARKER_BUBBLE_FONT_FAMILY,
+  MARKER_BUBBLE_LINE_HEIGHT,
+  MARKER_BUBBLE_POINTER_HALF_HEIGHT,
+  MARKER_BUBBLE_POINTER_WIDTH,
+  MARKER_BUBBLE_RADIUS,
+  MARKER_BUBBLE_TEXT_COLOR,
+  MARKER_DEFAULT_FONT_SIZE,
+  markerBadgeFontSize,
+  markerBadgeRadius,
+  markerBubbleMetrics,
+} from "@/annotation/markerStyle";
 import { useAnnotation } from "@/annotation/store";
 import type { AnnotationObject, AnnotationStyle } from "@/annotation/types";
-
-const BADGE_RADIUS = 12;
-const BUBBLE_GAP = 8;
-const BUBBLE_PADDING_X = 8;
-const BUBBLE_PADDING_Y = 5;
-const BUBBLE_FONT_SIZE = 14;
 
 let startX = 0;
 let startY = 0;
 
 function markerFill(style: AnnotationStyle): string {
   return style.markerFill ?? style.color;
-}
-
-function markerTextColor(style: AnnotationStyle): string {
-  return style.markerTextColor ?? "#ffffff";
-}
-
-function markerBubbleFill(style: AnnotationStyle): string {
-  return style.markerBubbleFill ?? "#111827";
 }
 
 export function onMarkerStart(x: number, y: number) {
@@ -50,6 +50,9 @@ export function renderMarkerObject(obj: AnnotationObject): Konva.Group {
   const start = obj.start ?? { x: 0, y: 0 };
   const transform = obj.transform;
   const markerNumber = obj.markerNumber ?? 1;
+  const badgeRadius = markerBadgeRadius(obj.style.fontSize);
+  const badgeFontSize = markerBadgeFontSize(obj.style.fontSize, markerNumber);
+  const bubbleFontSize = obj.style.fontSize ?? MARKER_DEFAULT_FONT_SIZE;
   const group = new Konva.Group({
     id: obj.id,
     x: start.x + transform.x,
@@ -64,50 +67,71 @@ export function renderMarkerObject(obj: AnnotationObject): Konva.Group {
     name: "marker-badge",
     x: 0,
     y: 0,
-    radius: BADGE_RADIUS,
+    radius: badgeRadius,
     fill: markerFill(obj.style),
-    stroke: markerTextColor(obj.style),
+    stroke: MARKER_BADGE_TEXT_COLOR,
     strokeWidth: 1.5,
   }));
 
   group.add(new Konva.Text({
     name: "marker-number",
-    x: -BADGE_RADIUS,
-    y: -BADGE_RADIUS + 1,
-    width: BADGE_RADIUS * 2,
-    height: BADGE_RADIUS * 2,
+    x: -badgeRadius,
+    y: -badgeRadius + 1,
+    width: badgeRadius * 2,
+    height: badgeRadius * 2,
     text: String(markerNumber),
-    fontSize: 13,
+    fontSize: badgeFontSize,
     fontStyle: "700",
     align: "center",
     verticalAlign: "middle",
-    fill: markerTextColor(obj.style),
+    fill: MARKER_BADGE_TEXT_COLOR,
     listening: false,
   }));
 
   const bubbleText = (obj.text ?? "").trim();
   if (!bubbleText) return group;
+  const metrics = markerBubbleMetrics(bubbleText, bubbleFontSize, badgeRadius);
 
   const textNode = new Konva.Text({
     name: "marker-bubble-text",
-    x: BADGE_RADIUS + BUBBLE_GAP + BUBBLE_PADDING_X,
-    y: -BADGE_RADIUS + BUBBLE_PADDING_Y - 1,
+    x: metrics.textX,
+    y: metrics.textY,
+    width: metrics.textWidth,
+    height: metrics.lineHeight,
     text: bubbleText,
-    fontSize: BUBBLE_FONT_SIZE,
-    fill: markerTextColor(obj.style),
+    fontSize: bubbleFontSize,
+    fontFamily: MARKER_BUBBLE_FONT_FAMILY,
+    lineHeight: MARKER_BUBBLE_LINE_HEIGHT,
+    fill: MARKER_BUBBLE_TEXT_COLOR,
     listening: false,
   });
-  const bubbleWidth = Math.max(36, textNode.width() + BUBBLE_PADDING_X * 2);
-  const bubbleHeight = Math.max(BADGE_RADIUS * 2, textNode.height() + BUBBLE_PADDING_Y * 2);
 
+  group.add(new Konva.Line({
+    name: "marker-bubble-pointer",
+    points: [
+      metrics.bubbleX,
+      -MARKER_BUBBLE_POINTER_HALF_HEIGHT,
+      metrics.bubbleX,
+      MARKER_BUBBLE_POINTER_HALF_HEIGHT,
+      metrics.bubbleX - MARKER_BUBBLE_POINTER_WIDTH,
+      0,
+    ],
+    closed: true,
+    fill: MARKER_BUBBLE_BACKGROUND,
+    strokeEnabled: false,
+    strokeWidth: 0,
+    listening: false,
+  }));
   group.add(new Konva.Rect({
     name: "marker-bubble",
-    x: BADGE_RADIUS + BUBBLE_GAP,
-    y: -bubbleHeight / 2,
-    width: bubbleWidth,
-    height: bubbleHeight,
-    fill: markerBubbleFill(obj.style),
-    cornerRadius: 7,
+    x: metrics.bubbleX,
+    y: metrics.bubbleY,
+    width: metrics.bubbleWidth,
+    height: metrics.bubbleHeight,
+    fill: MARKER_BUBBLE_BACKGROUND,
+    strokeEnabled: false,
+    strokeWidth: 0,
+    cornerRadius: MARKER_BUBBLE_RADIUS,
   }));
   group.add(textNode);
 

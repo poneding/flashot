@@ -5,6 +5,7 @@ import { Toolbar } from "@/overlay/Toolbar";
 import { __resetCornerRadiusPersistenceForTests, useOverlay } from "@/overlay/state";
 import { useAnnotation } from "@/annotation/store";
 import type { CaptureStartPayload } from "@/lib/types";
+import type { ComponentProps } from "react";
 
 vi.mock("@/lib/ipc", () => ({
   cropAndCopy: vi.fn(),
@@ -33,6 +34,9 @@ describe("Toolbar", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(window.navigator, "platform", { configurable: true, value: "MacIntel" });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
     useAnnotation.getState().reset();
     useAnnotation.getState().setActiveTool("rect");
     useOverlay.getState().end();
@@ -61,13 +65,28 @@ describe("Toolbar", () => {
     );
   }
 
+  function renderToolbarWithLocale(locale: ComponentProps<typeof Toolbar>["locale"]) {
+    return render(
+      <Toolbar
+        locale={locale}
+        selection={{ x: 100, y: 100, width: 240, height: 160 }}
+        monitorRect={{ x: 0, y: 0, width: 800, height: 600 }}
+        onCopy={onCopy}
+        onSave={onSave}
+        onPin={onPin}
+        onClose={onClose}
+        onScroll={onScroll}
+      />,
+    );
+  }
+
   it("renders screenshot actions in a vertical toolbar with a top drag handle", () => {
     const { container } = renderToolbar();
 
-    const copy = screen.getByRole("button", { name: "Copy" });
-    const save = screen.getByRole("button", { name: "Save As" });
+    const copy = screen.getByRole("button", { name: "Copy (Cmd+C)" });
+    const save = screen.getByRole("button", { name: "Save As (Cmd+S)" });
     const pin = screen.getByRole("button", { name: "Pin" });
-    const close = screen.getByRole("button", { name: "Close" });
+    const close = screen.getByRole("button", { name: "Close (Esc)" });
     const toolbar = container.querySelector("[data-screenshot-toolbar]") as HTMLElement | null;
     const handle = container.querySelector("[data-screenshot-toolbar-drag-handle]") as HTMLElement | null;
 
@@ -84,11 +103,39 @@ describe("Toolbar", () => {
     expect(save.getAttribute("title")).toBeNull();
     expect(pin.getAttribute("title")).toBeNull();
     expect(close.getAttribute("title")).toBeNull();
-    expect(screen.queryByText("Copy")).toBeNull();
+    expect(screen.queryByText("Copy (Cmd+C)")).toBeNull();
 
     fireEvent.mouseEnter(copy);
 
-    expect(screen.getByRole("tooltip").textContent).toBe("Copy");
+    expect(screen.getByRole("tooltip").textContent).toBe("Copy (Cmd+C)");
+  });
+
+  it("renders screenshot toolbar labels in Traditional Chinese", () => {
+    renderToolbarWithLocale("zh-TW");
+
+    expect(screen.getByRole("button", { name: "複製 (Cmd+C)" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "另存新檔 (Cmd+S)" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "釘選" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "關閉 (Esc)" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "圓角半徑：0" })).not.toBeNull();
+  });
+
+  it("flips sidebar tooltips away from the viewport edge", () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 400 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 300 });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.getAttribute("aria-label") === "Copy (Cmd+C)") {
+        return domRect({ left: 360, top: 120, width: 32, height: 32 });
+      }
+      return domRect();
+    });
+
+    renderToolbar();
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Copy (Cmd+C)" }));
+
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip.style.left).toBe("356px");
+    expect(tooltip.style.transform).toBe("translate(-100%, -50%)");
   });
 
   it("groups pin, color picker, and scrolling screenshot above the close action", () => {
@@ -100,12 +147,12 @@ describe("Toolbar", () => {
     expect(radiusGroup).not.toBeNull();
     expect(pinScrollGroup).not.toBeNull();
     expect(closeGroup).not.toBeNull();
-    expect(radiusGroup?.querySelector('[aria-label="Corner radius: 0 px"]')).not.toBeNull();
+    expect(radiusGroup?.querySelector('[aria-label="Corner radius: 0"]')).not.toBeNull();
     expect(pinScrollGroup?.querySelector('[aria-label="Pin"]')).not.toBeNull();
     expect(pinScrollGroup?.querySelector('[aria-label="Color Picker"]')).not.toBeNull();
     expect(pinScrollGroup?.querySelector('[aria-label="Image adjustments"]')).not.toBeNull();
     expect(pinScrollGroup?.querySelector('[aria-label="Scrolling screenshot"]')).not.toBeNull();
-    expect(closeGroup?.querySelector('[aria-label="Close"]')).not.toBeNull();
+    expect(closeGroup?.querySelector('[aria-label="Close (Esc)"]')).not.toBeNull();
 
     const groups = Array.from(container.querySelectorAll("[data-screenshot-toolbar-group]"));
     const groupButtons = Array.from(pinScrollGroup!.querySelectorAll("button")).map((button) =>
@@ -128,32 +175,55 @@ describe("Toolbar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Image adjustments" }));
 
     expect(screen.getByTestId("image-adjustments-panel")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Grayscale" }));
-    fireEvent.click(screen.getByRole("button", { name: "Auto enhance" }));
+    expect(screen.queryByRole("button", { name: "Auto enhance" })).toBeNull();
+    expect(screen.queryByRole("slider", { name: "Sharpness" })).toBeNull();
+
     fireEvent.change(screen.getByRole("slider", { name: "Brightness" }), { target: { value: "25" } });
     fireEvent.change(screen.getByRole("slider", { name: "Contrast" }), { target: { value: "-20" } });
     fireEvent.change(screen.getByRole("slider", { name: "Saturation" }), { target: { value: "35" } });
-    fireEvent.change(screen.getByRole("slider", { name: "Sharpness" }), { target: { value: "40" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Grayscale" }));
 
     expect(useOverlay.getState().imageAdjustments).toEqual({
       grayscale: true,
-      autoLevels: true,
       brightness: 25,
       contrast: -20,
       saturation: 35,
-      sharpness: 40,
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Reset image adjustments" }));
+    const reset = screen.getByRole("button", { name: "Reset" });
+    expect(reset.textContent).toBe("Reset");
+    expect(reset.querySelector("svg")).toBeNull();
+    expect(reset.style.borderWidth).toBe("1px");
+    expect(reset.style.borderStyle).toBe("solid");
+    expect(reset.style.borderColor).toBe("transparent");
+
+    fireEvent.mouseEnter(reset);
+
+    expect(reset.style.background).toBe("rgba(255, 255, 255, 0.08)");
+    expect(reset.style.borderColor).toBe("rgba(255, 255, 255, 0.18)");
+
+    fireEvent.mouseLeave(reset);
+
+    expect(reset.style.background).toBe("transparent");
+    expect(reset.style.borderColor).toBe("transparent");
+
+    fireEvent.click(reset);
 
     expect(useOverlay.getState().imageAdjustments).toEqual({
       grayscale: false,
-      autoLevels: false,
       brightness: 0,
       contrast: 0,
       saturation: 0,
-      sharpness: 0,
     });
+  });
+
+  it("localizes the image adjustment reset button", () => {
+    renderToolbarWithLocale("zh-CN");
+
+    fireEvent.click(screen.getByRole("button", { name: "图像调整" }));
+
+    expect(screen.getByRole("button", { name: "重置" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
   });
 
   describe("Toolbar corner radius control", () => {
@@ -166,7 +236,7 @@ describe("Toolbar", () => {
       const groups = Array.from(container.querySelectorAll("[data-screenshot-toolbar-group]"));
 
       expect(radiusGroup).not.toBeNull();
-      expect(radiusGroup?.querySelector('[aria-label="Corner radius: 0 px"]')).not.toBeNull();
+      expect(radiusGroup?.querySelector('[aria-label="Corner radius: 0"]')).not.toBeNull();
       expect(groups[0]).toBe(radiusGroup);
       expect(groups[1]).toBe(pinScrollGroup);
       expect(handle.hasAttribute("data-screenshot-toolbar-drag-handle")).toBe(true);
@@ -177,7 +247,7 @@ describe("Toolbar", () => {
       renderToolbar();
 
       const icon = screen
-        .getByRole("button", { name: "Corner radius: 0 px" })
+        .getByRole("button", { name: "Corner radius: 0" })
         .querySelector("svg");
 
       expect(icon?.classList.contains("lucide-square-round-corner")).toBe(true);
@@ -186,51 +256,63 @@ describe("Toolbar", () => {
     it("opens the scrollable corner radius panel when clicked", () => {
       renderToolbar();
 
-      fireEvent.click(screen.getByRole("button", { name: "Corner radius: 0 px" }));
+      fireEvent.click(screen.getByRole("button", { name: "Corner radius: 0" }));
 
       const list = screen.getByTestId("screenshot-corner-radius-list");
       const panel = list.closest("[data-corner-radius-panel]") as HTMLElement;
       expect(screen.queryByRole("combobox", { name: "Corner radius" })).toBeNull();
-      expect(panel.style.width).toBe("72px");
+      expect(panel.style.width).toBe("max-content");
       expect(panel.style.padding).toBe("4px");
+      expect(list.style.width).toBe("max-content");
       expect(list.className).toContain("flashot-dark-scrollbar");
-      expect(within(list).getByRole("button", { name: "Corner radius: 0 px" })).not.toBeNull();
-      expect(within(list).getByRole("button", { name: "Corner radius: 1 px" })).not.toBeNull();
-      expect(within(list).getByRole("button", { name: "Corner radius: 60 px" })).not.toBeNull();
+      expect(within(list).getByRole("button", { name: "Corner radius: 0" })).not.toBeNull();
+      expect(within(list).getByRole("button", { name: "Corner radius: 1" })).not.toBeNull();
+      expect(within(list).getByRole("button", { name: "Corner radius: 60" })).not.toBeNull();
+      expect(within(list).queryByText("1 px")).toBeNull();
+    });
+
+    it("positions the corner radius panel from its fitted panel dimensions", () => {
+      renderToolbar();
+
+      fireEvent.click(screen.getByRole("button", { name: "Corner radius: 0" }));
+
+      const panel = screen.getByTestId("screenshot-corner-radius-list").closest("[data-corner-radius-panel]") as HTMLElement;
+      expect(panel.style.left).toBe("264px");
+      expect(panel.style.top).toBe("104px");
     });
 
     it("closes the slider panel when clicked again", () => {
       renderToolbar();
 
-      const button = screen.getByRole("button", { name: "Corner radius: 0 px" });
+      const button = screen.getByRole("button", { name: "Corner radius: 0" });
       fireEvent.click(button);
       fireEvent.mouseDown(button);
       fireEvent.click(button);
 
-      expect(screen.queryByRole("button", { name: "Corner radius: 24 px" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Corner radius: 24" })).toBeNull();
     });
 
     it("closes the slider panel even if timers run between button mousedown and click", () => {
       vi.useFakeTimers();
       renderToolbar();
 
-      const button = screen.getByRole("button", { name: "Corner radius: 0 px" });
+      const button = screen.getByRole("button", { name: "Corner radius: 0" });
       fireEvent.click(button);
       fireEvent.mouseDown(button);
       act(() => vi.runOnlyPendingTimers());
       fireEvent.click(button);
 
-      expect(screen.queryByRole("button", { name: "Corner radius: 24 px" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Corner radius: 24" })).toBeNull();
     });
 
     it("updates the overlay corner radius from the dropdown", () => {
       renderToolbar();
 
-      fireEvent.click(screen.getByRole("button", { name: "Corner radius: 0 px" }));
-      fireEvent.click(screen.getByRole("button", { name: "Corner radius: 16 px" }));
+      fireEvent.click(screen.getByRole("button", { name: "Corner radius: 0" }));
+      fireEvent.click(screen.getByRole("button", { name: "Corner radius: 16" }));
 
       expect(useOverlay.getState().cornerRadius).toBe(16);
-      expect(screen.getByRole("button", { name: "Corner radius: 16 px" })).not.toBeNull();
+      expect(screen.getByRole("button", { name: "Corner radius: 16" })).not.toBeNull();
     });
   });
 
@@ -302,18 +384,36 @@ describe("Toolbar", () => {
     expect(onPin).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Save As" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save As (Cmd+S)" }));
     });
     expect(onSave).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+      fireEvent.click(screen.getByRole("button", { name: "Copy (Cmd+C)" }));
     });
     expect(onCopy).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      fireEvent.click(screen.getByRole("button", { name: "Close (Esc)" }));
     });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+function domRect(partial: Partial<DOMRect> = {}): DOMRect {
+  const left = partial.left ?? 0;
+  const top = partial.top ?? 0;
+  const width = partial.width ?? 0;
+  const height = partial.height ?? 0;
+  return {
+    x: left,
+    y: top,
+    left,
+    top,
+    width,
+    height,
+    right: partial.right ?? left + width,
+    bottom: partial.bottom ?? top + height,
+    toJSON: () => { },
+  } as DOMRect;
+}

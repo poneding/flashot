@@ -1,8 +1,8 @@
-import Konva from "konva";
 import { getLayer } from "@/annotation/Stage";
 import { useAnnotation } from "@/annotation/store";
-import type { AnnotationObject, AnnotationStyle } from "@/annotation/types";
+import type { AnnotationObject, AnnotationStyle, MeasureMode } from "@/annotation/types";
 import type { Point } from "@/lib/types";
+import Konva from "konva";
 
 let currentGroup: Konva.Group | null = null;
 let startX = 0;
@@ -16,7 +16,6 @@ const LABEL_MIN_WIDTH = 38;
 const LABEL_OFFSET = 18;
 const LABEL_BACKGROUND_FILL = "#111827";
 const LABEL_TEXT_FILL = "#ffffff";
-const LABEL_BORDER_WIDTH = 1;
 
 export function measureLength(start: Point, end: Point): number {
   return Math.round(Math.hypot(end.x - start.x, end.y - start.y));
@@ -24,6 +23,50 @@ export function measureLength(start: Point, end: Point): number {
 
 export function measureLabel(start: Point, end: Point): string {
   return `${measureLength(start, end)} px`;
+}
+
+function measureMode(style: AnnotationStyle): MeasureMode {
+  return style.measureMode === "axis" ? "axis" : "free";
+}
+
+export function constrainMeasureEndpoint(start: Point, end: Point, mode: MeasureMode | undefined): Point {
+  if (mode !== "axis") return end;
+
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  return Math.abs(dx) >= Math.abs(dy)
+    ? { x: end.x, y: start.y }
+    : { x: start.x, y: end.y };
+}
+
+export function constrainMeasureObjectToAxisAroundMidpoint(obj: AnnotationObject): AnnotationObject {
+  const start = obj.start ?? { x: 0, y: 0 };
+  const end = obj.end ?? start;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+
+  if (length < 0.0001) return obj;
+
+  const mid = {
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2,
+  };
+  const halfLength = length / 2;
+
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return {
+      ...obj,
+      start: { x: mid.x - halfLength, y: mid.y },
+      end: { x: mid.x + halfLength, y: mid.y },
+    };
+  }
+
+  return {
+    ...obj,
+    start: { x: mid.x, y: mid.y - halfLength },
+    end: { x: mid.x, y: mid.y + halfLength },
+  };
 }
 
 function estimateLabelWidth(text: string): number {
@@ -79,6 +122,7 @@ function buildMeasureObjectChildren(group: Konva.Group, obj: AnnotationObject) {
     strokeWidth: style.strokeWidth,
     lineCap: "round",
     lineJoin: "round",
+    listening: false,
     name: "measure-main-line",
   }));
 
@@ -87,6 +131,7 @@ function buildMeasureObjectChildren(group: Konva.Group, obj: AnnotationObject) {
     stroke: style.color,
     strokeWidth: style.strokeWidth,
     lineCap: "round",
+    listening: false,
     name: "measure-tick",
   }));
 
@@ -95,6 +140,7 @@ function buildMeasureObjectChildren(group: Konva.Group, obj: AnnotationObject) {
     stroke: style.color,
     strokeWidth: style.strokeWidth,
     lineCap: "round",
+    listening: false,
     name: "measure-tick",
   }));
 
@@ -112,8 +158,8 @@ function buildMeasureObjectChildren(group: Konva.Group, obj: AnnotationObject) {
     height: LABEL_HEIGHT,
     cornerRadius: 5,
     fill: LABEL_BACKGROUND_FILL,
-    stroke: style.color,
-    strokeWidth: LABEL_BORDER_WIDTH,
+    strokeEnabled: false,
+    strokeWidth: 0,
     name: "measure-label-bg",
   }));
 
@@ -124,9 +170,8 @@ function buildMeasureObjectChildren(group: Konva.Group, obj: AnnotationObject) {
     height: LABEL_HEIGHT,
     text: label,
     fill: LABEL_TEXT_FILL,
-    fontFamily: "system-ui",
+    fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
     fontSize: LABEL_FONT_SIZE,
-    fontStyle: "bold",
     align: "center",
     listening: false,
     name: "measure-label",
@@ -136,13 +181,17 @@ function buildMeasureObjectChildren(group: Konva.Group, obj: AnnotationObject) {
 }
 
 function makeMeasureObject(x: number, y: number, style: AnnotationStyle, id: string = crypto.randomUUID()): AnnotationObject {
+  const start = { x: startX, y: startY };
+  const end = constrainMeasureEndpoint(start, { x, y }, measureMode(style));
+
   return {
     id,
     type: "measure",
-    start: { x: startX, y: startY },
-    end: { x, y },
+    start,
+    end,
     style: {
       ...style,
+      measureMode: measureMode(style),
       lineShape: "straight",
       lineStyle: "solid",
       arrow: "none",
@@ -171,16 +220,21 @@ export function onMeasureMove(x: number, y: number) {
 }
 
 export function onMeasureEnd(x: number, y: number): AnnotationObject | null {
-  if (!currentGroup || Math.hypot(x - startX, y - startY) < MIN_MEASURE_DISTANCE) {
-    currentGroup?.destroy();
+  if (!currentGroup) return null;
+
+  const obj = makeMeasureObject(x, y, useAnnotation.getState().activeStyle);
+  const start = obj.start ?? { x: startX, y: startY };
+  const end = obj.end ?? start;
+
+  if (Math.hypot(end.x - start.x, end.y - start.y) < MIN_MEASURE_DISTANCE) {
+    currentGroup.destroy();
     currentGroup = null;
     return null;
   }
 
-  const obj = makeMeasureObject(x, y, useAnnotation.getState().activeStyle);
   currentGroup.id(obj.id);
   currentGroup.listening(true);
-  currentGroup.draggable(false);
+  currentGroup.draggable(true);
   currentGroup.position({ x: obj.start!.x, y: obj.start!.y });
   buildMeasureObjectChildren(currentGroup, obj);
   currentGroup = null;
@@ -196,7 +250,7 @@ export function renderMeasureObject(obj: AnnotationObject): Konva.Group {
   const start = obj.start ?? { x: 0, y: 0 };
   const group = new Konva.Group({
     id: obj.id,
-    draggable: false,
+    draggable: true,
     x: start.x + transform.x,
     y: start.y + transform.y,
     scaleX: transform.scaleX,

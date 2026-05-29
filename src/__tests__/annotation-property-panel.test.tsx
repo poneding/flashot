@@ -1,14 +1,19 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PropertyPanel } from "@/annotation/PropertyPanel";
 import { useAnnotation } from "@/annotation/store";
+import type { AnnotationObject } from "@/annotation/types";
 
 vi.mock("@/lib/ipc", () => ({
   listSystemFonts: vi.fn().mockResolvedValue(["Arial", "Helvetica", "Times New Roman"]),
 }));
 
 const defaultInnerHeight = window.innerHeight;
+const originalScrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "scrollIntoView",
+);
 
 describe("Annotation property panel", () => {
   beforeEach(() => {
@@ -19,6 +24,7 @@ describe("Annotation property panel", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    restoreScrollIntoView();
     Object.defineProperty(window, "innerHeight", { configurable: true, value: defaultInnerHeight });
   });
 
@@ -55,17 +61,23 @@ describe("Annotation property panel", () => {
 
     const rectHollowIcon = fillOptionIcon(container, "Hollow");
     const rectFilledIcon = fillOptionIcon(container, "Filled");
+    const rectSpotlightIcon = fillOptionIcon(container, "Focus");
     expect(rectHollowIcon.querySelector("rect")?.getAttribute("width")).toBe("18");
     expect(rectFilledIcon.querySelector("rect")?.getAttribute("width")).toBe("18");
     expect(rectFilledIcon.querySelector("rect")?.getAttribute("fill")).toBe("currentColor");
+    expect(rectSpotlightIcon.querySelector("path[data-spotlight-shadow]")?.getAttribute("d")).toBe("M3 3H21V21H3Z M8 8H16V16H8Z");
+    expect(rectSpotlightIcon.querySelector("rect[data-spotlight-hole]")?.getAttribute("width")).toBe("8");
 
     rerender(<PropertyPanel tool="ellipse" />);
 
     const ellipseHollowIcon = fillOptionIcon(container, "Hollow");
     const ellipseFilledIcon = fillOptionIcon(container, "Filled");
+    const ellipseSpotlightIcon = fillOptionIcon(container, "Focus");
     expect(ellipseHollowIcon.querySelector("circle")?.getAttribute("r")).toBe("10");
     expect(ellipseFilledIcon.querySelector("circle")?.getAttribute("r")).toBe("10");
     expect(ellipseFilledIcon.querySelector("circle")?.getAttribute("fill")).toBe("currentColor");
+    expect(ellipseSpotlightIcon.querySelector("path[data-spotlight-shadow]")?.getAttribute("d")).toBe("M12 2a10 10 0 1 0 0 20 10 10 0 1 0 0-20Z M12 8a4 4 0 1 0 0 8 4 4 0 1 0 0-8Z");
+    expect(ellipseSpotlightIcon.querySelector("circle[data-spotlight-hole]")?.getAttribute("r")).toBe("4");
     expect(ellipseHollowIcon.querySelector("rect")).toBeNull();
     expect(ellipseFilledIcon.querySelector("rect")).toBeNull();
   });
@@ -75,8 +87,9 @@ describe("Annotation property panel", () => {
 
     expect(screen.queryByLabelText("Sharp corners")).toBeNull();
     expect(screen.queryByLabelText("Rounded corners")).toBeNull();
-    expect(screen.getByRole("button", { name: "Corner radius: 0px" })).not.toBeNull();
-    expect(screen.getByText("0px")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Corner radius: 0" })).not.toBeNull();
+    expect(screen.getByText("0")).not.toBeNull();
+    expect(screen.queryByText("0px")).toBeNull();
     expect(screen.queryByLabelText("Decrease Corner radius")).toBeNull();
     expect(screen.queryByLabelText("Increase Corner radius")).toBeNull();
   });
@@ -89,13 +102,15 @@ describe("Annotation property panel", () => {
     expect(screen.queryByText("Stroke")).toBeNull();
     expect(screen.queryByText("Radius")).toBeNull();
     expect(screen.getByRole("button", { name: /^Stroke width:/ })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Corner radius: 0px" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Corner radius: 0" })).not.toBeNull();
   });
 
   it("renders measurement controls without decorative line style choices", () => {
     render(<PropertyPanel tool="measure" />);
 
     expect(screen.getByRole("button", { name: /^Stroke width:/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Free angle" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Horizontal / vertical" })).not.toBeNull();
     expect(screen.getByLabelText("#ff0000")).not.toBeNull();
     expect(screen.queryByLabelText("Decrease Stroke width")).toBeNull();
     expect(screen.queryByLabelText("Increase Stroke width")).toBeNull();
@@ -103,66 +118,136 @@ describe("Annotation property panel", () => {
     expect(screen.queryByLabelText("Arrowhead: Open")).toBeNull();
   });
 
+  it("updates the active measurement mode from the property panel", () => {
+    useAnnotation.getState().setActiveTool("measure");
+    render(<PropertyPanel tool="measure" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Horizontal / vertical" }));
+
+    expect(useAnnotation.getState().activeStyle.measureMode).toBe("axis");
+  });
+
+  it("axis-aligns a selected measurement around its midpoint from the property panel", () => {
+    const measure: AnnotationObject = {
+      id: "measure-1",
+      type: "measure",
+      start: { x: 0, y: 0 },
+      end: { x: 30, y: 40 },
+      style: { color: "#ff0000", strokeWidth: 4, measureMode: "free" },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    act(() => {
+      useAnnotation.getState().addObject(measure);
+      useAnnotation.getState().setSelectedObject(measure.id);
+    });
+
+    render(<PropertyPanel tool="measure" object={useAnnotation.getState().objects[0]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Horizontal / vertical" }));
+
+    const next = useAnnotation.getState().objects[0];
+    expect(next.style.measureMode).toBe("axis");
+    expect(next.start?.x).toBeCloseTo(15);
+    expect(next.start?.y).toBeCloseTo(-5);
+    expect(next.end?.x).toBeCloseTo(15);
+    expect(next.end?.y).toBeCloseTo(45);
+  });
+
   it("renders highlight stroke and corner radius as dropdown controls", () => {
     render(<PropertyPanel tool="highlight" />);
 
     expect(screen.getByRole("button", { name: /^Stroke width:/ })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Corner radius: 0px" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Corner radius: 0" })).not.toBeNull();
     expect(screen.queryByLabelText("Decrease Stroke width")).toBeNull();
     expect(screen.queryByLabelText("Increase Stroke width")).toBeNull();
     expect(screen.queryByLabelText("Decrease Corner radius")).toBeNull();
     expect(screen.queryByLabelText("Increase Corner radius")).toBeNull();
   });
 
-  it("shows marker fill, text color, and bubble background controls", () => {
+  it("shows marker fill, font size, and next number controls", () => {
+    useAnnotation.getState().setActiveTool("marker");
+    useAnnotation.getState().setCurrentMarkerNumber(3);
     render(<PropertyPanel tool="marker" />);
 
     const fill = screen.getByLabelText("Marker fill");
-    const textColor = screen.getByLabelText("Marker text color");
-    const bubbleBackground = screen.getByLabelText("Marker bubble background");
 
     fireEvent.click(within(fill).getByRole("button", { name: "#0099ff" }));
-    fireEvent.click(within(textColor).getByRole("button", { name: "#ffffff" }));
-    fireEvent.click(within(bubbleBackground).getByRole("button", { name: "#000000" }));
+    fireEvent.click(screen.getByLabelText("Increase Marker number"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Marker number" }), { target: { value: "12" } });
 
     expect(useAnnotation.getState().activeStyle.markerFill).toBe("#0099ff");
-    expect(useAnnotation.getState().activeStyle.markerTextColor).toBe("#ffffff");
-    expect(useAnnotation.getState().activeStyle.markerBubbleFill).toBe("#000000");
+    expect(screen.getByRole("button", { name: "Font size: 14" })).not.toBeNull();
+    expect(useAnnotation.getState().currentMarkerNumber).toBe(12);
+    expect(screen.queryByLabelText("Marker text color")).toBeNull();
+    expect(screen.queryByLabelText("Marker bubble background")).toBeNull();
   });
 
-  it("shows magnifier shape, zoom, border, color, and radius controls", () => {
+  it("disables marker number controls at the 0 and 99 bounds with boundary tooltips", () => {
+    useAnnotation.getState().setActiveTool("marker");
+    useAnnotation.getState().setCurrentMarkerNumber(99);
+    const { rerender } = render(<PropertyPanel tool="marker" />);
+
+    const increase = screen.getByRole("button", { name: "Increase Marker number" }) as HTMLButtonElement;
+    expect(increase.disabled).toBe(true);
+    fireEvent.mouseEnter(increase.parentElement!);
+    expect(screen.getByRole("tooltip").textContent).toBe("Already at maximum marker number");
+
+    act(() => {
+      useAnnotation.getState().setCurrentMarkerNumber(0);
+    });
+    rerender(<PropertyPanel tool="marker" />);
+
+    const decrease = screen.getByRole("button", { name: "Decrease Marker number" }) as HTMLButtonElement;
+    expect(decrease.disabled).toBe(true);
+    fireEvent.mouseEnter(decrease.parentElement!);
+    expect(screen.getByRole("tooltip").textContent).toBe("Already at minimum marker number");
+  });
+
+  it("shows magnifier shape and zoom controls with a fixed border", () => {
     render(<PropertyPanel tool="magnifier" />);
 
     expect(screen.getByRole("button", { name: "Magnifier shape: Circle" })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Magnifier zoom: 150%" })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Magnifier border width: 2px" })).not.toBeNull();
-    expect(screen.getByLabelText("Magnifier border color")).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Magnifier corner radius: 12px" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Magnifier zoom: 200%" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Magnifier border width: 8" })).toBeNull();
+    expect(screen.queryByLabelText("Magnifier border color")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Magnifier corner radius: 12" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Magnifier shape: Circle" }));
-    fireEvent.click(screen.getByLabelText("Rounded rectangle lens"));
+    const rectangleOption = screen.getByLabelText("Rounded rectangle lens");
+    const rectangleIcon = rectangleOption.querySelector("svg rect");
+    expect(rectangleIcon?.getAttribute("y")).toBe("3");
+    expect(rectangleIcon?.getAttribute("height")).toBe("18");
+    fireEvent.click(rectangleOption);
     expect(useAnnotation.getState().activeStyle.magnifierShape).toBe("rounded-rect");
 
-    fireEvent.click(screen.getByRole("button", { name: "Magnifier zoom: 150%" }));
+    fireEvent.click(screen.getByRole("button", { name: "Magnifier zoom: 200%" }));
     const zoomList = screen.getByTestId("annotation-number-list-magnifier-zoom");
-    expect(within(zoomList).getByRole("button", { name: "Magnifier zoom: 110%" })).not.toBeNull();
     expect(within(zoomList).getByRole("button", { name: "Magnifier zoom: 200%" })).not.toBeNull();
-    expect(within(zoomList).queryByRole("button", { name: "Magnifier zoom: 100%" })).toBeNull();
-    fireEvent.click(within(zoomList).getByRole("button", { name: "Magnifier zoom: 175%" }));
+    expect(within(zoomList).getByRole("button", { name: "Magnifier zoom: 400%" })).not.toBeNull();
+    expect(within(zoomList).getByRole("button", { name: "Magnifier zoom: 210%" })).not.toBeNull();
+    expect(within(zoomList).queryByRole("button", { name: "Magnifier zoom: 190%" })).toBeNull();
+    expect(within(zoomList).queryByRole("button", { name: "Magnifier zoom: 205%" })).toBeNull();
+    fireEvent.click(within(zoomList).getByRole("button", { name: "Magnifier zoom: 350%" }));
 
-    expect(useAnnotation.getState().activeStyle.magnifierZoom).toBe(1.75);
+    expect(useAnnotation.getState().activeStyle.magnifierZoom).toBe(3.5);
   });
 
-  it("shows focus controls for rectangle and ellipse panels only", () => {
+  it("offers focus as a shape fill option without separate focus controls", () => {
     const { rerender } = render(<PropertyPanel tool="rect" />);
 
+    expect(screen.getByRole("button", { name: "Hollow" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Filled" })).not.toBeNull();
     expect(screen.getByRole("button", { name: "Focus" })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Focus opacity: 45%" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /^Focus opacity:/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Focus" }));
+    expect(useAnnotation.getState().activeStyle.fill).toBe("spotlight");
 
     rerender(<PropertyPanel tool="ellipse" />);
 
+    expect(screen.getByRole("button", { name: "Hollow" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Filled" })).not.toBeNull();
     expect(screen.getByRole("button", { name: "Focus" })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Focus opacity: 45%" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /^Focus opacity:/ })).toBeNull();
 
     rerender(<PropertyPanel tool="line" />);
 
@@ -178,6 +263,10 @@ describe("Annotation property panel", () => {
 
     expect(screen.queryByRole("button", { name: "Focus" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Focus opacity:/ })).toBeNull();
+
+    act(() => {
+      useAnnotation.getState().setActiveStyle({ fill: "hollow" });
+    });
   });
 
   it("shows immediate custom tooltips for numeric controls on hover", () => {
@@ -186,42 +275,98 @@ describe("Annotation property panel", () => {
     fireEvent.mouseEnter(screen.getByRole("button", { name: /^Stroke width:/ }));
 
     const tooltip = screen.getByRole("tooltip");
-    expect(tooltip.textContent).toBe("Stroke width");
+    expect(tooltip.textContent).toBe("Stroke width [px]");
     expect(tooltip.getAttribute("style")).toContain("background: rgba(18, 18, 18, 0.72)");
   });
 
   it("selects stroke, radius, and font size values from continuous scrollable lists", () => {
     const { rerender } = render(<PropertyPanel tool="rect" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Stroke width: 4px" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stroke width: 4" }));
     const strokeList = screen.getByTestId("annotation-number-list-stroke-width");
     expect(strokeList.className).toContain("flashot-dark-scrollbar");
     expect(strokeList.style.maxHeight).toBe("200px");
-    expect(within(strokeList).getByRole("button", { name: "Stroke width: 1px" })).not.toBeNull();
-    expect(within(strokeList).getByRole("button", { name: "Stroke width: 20px" })).not.toBeNull();
-    expect(within(strokeList).queryByRole("button", { name: "Stroke width: 21px" })).toBeNull();
-    fireEvent.click(within(strokeList).getByRole("button", { name: "Stroke width: 19px" }));
+    expect(within(strokeList).getByRole("button", { name: "Stroke width: 1" })).not.toBeNull();
+    expect(within(strokeList).getByRole("button", { name: "Stroke width: 20" })).not.toBeNull();
+    expect(within(strokeList).queryByRole("button", { name: "Stroke width: 21" })).toBeNull();
+    expect(within(strokeList).queryByText("1px")).toBeNull();
+    fireEvent.click(within(strokeList).getByRole("button", { name: "Stroke width: 19" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Corner radius: 0px" }));
+    fireEvent.click(screen.getByRole("button", { name: "Corner radius: 0" }));
     const radiusList = screen.getByTestId("annotation-number-list-corner-radius");
     expect(radiusList.className).toContain("flashot-dark-scrollbar");
-    expect(within(radiusList).getByRole("button", { name: "Corner radius: 0px" })).not.toBeNull();
-    expect(within(radiusList).getByRole("button", { name: "Corner radius: 60px" })).not.toBeNull();
-    expect(within(radiusList).queryByRole("button", { name: "Corner radius: 61px" })).toBeNull();
-    fireEvent.click(within(radiusList).getByRole("button", { name: "Corner radius: 57px" }));
+    expect(within(radiusList).getByRole("button", { name: "Corner radius: 0" })).not.toBeNull();
+    expect(within(radiusList).getByRole("button", { name: "Corner radius: 60" })).not.toBeNull();
+    expect(within(radiusList).queryByRole("button", { name: "Corner radius: 61" })).toBeNull();
+    fireEvent.click(within(radiusList).getByRole("button", { name: "Corner radius: 57" }));
 
+    act(() => {
+      useAnnotation.getState().setActiveStyle({ fontSize: 24 });
+    });
     rerender(<PropertyPanel tool="text" />);
-    fireEvent.click(screen.getByRole("button", { name: "Font size: 24px" }));
+    fireEvent.click(screen.getByRole("button", { name: "Font size: 24" }));
     const fontSizeList = screen.getByTestId("annotation-number-list-font-size");
     expect(fontSizeList.className).toContain("flashot-dark-scrollbar");
-    expect(within(fontSizeList).getByRole("button", { name: "Font size: 1px" })).not.toBeNull();
-    expect(within(fontSizeList).getByRole("button", { name: "Font size: 72px" })).not.toBeNull();
-    expect(within(fontSizeList).queryByRole("button", { name: "Font size: 73px" })).toBeNull();
-    fireEvent.click(within(fontSizeList).getByRole("button", { name: "Font size: 71px" }));
+    expect(within(fontSizeList).getByRole("button", { name: "Font size: 1" })).not.toBeNull();
+    expect(within(fontSizeList).getByRole("button", { name: "Font size: 72" })).not.toBeNull();
+    expect(within(fontSizeList).queryByRole("button", { name: "Font size: 73" })).toBeNull();
+    fireEvent.click(within(fontSizeList).getByRole("button", { name: "Font size: 71" }));
 
     expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(19);
     expect(useAnnotation.getState().activeStyle.cornerRadius).toBe(57);
     expect(useAnnotation.getState().activeStyle.fontSize).toBe(71);
+  });
+
+  it("scrolls numeric dropdowns to the current tool value when opened", () => {
+    const scrolledLabels = captureScrollIntoViewLabels();
+    useAnnotation.getState().setActiveStyle({ cornerRadius: 57 });
+
+    try {
+      render(<PropertyPanel tool="rect" />);
+
+      fireEvent.click(screen.getByRole("button", { name: "Corner radius: 57" }));
+
+      expect(scrolledLabels).toContain("Corner radius: 57");
+    } finally {
+      act(() => {
+        useAnnotation.getState().setActiveStyle({ cornerRadius: 0 });
+      });
+    }
+  });
+
+  it("scrolls icon dropdowns to the current tool value when opened", () => {
+    const scrolledLabels = captureScrollIntoViewLabels();
+    useAnnotation.getState().setActiveStyle({ lineShape: "straight", lineStyle: "dashed" });
+
+    try {
+      render(<PropertyPanel tool="line" />);
+
+      fireEvent.click(screen.getByLabelText("Line style: Dashed"));
+
+      expect(scrolledLabels).toContain("Dashed");
+    } finally {
+      act(() => {
+        useAnnotation.getState().setActiveStyle({ lineShape: "straight", lineStyle: "solid" });
+      });
+    }
+  });
+
+  it("scrolls the font dropdown to the current font when opened", async () => {
+    const scrolledLabels = captureScrollIntoViewLabels();
+    useAnnotation.getState().setActiveStyle({ fontFamily: "Times New Roman" });
+
+    try {
+      render(<PropertyPanel tool="text" />);
+      await act(async () => {});
+
+      fireEvent.click(screen.getByLabelText("Font: Times New Roman"));
+
+      expect(scrolledLabels).toContain("Times New Roman");
+    } finally {
+      act(() => {
+        useAnnotation.getState().setActiveStyle({ fontFamily: "system-ui" });
+      });
+    }
   });
 
   it("positions numeric tooltips from the property panel edge", () => {
@@ -265,6 +410,12 @@ describe("Annotation property panel", () => {
 
     // Legacy "handwriting" normalizes to system-ui, displayed as platform name
     expect(screen.getByLabelText(/^Font:/)).not.toBeNull();
+  });
+
+  it("localizes the system font label in Traditional Chinese", () => {
+    render(<PropertyPanel tool="text" locale="zh-TW" />);
+
+    expect(screen.getByLabelText("字型：系統")).not.toBeNull();
   });
 
   it("uses centered SVG previews for line style dropdown options", () => {
@@ -463,4 +614,24 @@ function rect(partial: Partial<DOMRect> = {}): DOMRect {
     bottom: partial.bottom ?? top + height,
     toJSON: () => {},
   } as DOMRect;
+}
+
+function captureScrollIntoViewLabels(): string[] {
+  const labels: string[] = [];
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value(this: HTMLElement) {
+      labels.push(this.getAttribute("aria-label") ?? this.textContent ?? "");
+    },
+  });
+  return labels;
+}
+
+function restoreScrollIntoView() {
+  if (originalScrollIntoViewDescriptor) {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScrollIntoViewDescriptor);
+    return;
+  }
+
+  delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
 }

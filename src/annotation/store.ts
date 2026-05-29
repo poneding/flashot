@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createCommandStack, type CommandStack } from "@/annotation/commands";
 import { normalizeTextStyle } from "@/annotation/fonts";
+import { MARKER_DEFAULT_FONT_SIZE, MARKER_NUMBER_MAX, MARKER_NUMBER_MIN } from "@/annotation/markerStyle";
 import {
   DEFAULT_STYLE,
   type AnnotationId,
@@ -13,12 +14,25 @@ import {
 const STYLE_STORAGE_KEY = "flashot:annotation-style";
 const TOOL_STYLE_STORAGE_KEY = "flashot:annotation-tool-style";
 
+function normalizeSpotlightStyle(style: AnnotationStyle): AnnotationStyle {
+  const next = { ...style };
+  const fill = next.focusMode === "spotlight" ? "spotlight" : next.fill;
+  delete next.focusMode;
+  delete next.focusOpacity;
+  delete next.focusColor;
+
+  return {
+    ...next,
+    fill: fill === "solid" || fill === "spotlight" ? fill : "hollow",
+  };
+}
+
 function loadPersistedStyle(): AnnotationStyle {
   try {
     const raw = localStorage.getItem(STYLE_STORAGE_KEY);
-    if (raw) return normalizeTextStyle({ ...DEFAULT_STYLE, ...JSON.parse(raw) });
+    if (raw) return normalizeSpotlightStyle(normalizeTextStyle({ ...DEFAULT_STYLE, ...JSON.parse(raw) }));
   } catch { /* ignore */ }
-  return normalizeTextStyle({ ...DEFAULT_STYLE });
+  return normalizeSpotlightStyle(normalizeTextStyle({ ...DEFAULT_STYLE }));
 }
 
 function persistStyle(style: AnnotationStyle) {
@@ -36,14 +50,15 @@ function finiteNumber(value: unknown, fallback: number): number {
 }
 
 function normalizeMarkerNumber(value: unknown): number {
-  return Math.max(1, Math.trunc(finiteNumber(value, 1)));
+  return Math.max(MARKER_NUMBER_MIN, Math.min(MARKER_NUMBER_MAX, Math.trunc(finiteNumber(value, 1))));
 }
 
 type ToolStyleMemory = {
   line: Pick<AnnotationStyle, "lineShape" | "lineStyle">;
   arrow: Pick<AnnotationStyle, "lineStyle" | "arrowStyle">;
-  measure: Pick<AnnotationStyle, "color" | "strokeWidth">;
+  measure: Pick<AnnotationStyle, "color" | "strokeWidth" | "measureMode">;
   highlight: Pick<AnnotationStyle, "strokeWidth" | "cornerRadius">;
+  marker: Pick<AnnotationStyle, "fontSize" | "markerFill">;
 };
 
 function lineToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["line"] {
@@ -65,6 +80,7 @@ function measureToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["mea
   return {
     color: style.color ?? DEFAULT_STYLE.color,
     strokeWidth: style.strokeWidth ?? DEFAULT_STYLE.strokeWidth,
+    measureMode: style.measureMode === "axis" ? "axis" : "free",
   };
 }
 
@@ -75,12 +91,20 @@ function highlightToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["h
   };
 }
 
+function markerToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["marker"] {
+  return {
+    fontSize: finiteNumber(style.fontSize, MARKER_DEFAULT_FONT_SIZE),
+    markerFill: style.markerFill ?? DEFAULT_STYLE.markerFill,
+  };
+}
+
 function createToolStyleMemory(style: AnnotationStyle): ToolStyleMemory {
   return {
     line: lineToolStyle(style),
     arrow: arrowToolStyle(style),
     measure: measureToolStyle(style),
     highlight: highlightToolStyle(style),
+    marker: markerToolStyle({ ...style, fontSize: MARKER_DEFAULT_FONT_SIZE }),
   };
 }
 
@@ -88,22 +112,25 @@ function loadPersistedToolStyleMemory(style: AnnotationStyle): {
   memory: ToolStyleMemory;
   hasRememberedMeasure: boolean;
   hasRememberedHighlight: boolean;
+  hasRememberedMarker: boolean;
 } {
   const memory = createToolStyleMemory(style);
   let hasRememberedMeasure = false;
   let hasRememberedHighlight = false;
+  let hasRememberedMarker = false;
 
   try {
     const raw = localStorage.getItem(TOOL_STYLE_STORAGE_KEY);
-    if (!raw) return { memory, hasRememberedMeasure, hasRememberedHighlight };
+    if (!raw) return { memory, hasRememberedMeasure, hasRememberedHighlight, hasRememberedMarker };
 
     const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed)) return { memory, hasRememberedMeasure, hasRememberedHighlight };
+    if (!isRecord(parsed)) return { memory, hasRememberedMeasure, hasRememberedHighlight, hasRememberedMarker };
 
     if (isRecord(parsed.measure)) {
       memory.measure = {
         color: typeof parsed.measure.color === "string" ? parsed.measure.color : memory.measure.color,
         strokeWidth: finiteNumber(parsed.measure.strokeWidth, memory.measure.strokeWidth),
+        measureMode: parsed.measure.measureMode === "axis" ? "axis" : "free",
       };
       hasRememberedMeasure = true;
     }
@@ -115,9 +142,17 @@ function loadPersistedToolStyleMemory(style: AnnotationStyle): {
       };
       hasRememberedHighlight = true;
     }
+
+    if (isRecord(parsed.marker)) {
+      memory.marker = {
+        fontSize: finiteNumber(parsed.marker.fontSize, MARKER_DEFAULT_FONT_SIZE),
+        markerFill: typeof parsed.marker.markerFill === "string" ? parsed.marker.markerFill : memory.marker.markerFill,
+      };
+      hasRememberedMarker = true;
+    }
   } catch { /* ignore */ }
 
-  return { memory, hasRememberedMeasure, hasRememberedHighlight };
+  return { memory, hasRememberedMeasure, hasRememberedHighlight, hasRememberedMarker };
 }
 
 function persistToolStyleMemory() {
@@ -125,40 +160,28 @@ function persistToolStyleMemory() {
     localStorage.setItem(TOOL_STYLE_STORAGE_KEY, JSON.stringify({
       measure: toolStyleMemory.measure,
       highlight: toolStyleMemory.highlight,
+      marker: toolStyleMemory.marker,
     }));
   } catch { /* ignore */ }
 }
 
-function normalizeFocusStyle(style: AnnotationStyle): AnnotationStyle {
-  const focusOpacity = finiteNumber(style.focusOpacity, DEFAULT_STYLE.focusOpacity ?? 0.45);
-  const focusMode = style.focusMode === "spotlight" ? "spotlight" : "none";
-  const focusColor = typeof style.focusColor === "string" ? style.focusColor : (DEFAULT_STYLE.focusColor ?? "#000000");
-
-  return {
-    ...style,
-    focusMode,
-    focusOpacity: Math.max(0, Math.min(1, focusOpacity)),
-    focusColor,
-  };
-}
-
 function normalizeMagnifierStyle(style: AnnotationStyle): AnnotationStyle {
-  const magnifierZoom = finiteNumber(style.magnifierZoom, DEFAULT_STYLE.magnifierZoom ?? 1.5);
-  const magnifierBorderWidth = finiteNumber(style.magnifierBorderWidth, DEFAULT_STYLE.magnifierBorderWidth ?? 2);
+  const magnifierZoom = finiteNumber(style.magnifierZoom, DEFAULT_STYLE.magnifierZoom ?? 2);
+  const magnifierBorderWidth = finiteNumber(style.magnifierBorderWidth, DEFAULT_STYLE.magnifierBorderWidth ?? 8);
   const magnifierCornerRadius = finiteNumber(style.magnifierCornerRadius, DEFAULT_STYLE.magnifierCornerRadius ?? 12);
 
   return {
     ...style,
     magnifierShape: style.magnifierShape === "rounded-rect" ? "rounded-rect" : "circle",
-    magnifierZoom: Math.max(1.1, Math.min(2, magnifierZoom)),
-    magnifierBorderColor: typeof style.magnifierBorderColor === "string" ? style.magnifierBorderColor : (DEFAULT_STYLE.magnifierBorderColor ?? "#ffffff"),
+    magnifierZoom: Math.max(2, Math.min(4, magnifierZoom)),
+    magnifierBorderColor: typeof style.magnifierBorderColor === "string" ? style.magnifierBorderColor : (DEFAULT_STYLE.magnifierBorderColor ?? "#9CA3AF"),
     magnifierBorderWidth: Math.max(1, Math.min(20, magnifierBorderWidth)),
     magnifierCornerRadius: Math.max(0, Math.min(60, magnifierCornerRadius)),
   };
 }
 
 function normalizeActiveStyleForTool(tool: ToolType, style: AnnotationStyle): AnnotationStyle {
-  style = normalizeMagnifierStyle(normalizeFocusStyle(normalizeTextStyle(style)));
+  style = normalizeMagnifierStyle(normalizeSpotlightStyle(normalizeTextStyle(style)));
   if (tool === "line") {
     return { ...style, ...lineToolStyle(style) };
   }
@@ -177,11 +200,14 @@ function normalizeActiveStyleForTool(tool: ToolType, style: AnnotationStyle): An
   if (tool === "highlight") {
     return { ...style, ...highlightToolStyle(style) };
   }
+  if (tool === "marker") {
+    return { ...style, fontSize: finiteNumber(style.fontSize, MARKER_DEFAULT_FONT_SIZE) };
+  }
   return style;
 }
 
 function usesIsolatedToolStyle(tool: ToolType): boolean {
-  return tool === "measure" || tool === "highlight";
+  return tool === "measure" || tool === "highlight" || tool === "marker";
 }
 
 function rememberToolStyle(tool: ToolType, style: AnnotationStyle) {
@@ -196,6 +222,10 @@ function rememberToolStyle(tool: ToolType, style: AnnotationStyle) {
   } else if (tool === "highlight") {
     toolStyleMemory.highlight = highlightToolStyle(style);
     hasRememberedHighlightToolStyle = true;
+    persistToolStyleMemory();
+  } else if (tool === "marker") {
+    toolStyleMemory.marker = markerToolStyle(style);
+    hasRememberedMarkerToolStyle = true;
     persistToolStyleMemory();
   }
 }
@@ -218,6 +248,12 @@ function styleForTool(tool: ToolType, baseStyle: AnnotationStyle): AnnotationSty
       return normalizeActiveStyleForTool(tool, baseStyle);
     }
     return normalizeActiveStyleForTool(tool, { ...baseStyle, ...toolStyleMemory.highlight });
+  }
+  if (tool === "marker") {
+    if (!hasRememberedMarkerToolStyle) {
+      return normalizeActiveStyleForTool(tool, { ...baseStyle, fontSize: MARKER_DEFAULT_FONT_SIZE });
+    }
+    return normalizeActiveStyleForTool(tool, { ...baseStyle, ...toolStyleMemory.marker });
   }
   return baseStyle;
 }
@@ -258,6 +294,7 @@ const initialToolStyleMemory = loadPersistedToolStyleMemory(initialActiveStyle);
 let toolStyleMemory = initialToolStyleMemory.memory;
 let hasRememberedMeasureToolStyle = initialToolStyleMemory.hasRememberedMeasure;
 let hasRememberedHighlightToolStyle = initialToolStyleMemory.hasRememberedHighlight;
+let hasRememberedMarkerToolStyle = initialToolStyleMemory.hasRememberedMarker;
 
 let sharedStyleMemory = initialActiveStyle;
 
@@ -314,7 +351,7 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
 
   allocateMarkerNumber() {
     const currentMarkerNumber = get().currentMarkerNumber;
-    set({ currentMarkerNumber: currentMarkerNumber + 1 });
+    set({ currentMarkerNumber: Math.min(MARKER_NUMBER_MAX, currentMarkerNumber + 1) });
     return currentMarkerNumber;
   },
 
@@ -334,7 +371,7 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
     const cmd: Command = { type: "delete", objectId: id, before: obj, after: {} };
     const objects = commandStack.execute(cmd, get().objects);
     const currentMarkerNumber = obj.type === "marker"
-      ? Math.max(1, get().currentMarkerNumber - 1)
+      ? Math.max(MARKER_NUMBER_MIN, get().currentMarkerNumber - 1)
       : get().currentMarkerNumber;
     set({
       objects,
@@ -377,11 +414,18 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
   modifyStyle(id, style) {
     const obj = get().objects.find((o) => o.id === id);
     if (!obj) return;
+    const mergedStyle = { ...obj.style, ...style };
+    const nextStyle = (
+      mergedStyle.focusMode ||
+      mergedStyle.focusOpacity != null ||
+      mergedStyle.focusColor != null ||
+      style.fill
+    ) ? normalizeSpotlightStyle(mergedStyle) : mergedStyle;
     const cmd: Command = {
       type: "modify-style",
       objectId: id,
       before: { style: { ...obj.style } },
-      after: { style: { ...obj.style, ...style } },
+      after: { style: nextStyle },
     };
     const objects = commandStack.execute(cmd, get().objects);
     set({ objects, canUndo: commandStack.canUndo(), canRedo: commandStack.canRedo() });

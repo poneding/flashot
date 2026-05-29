@@ -2,6 +2,7 @@ import { exportAnnotationLayer } from "@/annotation/export";
 import { AnnotationStage } from "@/annotation/Stage";
 import { useAnnotation } from "@/annotation/store";
 import { Toolbar as AnnotationToolbar } from "@/annotation/Toolbar";
+import { createTranslator, type Locale } from "@/i18n";
 import { currentCursorPointInWindow } from "@/lib/cursor";
 import { cursorForHandle, hitTestHandle, rectContainsPoint } from "@/lib/geometry";
 import {
@@ -30,7 +31,7 @@ import { FrozenLayer } from "@/overlay/FrozenLayer";
 import { SelectionBox } from "@/overlay/SelectionBox";
 import { useOverlay } from "@/overlay/state";
 import { Toolbar as ScreenshotToolbar } from "@/overlay/Toolbar";
-import { useStoredAccentColor } from "@/settings/useStoredAccentColor";
+import { useStoredAccentColor, useStoredLanguage } from "@/settings/useStoredAccentColor";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { CursorIcon } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -99,6 +100,7 @@ function setNativeOverlayCursor(cursor: string) {
 
 export function OverlayRoute() {
   useStoredAccentColor();
+  const locale = useStoredLanguage();
   const start = useOverlay((s) => s.start);
   const end = useOverlay((s) => s.end);
   const startScroll = useOverlay((s) => s.startScroll);
@@ -120,7 +122,6 @@ export function OverlayRoute() {
   const frameUrl = useOverlay((s) => s.frameUrl);
   const scaleFactor = useOverlay((s) => s.scaleFactor);
   const cornerRadius = useOverlay((s) => s.cornerRadius);
-  const imageAdjustments = useOverlay((s) => s.imageAdjustments);
   const monitorRect = useOverlay((s) => s.monitorRect);
   const [flashRect, setFlashRect] = useState<Rect | null>(null);
   const flashTimerRef = useRef<number | null>(null);
@@ -341,19 +342,37 @@ export function OverlayRoute() {
   const handleCopy = async () => {
     if (monitorId == null || !selection) return;
     const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await cropAndCopy(monitorId, selection, annotationPng ?? undefined, cornerRadius, imageAdjustments);
+    await cropAndCopy(
+      monitorId,
+      selection,
+      annotationPng ?? undefined,
+      cornerRadius,
+      useOverlay.getState().imageAdjustments,
+    );
   };
 
   const handleSave = async () => {
     if (monitorId == null || !selection) return;
     const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await cropAndSave(monitorId, selection, annotationPng ?? undefined, cornerRadius, imageAdjustments);
+    await cropAndSave(
+      monitorId,
+      selection,
+      annotationPng ?? undefined,
+      cornerRadius,
+      useOverlay.getState().imageAdjustments,
+    );
   };
 
   const handlePin = async () => {
     if (monitorId == null || !selection) return;
     const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await pinImage(monitorId, selection, annotationPng ?? undefined, cornerRadius, imageAdjustments);
+    await pinImage(
+      monitorId,
+      selection,
+      annotationPng ?? undefined,
+      cornerRadius,
+      useOverlay.getState().imageAdjustments,
+    );
   };
 
   const handleScroll = async () => {
@@ -411,7 +430,10 @@ export function OverlayRoute() {
     useOverlay.getState().clearHover();
   };
   const onMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 2) { cancelCapture(); return; }
+    if (e.button !== 0) {
+      e.preventDefault();
+      return;
+    }
     const p = { x: e.clientX, y: e.clientY };
     const state = useOverlay.getState();
 
@@ -451,7 +473,9 @@ export function OverlayRoute() {
       }
     }
   };
-  const onContextMenu = (e: React.MouseEvent) => { e.preventDefault(); cancelCapture(); };
+  const onContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+  };
 
   const overlayCursor = (() => {
     if (mode === "hover" || mode === "dragging") return "crosshair";
@@ -497,11 +521,12 @@ export function OverlayRoute() {
       <DimMask />
       <DetectHighlight />
       <SelectionBox />
-      <ColorPicker />
+      <ColorPicker locale={locale} />
       {mode === "scrollStarting" && selection && monitorRect && (
         <ScrollStartupStatus
           selection={selection}
           monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
+          locale={locale}
         />
       )}
       {mode === "committed" && selection && monitorRect && monitorId != null && (
@@ -513,10 +538,12 @@ export function OverlayRoute() {
             interacting={!!selectionInteraction}
           />
           <AnnotationToolbar
+            locale={locale}
             selection={selection}
             monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
           />
           <ScreenshotToolbar
+            locale={locale}
             selection={selection}
             monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
             onCopy={handleCopy}
@@ -552,7 +579,8 @@ function waitForOverlayPaint(): Promise<void> {
   });
 }
 
-function ScrollStartupStatus({ selection, monitorRect }: { selection: Rect; monitorRect: Rect }) {
+function ScrollStartupStatus({ selection, monitorRect, locale }: { selection: Rect; monitorRect: Rect; locale: Locale }) {
+  const t = createTranslator(locale);
   const width = 132;
   const height = 30;
   const gap = 10;
@@ -605,7 +633,7 @@ function ScrollStartupStatus({ selection, monitorRect }: { selection: Rect; moni
         zIndex: 10000,
       }}
     >
-      Starting...
+      {t("scroll.starting")}
     </div>
   );
 }

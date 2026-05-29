@@ -3,6 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { Check } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Point, Rect } from "@/lib/types";
+import { createTranslator, type Locale } from "@/i18n";
 
 const MAGNIFIER_SIZE = 120;
 const PIXEL_GRID_SIZE = 15;
@@ -28,7 +29,8 @@ function frameSourceFromUrl(url: string) {
   return convertFileSrc(decodeAssetPath(url.slice(ASSET_LOCALHOST_PREFIX.length)));
 }
 
-export function ColorPicker() {
+export function ColorPicker({ locale = "en" }: { locale?: Locale }) {
+  const t = createTranslator(locale);
   const mode = useOverlay((s) => s.mode);
   const cursor = useOverlay((s) => s.cursor);
   const frameUrl = useOverlay((s) => s.frameUrl);
@@ -173,16 +175,16 @@ export function ColorPicker() {
       </div>
       <div style={hintStyle}>
         <div>
-          <kbd style={kbdStyle}>X</kbd> switch HEX / RGB
+          <kbd style={kbdStyle}>X</kbd> {t("colorPicker.switchFormat")}
         </div>
         <div style={tipRowStyle}>
           <span>
-            <kbd style={kbdStyle}>C</kbd> copy color
+            <kbd style={kbdStyle}>C</kbd> {t("colorPicker.copyColor")}
           </span>
           {colorCopied && (
             <span style={copiedInlineStyle}>
               <Check size={11} strokeWidth={3} aria-hidden="true" />
-              Copied!
+              {t("colorPicker.copied")}
             </span>
           )}
         </div>

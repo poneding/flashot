@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   computeToolbarPosition,
   computeVerticalToolbarPosition,
+  computeSidePanelPosition,
   clampToolbarPosition,
   TOOLBAR_GAP,
   hitTestHandle,
@@ -106,6 +107,30 @@ describe("clampToolbarPosition", () => {
       x: monitor.width - TB.width,
       y: monitor.height - TB.height,
     });
+  });
+});
+
+describe("computeSidePanelPosition", () => {
+  it("places a side panel to the left of the vertical toolbar when there is room", () => {
+    expect(
+      computeSidePanelPosition(
+        { x: 344, y: 100 },
+        { x: 0, y: 0, width: 800, height: 600 },
+        { width: 72, height: 210 },
+        8,
+      ),
+    ).toEqual({ left: 264, top: 104 });
+  });
+
+  it("falls back above the toolbar and clamps to monitor bounds near the left edge", () => {
+    expect(
+      computeSidePanelPosition(
+        { x: 20, y: 32 },
+        { x: 0, y: 0, width: 300, height: 200 },
+        { width: 72, height: 210 },
+        8,
+      ),
+    ).toEqual({ left: 20, top: 8 });
   });
 });
 

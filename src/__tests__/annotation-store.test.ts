@@ -22,18 +22,21 @@ describe("useAnnotation store", () => {
     expect(useAnnotation.getState().selectedObjectId).toBeNull();
   });
 
-  it("defaults focus effect styling to disabled spotlight settings", () => {
-    expect(DEFAULT_STYLE.focusMode).toBe("none");
-    expect(DEFAULT_STYLE.focusOpacity).toBe(0.45);
-    expect(DEFAULT_STYLE.focusColor).toBe("#000000");
+  it("defaults shape fill styling to hollow without configurable focus settings", () => {
+    expect(DEFAULT_STYLE.fill).toBe("hollow");
+    expect(DEFAULT_STYLE.focusMode).toBeUndefined();
+    expect(DEFAULT_STYLE.focusOpacity).toBeUndefined();
+    expect(DEFAULT_STYLE.focusColor).toBeUndefined();
   });
 
-  it("clamps focus opacity when active style changes", () => {
-    useAnnotation.getState().setActiveStyle({ focusOpacity: 2 });
-    expect(useAnnotation.getState().activeStyle.focusOpacity).toBe(1);
+  it("normalizes legacy focus mode into the spotlight fill option", () => {
+    useAnnotation.getState().setActiveTool("rect");
+    useAnnotation.getState().setActiveStyle({ focusMode: "spotlight" });
 
-    useAnnotation.getState().setActiveStyle({ focusOpacity: -0.5 });
-    expect(useAnnotation.getState().activeStyle.focusOpacity).toBe(0);
+    expect(useAnnotation.getState().activeStyle.fill).toBe("spotlight");
+    expect(useAnnotation.getState().activeStyle.focusMode).toBeUndefined();
+    expect(useAnnotation.getState().activeStyle.focusOpacity).toBeUndefined();
+    expect(useAnnotation.getState().activeStyle.focusColor).toBeUndefined();
   });
 
   it("sets the measure tool as the active tool", () => {
@@ -90,13 +93,23 @@ describe("useAnnotation store", () => {
     expect(useAnnotation.getState().activeStyle.color).toBe("#ffcc00");
   });
 
-  it("stores measure color and stroke width separately from the shared annotation style", () => {
+  it("stores measure color, stroke width, and mode separately from the shared annotation style", () => {
     useAnnotation.getState().setActiveTool("measure");
-    useAnnotation.getState().setActiveStyle({ color: "#0099ff", strokeWidth: 2 });
+    useAnnotation.getState().setActiveStyle({ color: "#0099ff", strokeWidth: 2, measureMode: "axis" });
 
     const stored = JSON.parse(localStorage.getItem("flashot:annotation-tool-style") ?? "{}");
 
-    expect(stored.measure).toEqual({ color: "#0099ff", strokeWidth: 2 });
+    expect(stored.measure).toEqual({ color: "#0099ff", strokeWidth: 2, measureMode: "axis" });
+  });
+
+  it("normalizes magnifier zoom to the 200%-400% range", () => {
+    useAnnotation.getState().setActiveTool("magnifier");
+
+    useAnnotation.getState().setActiveStyle({ magnifierZoom: 1.5 });
+    expect(useAnnotation.getState().activeStyle.magnifierZoom).toBe(2);
+
+    useAnnotation.getState().setActiveStyle({ magnifierZoom: 4.5 });
+    expect(useAnnotation.getState().activeStyle.magnifierZoom).toBe(4);
   });
 
   it("keeps highlight stroke width and corner radius independent from other tools", () => {
@@ -236,7 +249,40 @@ describe("useAnnotation store", () => {
     expect(useAnnotation.getState().currentMarkerNumber).toBe(8);
 
     useAnnotation.getState().setCurrentMarkerNumber(0);
+    expect(useAnnotation.getState().currentMarkerNumber).toBe(0);
+    expect(useAnnotation.getState().allocateMarkerNumber()).toBe(0);
     expect(useAnnotation.getState().currentMarkerNumber).toBe(1);
+  });
+
+  it("caps marker numbering at 99", () => {
+    useAnnotation.getState().setCurrentMarkerNumber(120);
+
+    expect(useAnnotation.getState().currentMarkerNumber).toBe(99);
+    expect(useAnnotation.getState().allocateMarkerNumber()).toBe(99);
+    expect(useAnnotation.getState().currentMarkerNumber).toBe(99);
+  });
+
+  it("uses 14 as the default marker font size", () => {
+    useAnnotation.getState().setActiveTool("marker");
+
+    expect(useAnnotation.getState().activeStyle.fontSize).toBe(14);
+  });
+
+  it("does not decrement marker numbering below zero", () => {
+    const marker: AnnotationObject = {
+      id: "marker-0",
+      type: "marker",
+      start: { x: 10, y: 20 },
+      markerNumber: 0,
+      style: { color: "#ff0000", strokeWidth: 4 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    useAnnotation.getState().setCurrentMarkerNumber(0);
+    useAnnotation.getState().addObject(marker);
+
+    useAnnotation.getState().deleteObject("marker-0");
+
+    expect(useAnnotation.getState().currentMarkerNumber).toBe(0);
   });
 
   it("resets marker numbering for a new capture session", () => {

@@ -27,8 +27,8 @@ const selectedRect: AnnotationObject = {
   transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
 };
 
-function renderToolbar() {
-  return render(<Toolbar selection={selection} monitorRect={monitorRect} />);
+function renderToolbar(props: Partial<React.ComponentProps<typeof Toolbar>> = {}) {
+  return render(<Toolbar selection={selection} monitorRect={monitorRect} {...props} />);
 }
 
 function propertyPanelElement(container: HTMLElement): HTMLElement {
@@ -94,6 +94,14 @@ describe("Annotation toolbar", () => {
     expect(toolbar?.getAttribute("style")).not.toContain("cursor: move");
   });
 
+  it("can render an opaque toolbar surface for pin windows", () => {
+    const { container } = renderToolbar({ opaqueSurface: true });
+
+    const toolbar = container.querySelector("[data-annotation-toolbar]") as HTMLElement;
+
+    expect(toolbar.style.background).toBe("rgb(30, 30, 30)");
+  });
+
   it("keeps the toolbar inside monitor bounds while dragging", () => {
     const { container } = renderToolbar();
     const handle = container.querySelector("[data-annotation-toolbar-drag-handle]") as HTMLElement;
@@ -132,6 +140,15 @@ describe("Annotation toolbar", () => {
     });
   });
 
+  it("renders annotation tool labels in Simplified Chinese", () => {
+    renderToolbar({ locale: "zh-CN" });
+
+    expect(screen.getByRole("button", { name: "矩形" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "测量" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "撤销 (Cmd+Z)" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "重做 (Cmd+Shift+Z)" })).not.toBeNull();
+  });
+
   it("places measure immediately after eraser and omits the color picker", () => {
     const { container } = renderToolbar();
     const toolbar = container.querySelector("[data-annotation-toolbar]") as HTMLElement;
@@ -152,9 +169,22 @@ describe("Annotation toolbar", () => {
   });
 
   it("selects the marker tool from the toolbar", () => {
+    useAnnotation.getState().setCurrentMarkerNumber(8);
     renderToolbar();
 
-    fireEvent.click(screen.getByRole("button", { name: "Marker" }));
+    const markerButton = screen.getByRole("button", { name: "Marker" });
+    const markerIcon = markerButton.querySelector("svg") as SVGSVGElement | null;
+
+    expect(markerIcon?.getAttribute("width")).toBe("22");
+    const markerCircle = markerIcon?.querySelector("circle");
+    const markerText = markerIcon?.querySelector("text");
+    expect(markerCircle?.getAttribute("r")).toBe("10");
+    expect(markerCircle?.getAttribute("fill")).toBe("none");
+    expect(markerCircle?.getAttribute("stroke")).toBe("currentColor");
+    expect(markerText?.getAttribute("fill")).toBe("currentColor");
+    expect(markerText?.textContent).toBe("8");
+
+    fireEvent.click(markerButton);
 
     expect(useAnnotation.getState().activeTool).toBe("marker");
   });
@@ -234,6 +264,27 @@ describe("Annotation toolbar", () => {
     const tooltip = screen.getByRole("tooltip");
     expect(tooltip.style.top).toBe("116px");
     expect(tooltip.style.bottom).toBe("");
+  });
+
+  it("flips top tooltips below the toolbar when the toolbar is near the viewport edge", () => {
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 300 });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const el = this;
+      if (el.hasAttribute("data-annotation-toolbar")) {
+        return domRect({ top: 2, left: 80, width: 420, height: 40 });
+      }
+      if (el.getAttribute("aria-label") === "Undo (Cmd+Z)") {
+        return domRect({ top: 6, left: 320, width: 32, height: 32 });
+      }
+      return domRect();
+    });
+
+    renderToolbar();
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Undo (Cmd+Z)" }));
+
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip.style.top).toBe("46px");
+    expect(tooltip.style.transform).toBe("translateX(-50%)");
   });
 
   it("renders toolbar tooltips outside the filtered toolbar surface", () => {

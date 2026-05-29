@@ -6,6 +6,7 @@ import {
   cancelCapture,
   cropAndCopy,
   cropAndSave,
+  getSettings,
   pinImage,
   requestColorCopy,
   requestColorFormatToggle,
@@ -119,6 +120,7 @@ describe("OverlayRoute", () => {
     coreMock.convertFileSrc.mockClear();
     coreMock.invoke.mockClear();
     coreMock.invoke.mockResolvedValue(undefined);
+    vi.mocked(getSettings).mockResolvedValue({ accentColor: "#0EA5E9", language: "en", theme: "system" } as any);
     vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => { }));
     useAnnotation.getState().reset();
     useOverlay.getState().end();
@@ -218,10 +220,10 @@ describe("OverlayRoute", () => {
   });
 
   it.each([
-    ["Copy", cropAndCopy],
-    ["Save As", cropAndSave],
-    ["Pin", pinImage],
-  ])("passes the live corner radius and image adjustments when using %s", async (buttonTitle, action) => {
+    ["Copy", /Copy/i, cropAndCopy],
+    ["Save As", /Save As/i, cropAndSave],
+    ["Pin", "Pin", pinImage],
+  ])("passes the live corner radius and image adjustments when using %s", async (_name, buttonTitle, action) => {
     const annotationPng = new Uint8Array([137, 80, 78, 71]).buffer;
     const selection = { x: 100, y: 120, width: 240, height: 160 };
     const adjustments = { ...DEFAULT_IMAGE_ADJUSTMENTS, grayscale: true, brightness: 25 };
@@ -238,18 +240,56 @@ describe("OverlayRoute", () => {
     });
   });
 
+  it("does not re-render the committed annotation stage while dragging image adjustment sliders", () => {
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    useOverlay.getState().commit(selection);
+
+    render(<OverlayRoute />);
+    const renderCount = annotationStageMock.mock.calls.length;
+
+    act(() => {
+      useOverlay.getState().setImageAdjustments({ brightness: 25 });
+    });
+
+    expect(annotationStageMock).toHaveBeenCalledTimes(renderCount);
+  });
+
   it("cancels capture with Escape even when a corner radius preset is focused", () => {
     const selection = { x: 100, y: 120, width: 240, height: 160 };
     useOverlay.getState().commit(selection);
 
     render(<OverlayRoute />);
     fireEvent.click(screen.getByLabelText(/corner radius/i));
-    const preset = screen.getByRole("button", { name: "Corner radius: 16 px" });
+    const preset = screen.getByRole("button", { name: "Corner radius: 16" });
     preset.focus();
 
     fireEvent.keyDown(window, { key: "Escape" });
 
     expect(cancelCapture).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not cancel capture from the committed selection context menu", () => {
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    useOverlay.getState().commit(selection);
+
+    const { container } = render(<OverlayRoute />);
+    const captureSurface = container.firstElementChild as HTMLElement;
+
+    fireEvent.contextMenu(captureSurface, { clientX: 140, clientY: 150 });
+
+    expect(cancelCapture).not.toHaveBeenCalled();
+  });
+
+  it("does not cancel capture when the right mouse button is pressed", () => {
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    useOverlay.getState().commit(selection);
+
+    const { container } = render(<OverlayRoute />);
+    const captureSurface = container.firstElementChild as HTMLElement;
+
+    fireEvent.mouseDown(captureSurface, { button: 2, clientX: 140, clientY: 150 });
+
+    expect(cancelCapture).not.toHaveBeenCalled();
   });
 
   it("shows a startup state before the backend captures the initial scroll frame", async () => {
@@ -265,6 +305,19 @@ describe("OverlayRoute", () => {
     await waitFor(() => {
       expect(startScrollSession).toHaveBeenCalledWith(1, selection);
     });
+  });
+
+  it("localizes the scroll startup state in Traditional Chinese", async () => {
+    vi.mocked(getSettings).mockResolvedValue({ accentColor: "#0EA5E9", language: "zh-TW", theme: "system" } as any);
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    vi.mocked(startScrollSession).mockReturnValueOnce(new Promise<void>(() => { }));
+    useOverlay.getState().commit(selection);
+
+    render(<OverlayRoute />);
+    fireEvent.click(await screen.findByRole("button", { name: "捲動截圖" }));
+
+    expect(useOverlay.getState().mode).toBe("scrollStarting");
+    expect(screen.getByText("正在開始...")).toBeTruthy();
   });
 
   it("enters scrolling mode after the backend starts the scroll session", async () => {

@@ -257,32 +257,63 @@ describe("AnnotationStage selection movement", () => {
     });
   });
 
-  it("re-renders focused annotation masks when selection dimensions change", () => {
+  it("shows the shared spotlight mask as soon as spotlight rectangle drawing starts", () => {
+    useAnnotation.getState().setActiveTool("rect");
+    useAnnotation.getState().setActiveStyle({ fill: "spotlight" });
+    const { container } = render(<AnnotationStage selection={selection} scaleFactor={2} />);
+    const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
+
+    act(() => {
+      fireEvent.mouseDown(stageNode, { clientX: 20, clientY: 24 });
+    });
+
+    const mask = getLayer()?.findOne(".focus-mask") as Konva.Shape | undefined;
+    expect(mask).toBeInstanceOf(Konva.Shape);
+    expect(mask?.getAttr("focusHoles")).toHaveLength(1);
+  });
+
+  it("renders all spotlight annotations through one shared mask when selection dimensions change", () => {
     const focusedRect: AnnotationObject = {
       ...annotatedRect,
       id: "focused-rect",
       style: {
         ...annotatedRect.style,
-        focusMode: "spotlight",
-        focusOpacity: 0.45,
-        focusColor: "#000000",
+        fill: "spotlight",
+      },
+    };
+    const focusedEllipse: AnnotationObject = {
+      ...annotatedRect,
+      id: "focused-ellipse",
+      type: "ellipse",
+      start: { x: 130, y: 40 },
+      end: { x: 210, y: 110 },
+      style: {
+        ...annotatedRect.style,
+        fill: "spotlight",
       },
     };
     const { rerender } = render(<AnnotationStage selection={selection} scaleFactor={2} />);
 
     act(() => {
       useAnnotation.getState().addObject(focusedRect);
+      useAnnotation.getState().addObject(focusedEllipse);
     });
 
-    let mask = getLayer()?.findOne(".focus-mask") as Konva.Shape | undefined;
+    let masks = getLayer()?.find(".focus-mask") ?? [];
+    expect(masks).toHaveLength(1);
+    let mask = masks[0] as Konva.Shape | undefined;
     expect(mask).toBeInstanceOf(Konva.Shape);
+    expect(mask?.getAttr("focusHoles")).toHaveLength(2);
     expect(mask?.getAttr("focusStageWidth")).toBe(240);
     expect(mask?.getAttr("focusStageHeight")).toBe(160);
 
     rerender(<AnnotationStage selection={{ ...selection, width: 320, height: 210 }} scaleFactor={2} />);
 
-    mask = getLayer()?.findOne(".focus-mask") as Konva.Shape | undefined;
+    masks = getLayer()?.find(".focus-mask") ?? [];
+    expect(masks).toHaveLength(1);
+    mask = masks[0] as Konva.Shape | undefined;
     expect(mask).toBeInstanceOf(Konva.Shape);
+    expect(mask?.getAttr("focusHoles")).toHaveLength(2);
     expect(mask?.getAttr("focusStageWidth")).toBe(320);
     expect(mask?.getAttr("focusStageHeight")).toBe(210);
   });
