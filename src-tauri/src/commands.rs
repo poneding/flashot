@@ -1169,26 +1169,38 @@ pub async fn start_scroll_session(
     tokio::time::sleep(std::time::Duration::from_millis(80)).await;
 
     // 4. Capture the initial frame from the live screen.
-    let initial = match crate::capture::capture_monitor_region(monitor_id, phys_rect) {
-        Ok(initial) => initial,
+    let monitor = crate::capture::enumerate_monitors()
+        .map_err(|e| format!("failed to enumerate monitors for scroll capture: {e}"))?
+        .into_iter()
+        .find(|m| m.id == monitor_id)
+        .ok_or("monitor not found for scroll capture")?;
+    let capture = match crate::scroll_capture::start_scroll_capture_session(&monitor, rect, phys_rect)
+    {
+        Ok(capture) => capture,
         Err(e) => {
             close_scroll_chrome(&app, monitor_id);
-            return Err(format!("initial capture failed: {e}"));
+            return Err(format!("scroll capture unavailable: {e}"));
         }
     };
+    let crate::scroll_capture::ScrollCaptureSession {
+        initial_frame,
+        width,
+        height,
+        source,
+    } = capture;
 
     let stitcher = Arc::new(AsyncMutex::new(ScrollStitcher::new(
-        phys_rect.width,
-        phys_rect.height,
-        initial,
+        width,
+        height,
+        initial_frame,
         StitchConfig::default(),
     )));
+    let source = Arc::new(AsyncMutex::new(source));
     let cancel = Arc::new(AtomicBool::new(false));
 
     crate::scroll_session::spawn_loop(
         app.clone(),
-        monitor_id,
-        phys_rect,
+        source.clone(),
         stitcher.clone(),
         cancel.clone(),
     );
@@ -1197,6 +1209,7 @@ pub async fn start_scroll_session(
         monitor_id,
         rect: phys_rect,
         stitcher,
+        source,
         cancel,
     });
     Ok(())
@@ -1621,12 +1634,12 @@ mod tests {
             .unwrap();
         let body = &source[start..end];
 
-        let capture_idx = body.find("capture_monitor_region").unwrap();
+        let capture_idx = body.find("start_scroll_capture_session").unwrap();
         let cleanup_idx = body.find("close_scroll_chrome(&app, monitor_id)").unwrap();
 
         assert!(
             capture_idx < cleanup_idx,
-            "initial capture failure must restore chrome/mouse state before returning Err",
+            "initial scroll capture failure must restore chrome/mouse state before returning Err",
         );
     }
 

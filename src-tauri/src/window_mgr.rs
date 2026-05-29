@@ -1,4 +1,5 @@
 use crate::app_activation::schedule_app_deactivation_macos;
+use crate::scroll_capture::ScrollFrameSource;
 use crate::scroll_stitch::ScrollStitcher;
 use crate::types::FrozenFrame;
 use parking_lot::Mutex;
@@ -26,6 +27,7 @@ pub(crate) struct ScrollState {
     pub monitor_id: u32,
     pub rect: crate::types::Rect, // physical px
     pub stitcher: Arc<tokio::sync::Mutex<ScrollStitcher>>,
+    pub source: Arc<tokio::sync::Mutex<Box<dyn ScrollFrameSource>>>,
     pub cancel: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -154,6 +156,16 @@ impl Drop for SessionGuard {
 mod tests {
     use super::*;
     use crate::types::FrozenFrame;
+    use anyhow::Result;
+    use std::time::Duration;
+
+    struct TestScrollSource;
+
+    impl ScrollFrameSource for TestScrollSource {
+        fn next_frame(&mut self, _timeout: Duration) -> Result<Vec<u8>> {
+            Ok(vec![0; 16])
+        }
+    }
 
     fn fake_frame(id: u32) -> FrozenFrame {
         FrozenFrame {
@@ -211,6 +223,9 @@ mod tests {
                 height: 2,
             },
             stitcher,
+            source: std::sync::Arc::new(tokio::sync::Mutex::new(Box::new(
+                TestScrollSource,
+            ))),
             cancel: cancel.clone(),
         });
 

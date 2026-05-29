@@ -1,8 +1,7 @@
 //! Tokio-driven capture loop for an active ScrollSession.
 
-use crate::capture::capture_monitor_region;
+use crate::scroll_capture::ScrollFrameSource;
 use crate::scroll_stitch::{IngestResult, ScrollStitcher};
-use crate::types::Rect;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -34,10 +33,9 @@ struct MatchFailedPayload {
     score: f32,
 }
 
-pub fn spawn_loop(
+pub(crate) fn spawn_loop(
     app: AppHandle,
-    monitor_id: u32,
-    rect: Rect,
+    source: Arc<AsyncMutex<Box<dyn ScrollFrameSource>>>,
     stitcher: Arc<AsyncMutex<ScrollStitcher>>,
     cancel: Arc<AtomicBool>,
 ) {
@@ -58,11 +56,14 @@ pub fn spawn_loop(
                 break;
             }
 
-            let frame = match capture_monitor_region(monitor_id, rect) {
-                Ok(f) => f,
-                Err(e) => {
-                    tracing::warn!("scroll capture failed: {e}");
-                    continue;
+            let frame = {
+                let mut source = source.lock().await;
+                match source.next_frame(Duration::from_millis(TICK_MS * 3)) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        tracing::warn!("scroll capture failed: {e}");
+                        continue;
+                    }
                 }
             };
             if cancel.load(Ordering::SeqCst) {
@@ -168,6 +169,21 @@ fn base64_encode(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scroll_loop_uses_frame_source_instead_of_capture_monitor_region() {
+        let source = include_str!("scroll_session.rs").replace("\r\n", "\n");
+        let body_start = source.find("pub(crate) fn spawn_loop").unwrap();
+        let body_end = source[body_start..]
+            .find("fn base64_encode")
+            .map(|idx| body_start + idx)
+            .unwrap();
+        let body = &source[body_start..body_end];
+
+        assert!(body.contains("ScrollFrameSource"));
+        assert!(body.contains("next_frame"));
+        assert!(!body.contains("capture_monitor_region"));
+    }
+
     #[test]
     fn end_detection_emits_without_materializing_canvas() {
         let source = include_str!("scroll_session.rs").replace("\r\n", "\n");
