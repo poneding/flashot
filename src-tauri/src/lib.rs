@@ -1597,6 +1597,7 @@ mod tests {
             default_save_dir: settings_store::default_save_dir(),
             last_save_dir: None,
             corner_radius: 0,
+            wayland_screencast_restore_token: None,
         };
 
         let registered =

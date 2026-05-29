@@ -134,6 +134,8 @@ pub struct Settings {
     pub last_save_dir: Option<String>,
     #[serde(default)]
     pub corner_radius: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wayland_screencast_restore_token: Option<String>,
 }
 
 impl Default for Settings {
@@ -153,6 +155,7 @@ impl Default for Settings {
             default_save_dir: default_save_dir(),
             last_save_dir: None,
             corner_radius: 0,
+            wayland_screencast_restore_token: None,
         }
     }
 }
@@ -212,6 +215,7 @@ mod tests {
         assert_eq!(settings.last_update_check_at, None);
         assert!(is_default_flashot_dir(&settings.default_save_dir));
         assert_eq!(settings.last_save_dir, None);
+        assert_eq!(settings.wayland_screencast_restore_token, None);
     }
 
     #[test]
@@ -257,6 +261,7 @@ mod tests {
         assert_eq!(settings.last_update_check_at, None);
         assert!(is_default_flashot_dir(&settings.default_save_dir));
         assert_eq!(settings.last_save_dir, None);
+        assert_eq!(settings.wayland_screencast_restore_token, None);
     }
 
     #[test]
@@ -289,6 +294,7 @@ mod tests {
             default_save_dir: "/Users/dp/Pictures/Flashot".to_string(),
             last_save_dir: Some("/Users/dp/Pictures/Flashot".to_string()),
             corner_radius: 0,
+            wayland_screencast_restore_token: Some("restore-token".to_string()),
         };
 
         let value = serde_json::to_value(settings).unwrap();
@@ -307,6 +313,14 @@ mod tests {
         assert_eq!(value["lastUpdateCheckAt"], 1_801_234_567);
         assert_eq!(value["defaultSaveDir"], "/Users/dp/Pictures/Flashot");
         assert_eq!(value["lastSaveDir"], "/Users/dp/Pictures/Flashot");
+        assert_eq!(value["waylandScreencastRestoreToken"], "restore-token");
+    }
+
+    #[test]
+    fn empty_wayland_screencast_restore_token_is_not_serialized() {
+        let value = serde_json::to_value(Settings::default()).unwrap();
+
+        assert!(value.get("waylandScreencastRestoreToken").is_none());
     }
 
     #[test]

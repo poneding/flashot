@@ -433,9 +433,14 @@ pub fn get_settings(app: AppHandle) -> Result<Settings, String> {
 }
 
 #[tauri::command]
-pub fn set_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
+pub fn set_settings(app: AppHandle, mut settings: Settings) -> Result<(), String> {
     let autolaunch = app.autolaunch();
     apply_launch_at_login(&*autolaunch, settings.launch_at_login)?;
+    if settings.wayland_screencast_restore_token.is_none() {
+        if let Ok(existing) = settings_store::load() {
+            settings.wayland_screencast_restore_token = existing.wayland_screencast_restore_token;
+        }
+    }
     settings_store::save(&settings).map_err(|e| e.to_string())?;
     let _ = app.emit("settings:changed", ());
     Ok(())
@@ -1174,7 +1179,10 @@ pub async fn start_scroll_session(
         .into_iter()
         .find(|m| m.id == monitor_id)
         .ok_or("monitor not found for scroll capture")?;
-    let capture = match crate::scroll_capture::start_scroll_capture_session(&monitor, rect, phys_rect)
+    let capture = match crate::scroll_capture::start_scroll_capture_session(
+        &monitor, rect, phys_rect,
+    )
+    .await
     {
         Ok(capture) => capture,
         Err(e) => {
@@ -2216,6 +2224,27 @@ mod tests {
         assert!(
             apply_idx < save_idx,
             "login startup must be applied before settings are persisted",
+        );
+    }
+
+    #[test]
+    fn set_settings_preserves_wayland_restore_token_before_saving_settings() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let start = source.find("pub fn set_settings").unwrap();
+        let end = source[start..]
+            .find("#[tauri::command]\npub fn open_settings_window")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        let preserve_idx = body
+            .find("wayland_screencast_restore_token")
+            .expect("set_settings should preserve backend-only wayland restore token");
+        let save_idx = body.find("settings_store::save").unwrap();
+
+        assert!(
+            preserve_idx < save_idx,
+            "wayland restore token must be merged before saving settings",
         );
     }
 

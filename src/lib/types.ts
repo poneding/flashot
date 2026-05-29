@@ -71,6 +71,7 @@ export type Settings = {
   defaultSaveDir: string;
   lastSaveDir: string | null;
   cornerRadius: number;
+  waylandScreencastRestoreToken?: string | null;
 };
 
 export type PinInfo = {

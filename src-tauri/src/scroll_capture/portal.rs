@@ -13,10 +13,18 @@ mod linux {
 
     pub(crate) struct PortalScreenCastSession {
         pub streams: Vec<PortalStreamInfo>,
-        pub remote_fd: OwnedFd,
         pub restore_token: Option<String>,
+        remote_fd: Option<OwnedFd>,
         _screencast: Screencast<'static>,
         _session: Session<'static>,
+    }
+
+    impl PortalScreenCastSession {
+        pub(crate) fn take_remote_fd(&mut self) -> Result<OwnedFd> {
+            self.remote_fd
+                .take()
+                .context("pipewire remote fd has already been consumed")
+        }
     }
 
     pub(crate) async fn start_monitor_screencast(
@@ -68,8 +76,8 @@ mod linux {
 
         Ok(PortalScreenCastSession {
             streams,
-            remote_fd,
             restore_token: response.restore_token().map(str::to_string),
+            remote_fd: Some(remote_fd),
             _screencast: proxy,
             _session: session,
         })
