@@ -2,6 +2,7 @@ use crate::types::{MonitorInfo, Rect};
 use anyhow::Result;
 use std::time::Duration;
 
+pub(crate) mod frame_buffer;
 pub(crate) mod mapping;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
