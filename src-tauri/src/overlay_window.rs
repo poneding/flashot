@@ -326,14 +326,14 @@ fn configure_platform_overlay(
     monitor_id: u32,
     monitor_rect: Rect,
 ) -> Result<()> {
-    if !is_linux_wayland_session() {
-        return Ok(());
-    }
-
-    if let Some(layer_shell) = linux_layer_shell() {
-        configure_linux_layer_shell(window, monitor_id, monitor_rect, layer_shell)
+    if is_linux_wayland_session() {
+        if let Some(layer_shell) = linux_layer_shell() {
+            configure_linux_layer_shell(window, monitor_id, monitor_rect, layer_shell)
+        } else {
+            configure_linux_wayland_fullscreen_fallback(window, monitor_rect)
+        }
     } else {
-        configure_linux_fullscreen_fallback(window, monitor_rect)
+        configure_linux_x11_overlay(window, monitor_rect)
     }
 }
 
@@ -389,9 +389,28 @@ fn bring_platform_overlay_to_front(_window: &WebviewWindow) -> Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn configure_linux_fullscreen_fallback(window: &WebviewWindow, monitor_rect: Rect) -> Result<()> {
+fn configure_linux_x11_overlay(window: &WebviewWindow, monitor_rect: Rect) -> Result<()> {
     use gtk::prelude::*;
 
+    let gtk_window = window
+        .gtk_window()
+        .map_err(|e| anyhow!("failed to access GTK overlay window: {e}"))?;
+
+    gtk_window.set_type_hint(gdk::WindowTypeHint::Splashscreen);
+    gtk_window.set_decorated(false);
+    gtk_window.set_skip_taskbar_hint(true);
+    gtk_window.set_keep_above(true);
+    gtk_window.stick();
+    fullscreen_linux_overlay_on_monitor(&gtk_window, monitor_rect);
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn configure_linux_wayland_fullscreen_fallback(
+    window: &WebviewWindow,
+    monitor_rect: Rect,
+) -> Result<()> {
     tracing::warn!(
         "Wayland compositor does not support layer-shell; using monitor fullscreen fallback"
     );
@@ -400,16 +419,23 @@ fn configure_linux_fullscreen_fallback(window: &WebviewWindow, monitor_rect: Rec
         .gtk_window()
         .map_err(|e| anyhow!("failed to access GTK overlay window: {e}"))?;
 
+    fullscreen_linux_overlay_on_monitor(&gtk_window, monitor_rect);
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn fullscreen_linux_overlay_on_monitor(gtk_window: &gtk::ApplicationWindow, monitor_rect: Rect) {
+    use gtk::prelude::*;
+
     if let (Some(screen), Some((_monitor, index))) = (
-        gtk::prelude::GtkWindowExt::screen(&gtk_window),
-        gdk_monitor_for_capture_rect(&gtk_window, monitor_rect),
+        gtk::prelude::GtkWindowExt::screen(gtk_window),
+        gdk_monitor_for_capture_rect(gtk_window, monitor_rect),
     ) {
         gtk_window.fullscreen_on_monitor(&screen, index);
     } else {
         gtk_window.fullscreen();
     }
-
-    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -705,11 +731,34 @@ mod tests {
         let body = &source[start..end];
 
         assert!(
-            body.contains("linux_layer_shell()")
+            body.contains("if is_linux_wayland_session()")
+                && body.contains("linux_layer_shell()")
                 && body.contains("configure_linux_layer_shell")
+                && body.contains("configure_linux_wayland_fullscreen_fallback")
+                && body.contains("configure_linux_x11_overlay(window, monitor_rect)")
                 && body.contains("GTK_LAYER_SHELL_LAYER_OVERLAY")
                 && body.contains("set_anchor(gtk_ptr, edge, true)"),
-            "Wayland overlays should use layer-shell before falling back to native fullscreen"
+            "Wayland overlays should use layer-shell without stealing the X11 fullscreen path"
+        );
+    }
+
+    #[test]
+    fn linux_x11_overlay_uses_monitor_fullscreen() {
+        let source = include_str!("overlay_window.rs").replace("\r\n", "\n");
+        let x11_body = function_body(&source, "configure_linux_x11_overlay");
+        let fullscreen_body = function_body(&source, "fullscreen_linux_overlay_on_monitor");
+
+        assert!(
+            x11_body.contains("set_type_hint(gdk::WindowTypeHint::Splashscreen)")
+                && x11_body.contains("set_keep_above(true)")
+                && x11_body.contains("stick()")
+                && x11_body.contains("fullscreen_linux_overlay_on_monitor"),
+            "X11 overlays must be configured as screen-covering utility windows"
+        );
+        assert!(
+            fullscreen_body.contains("fullscreen_on_monitor")
+                && fullscreen_body.contains("gtk_window.fullscreen()"),
+            "X11 overlays need monitor fullscreen with a generic fullscreen fallback"
         );
     }
 
