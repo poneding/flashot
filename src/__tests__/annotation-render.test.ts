@@ -107,6 +107,22 @@ describe("annotation object rendering", () => {
     expect(node.strokeWidth()).toBe(0);
   });
 
+  it("renders standalone circle spotlight annotations as borderless transparent hit targets", () => {
+    const node = renderObject(object({
+      type: "spotlight",
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        fill: "spotlight",
+        spotlightShape: "circle",
+      },
+    }));
+
+    expect(node).toBeInstanceOf(Konva.Ellipse);
+    expect((node as Konva.Ellipse).fill()).toBe("rgba(0,0,0,0)");
+    expect((node as Konva.Ellipse).strokeWidth()).toBe(0);
+  });
+
   it("renders empty markers as a numbered badge without a bubble", () => {
     const node = renderObject(object({
       id: "marker-1",

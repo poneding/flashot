@@ -347,8 +347,8 @@ describe("AnnotationStage selection movement", () => {
   });
 
   it("shows the shared spotlight mask as soon as spotlight rectangle drawing starts", () => {
-    useAnnotation.getState().setActiveTool("rect");
-    useAnnotation.getState().setActiveStyle({ fill: "spotlight" });
+    useAnnotation.getState().setActiveTool("spotlight");
+    useAnnotation.getState().setActiveStyle({ spotlightShape: "rect" });
     const { container } = render(<AnnotationStage selection={selection} scaleFactor={2} />);
     const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
 
@@ -361,25 +361,40 @@ describe("AnnotationStage selection movement", () => {
     expect(mask?.getAttr("focusHoles")).toHaveLength(1);
   });
 
+  it("creates circle spotlight annotations through the standalone spotlight tool", () => {
+    useAnnotation.getState().setActiveTool("spotlight");
+    useAnnotation.getState().setActiveStyle({ spotlightShape: "circle" });
+    const { container } = render(<AnnotationStage selection={selection} scaleFactor={2} />);
+    const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
+
+    act(() => {
+      fireEvent.mouseDown(stageNode, { clientX: 20, clientY: 24 });
+      fireEvent.mouseMove(stageNode, { clientX: 80, clientY: 84 });
+      fireEvent.mouseUp(stageNode, { clientX: 80, clientY: 84 });
+    });
+
+    const spotlight = useAnnotation.getState().objects.find((obj) => obj.type === "spotlight");
+    expect(spotlight?.style.fill).toBe("spotlight");
+    expect(spotlight?.style.spotlightShape).toBe("circle");
+
+    const mask = getLayer()?.findOne(".focus-mask") as Konva.Shape | undefined;
+    expect(mask?.getAttr("focusHoles")?.[0]?.kind).toBe("ellipse");
+  });
+
   it("renders all spotlight annotations through one shared mask when selection dimensions change", () => {
     const focusedRect: AnnotationObject = {
       ...annotatedRect,
       id: "focused-rect",
-      style: {
-        ...annotatedRect.style,
-        fill: "spotlight",
-      },
+      type: "spotlight",
+      style: { ...annotatedRect.style, fill: "spotlight", spotlightShape: "rect" },
     };
     const focusedEllipse: AnnotationObject = {
       ...annotatedRect,
-      id: "focused-ellipse",
-      type: "ellipse",
+      id: "focused-circle",
+      type: "spotlight",
       start: { x: 130, y: 40 },
       end: { x: 210, y: 110 },
-      style: {
-        ...annotatedRect.style,
-        fill: "spotlight",
-      },
+      style: { ...annotatedRect.style, fill: "spotlight", spotlightShape: "circle" },
     };
     const { rerender } = render(<AnnotationStage selection={selection} scaleFactor={2} />);
 

@@ -39,6 +39,23 @@ describe("useAnnotation store", () => {
     expect(useAnnotation.getState().activeStyle.focusColor).toBeUndefined();
   });
 
+  it("keeps spotlight styling scoped to the standalone spotlight tool", () => {
+    useAnnotation.getState().setActiveTool("spotlight");
+
+    expect(useAnnotation.getState().activeStyle.fill).toBe("spotlight");
+    expect(useAnnotation.getState().activeStyle.spotlightShape).toBe("rect");
+
+    useAnnotation.getState().setActiveStyle({ spotlightShape: "circle" });
+    useAnnotation.getState().setActiveTool("rect");
+
+    expect(useAnnotation.getState().activeStyle.fill).toBe("hollow");
+
+    useAnnotation.getState().setActiveTool("spotlight");
+
+    expect(useAnnotation.getState().activeStyle.fill).toBe("spotlight");
+    expect(useAnnotation.getState().activeStyle.spotlightShape).toBe("circle");
+  });
+
   it("sets the measure tool as the active tool", () => {
     useAnnotation.getState().setActiveTool("measure");
 

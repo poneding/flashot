@@ -10,6 +10,7 @@ import { renderBlurObject } from "@/annotation/tools/blur";
 import { renderTextObject } from "@/annotation/tools/text";
 import { renderMarkerObject } from "@/annotation/tools/marker";
 import { renderMagnifierObject } from "@/annotation/tools/magnifier";
+import { renderSpotlightObject } from "@/annotation/tools/spotlight";
 import type { StageSize } from "@/annotation/focus";
 import type { MagnifierRenderContext } from "@/annotation/magnifierContext";
 
@@ -41,6 +42,7 @@ export function renderObject(obj: AnnotationObject, context?: AnnotationRenderCo
     case "rect": return stageSize ? renderRectObject(obj, stageSize) : renderRectObject(obj);
     case "ellipse": return stageSize ? renderEllipseObject(obj, stageSize) : renderEllipseObject(obj);
     case "highlight": return renderHighlightObject(obj);
+    case "spotlight": return renderSpotlightObject(obj);
     case "blur": return renderBlurObject(obj) as LayerChild | null;
     case "text": return renderTextObject(obj);
     case "marker": return renderMarkerObject(obj);

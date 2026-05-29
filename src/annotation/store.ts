@@ -49,6 +49,10 @@ function finiteNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+function normalizeSpotlightShape(value: unknown): AnnotationStyle["spotlightShape"] {
+  return value === "circle" ? "circle" : "rect";
+}
+
 function normalizeMarkerNumber(value: unknown): number {
   return Math.max(MARKER_NUMBER_MIN, Math.min(MARKER_NUMBER_MAX, Math.trunc(finiteNumber(value, 1))));
 }
@@ -58,6 +62,7 @@ type ToolStyleMemory = {
   arrow: Pick<AnnotationStyle, "lineStyle" | "arrowStyle">;
   measure: Pick<AnnotationStyle, "color" | "strokeWidth" | "measureMode">;
   highlight: Pick<AnnotationStyle, "strokeWidth" | "cornerRadius">;
+  spotlight: Pick<AnnotationStyle, "spotlightShape" | "cornerRadius">;
   marker: Pick<AnnotationStyle, "fontSize" | "markerFill">;
 };
 
@@ -91,6 +96,13 @@ function highlightToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["h
   };
 }
 
+function spotlightToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["spotlight"] {
+  return {
+    spotlightShape: normalizeSpotlightShape(style.spotlightShape),
+    cornerRadius: finiteNumber(style.cornerRadius, DEFAULT_STYLE.cornerRadius ?? 0),
+  };
+}
+
 function markerToolStyle(style: Partial<AnnotationStyle>): ToolStyleMemory["marker"] {
   return {
     fontSize: finiteNumber(style.fontSize, MARKER_DEFAULT_FONT_SIZE),
@@ -104,6 +116,7 @@ function createToolStyleMemory(style: AnnotationStyle): ToolStyleMemory {
     arrow: arrowToolStyle(style),
     measure: measureToolStyle(style),
     highlight: highlightToolStyle(style),
+    spotlight: spotlightToolStyle(style),
     marker: markerToolStyle({ ...style, fontSize: MARKER_DEFAULT_FONT_SIZE }),
   };
 }
@@ -112,19 +125,21 @@ function loadPersistedToolStyleMemory(style: AnnotationStyle): {
   memory: ToolStyleMemory;
   hasRememberedMeasure: boolean;
   hasRememberedHighlight: boolean;
+  hasRememberedSpotlight: boolean;
   hasRememberedMarker: boolean;
 } {
   const memory = createToolStyleMemory(style);
   let hasRememberedMeasure = false;
   let hasRememberedHighlight = false;
+  let hasRememberedSpotlight = false;
   let hasRememberedMarker = false;
 
   try {
     const raw = localStorage.getItem(TOOL_STYLE_STORAGE_KEY);
-    if (!raw) return { memory, hasRememberedMeasure, hasRememberedHighlight, hasRememberedMarker };
+    if (!raw) return { memory, hasRememberedMeasure, hasRememberedHighlight, hasRememberedSpotlight, hasRememberedMarker };
 
     const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed)) return { memory, hasRememberedMeasure, hasRememberedHighlight, hasRememberedMarker };
+    if (!isRecord(parsed)) return { memory, hasRememberedMeasure, hasRememberedHighlight, hasRememberedSpotlight, hasRememberedMarker };
 
     if (isRecord(parsed.measure)) {
       memory.measure = {
@@ -143,6 +158,14 @@ function loadPersistedToolStyleMemory(style: AnnotationStyle): {
       hasRememberedHighlight = true;
     }
 
+    if (isRecord(parsed.spotlight)) {
+      memory.spotlight = {
+        spotlightShape: normalizeSpotlightShape(parsed.spotlight.spotlightShape),
+        cornerRadius: finiteNumber(parsed.spotlight.cornerRadius, memory.spotlight.cornerRadius ?? 0),
+      };
+      hasRememberedSpotlight = true;
+    }
+
     if (isRecord(parsed.marker)) {
       memory.marker = {
         fontSize: finiteNumber(parsed.marker.fontSize, MARKER_DEFAULT_FONT_SIZE),
@@ -152,7 +175,7 @@ function loadPersistedToolStyleMemory(style: AnnotationStyle): {
     }
   } catch { /* ignore */ }
 
-  return { memory, hasRememberedMeasure, hasRememberedHighlight, hasRememberedMarker };
+  return { memory, hasRememberedMeasure, hasRememberedHighlight, hasRememberedSpotlight, hasRememberedMarker };
 }
 
 function persistToolStyleMemory() {
@@ -160,6 +183,7 @@ function persistToolStyleMemory() {
     localStorage.setItem(TOOL_STYLE_STORAGE_KEY, JSON.stringify({
       measure: toolStyleMemory.measure,
       highlight: toolStyleMemory.highlight,
+      spotlight: toolStyleMemory.spotlight,
       marker: toolStyleMemory.marker,
     }));
   } catch { /* ignore */ }
@@ -200,6 +224,9 @@ function normalizeActiveStyleForTool(tool: ToolType, style: AnnotationStyle): An
   if (tool === "highlight") {
     return { ...style, ...highlightToolStyle(style) };
   }
+  if (tool === "spotlight") {
+    return { ...style, fill: "spotlight", ...spotlightToolStyle(style) };
+  }
   if (tool === "marker") {
     return { ...style, fontSize: finiteNumber(style.fontSize, MARKER_DEFAULT_FONT_SIZE) };
   }
@@ -207,7 +234,7 @@ function normalizeActiveStyleForTool(tool: ToolType, style: AnnotationStyle): An
 }
 
 function usesIsolatedToolStyle(tool: ToolType): boolean {
-  return tool === "measure" || tool === "highlight" || tool === "marker";
+  return tool === "measure" || tool === "highlight" || tool === "spotlight" || tool === "marker";
 }
 
 function rememberToolStyle(tool: ToolType, style: AnnotationStyle) {
@@ -222,6 +249,10 @@ function rememberToolStyle(tool: ToolType, style: AnnotationStyle) {
   } else if (tool === "highlight") {
     toolStyleMemory.highlight = highlightToolStyle(style);
     hasRememberedHighlightToolStyle = true;
+    persistToolStyleMemory();
+  } else if (tool === "spotlight") {
+    toolStyleMemory.spotlight = spotlightToolStyle(style);
+    hasRememberedSpotlightToolStyle = true;
     persistToolStyleMemory();
   } else if (tool === "marker") {
     toolStyleMemory.marker = markerToolStyle(style);
@@ -248,6 +279,18 @@ function styleForTool(tool: ToolType, baseStyle: AnnotationStyle): AnnotationSty
       return normalizeActiveStyleForTool(tool, baseStyle);
     }
     return normalizeActiveStyleForTool(tool, { ...baseStyle, ...toolStyleMemory.highlight });
+  }
+  if (tool === "spotlight") {
+    if (!hasRememberedSpotlightToolStyle) {
+      return normalizeActiveStyleForTool(tool, { ...baseStyle, fill: "spotlight", spotlightShape: "rect" });
+    }
+    return normalizeActiveStyleForTool(tool, { ...baseStyle, fill: "spotlight", ...toolStyleMemory.spotlight });
+  }
+  if (tool === "rect" || tool === "ellipse") {
+    return normalizeActiveStyleForTool(tool, {
+      ...baseStyle,
+      fill: baseStyle.fill === "solid" ? "solid" : "hollow",
+    });
   }
   if (tool === "marker") {
     if (!hasRememberedMarkerToolStyle) {
@@ -294,6 +337,7 @@ const initialToolStyleMemory = loadPersistedToolStyleMemory(initialActiveStyle);
 let toolStyleMemory = initialToolStyleMemory.memory;
 let hasRememberedMeasureToolStyle = initialToolStyleMemory.hasRememberedMeasure;
 let hasRememberedHighlightToolStyle = initialToolStyleMemory.hasRememberedHighlight;
+let hasRememberedSpotlightToolStyle = initialToolStyleMemory.hasRememberedSpotlight;
 let hasRememberedMarkerToolStyle = initialToolStyleMemory.hasRememberedMarker;
 
 let sharedStyleMemory = initialActiveStyle;

@@ -105,6 +105,17 @@ describe("annotation stage helpers", () => {
     expect(magnifierConfig.enabledAnchors.length).toBeGreaterThan(0);
   });
 
+  it("keeps spotlight annotations resizable but not rotatable", () => {
+    const config = transformerConfigForObject(object({
+      type: "spotlight",
+      style: { color: "#ff0000", strokeWidth: 4, fill: "spotlight", spotlightShape: "rect" },
+    }));
+
+    expect(config.useTransformer).toBe(true);
+    expect(config.rotateEnabled).toBe(false);
+    expect(config.enabledAnchors.length).toBeGreaterThan(0);
+  });
+
   it("allows markers to move without resize or rotation handles", () => {
     const config = transformerConfigForObject(object({
       type: "marker",

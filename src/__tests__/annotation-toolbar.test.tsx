@@ -128,6 +128,7 @@ describe("Annotation toolbar", () => {
       "Text",
       "Blur",
       "Highlight",
+      "Spotlight",
       "Marker",
       "Magnifier",
       "Eraser",
@@ -195,6 +196,18 @@ describe("Annotation toolbar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Magnifier" }));
 
     expect(useAnnotation.getState().activeTool).toBe("magnifier");
+  });
+
+  it("selects the standalone spotlight tool with the Lightbulb icon", () => {
+    renderToolbar();
+
+    const spotlightButton = screen.getByRole("button", { name: "Spotlight" });
+    expect(spotlightButton.querySelector(".lucide-lightbulb")).not.toBeNull();
+
+    fireEvent.click(spotlightButton);
+
+    expect(useAnnotation.getState().activeTool).toBe("spotlight");
+    expect(useAnnotation.getState().activeStyle.fill).toBe("spotlight");
   });
 
   it("closes the color picker when another annotation tool is selected", () => {

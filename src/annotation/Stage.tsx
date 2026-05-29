@@ -46,6 +46,13 @@ import {
   updateMeasureObjectNode,
 } from "@/annotation/tools/measure";
 import { onRectEnd, onRectMove, onRectStart } from "@/annotation/tools/rect";
+import {
+  onSpotlightEnd,
+  onSpotlightMove,
+  onSpotlightStart,
+  spotlightBounds,
+  spotlightShape,
+} from "@/annotation/tools/spotlight";
 import { addTextToLayer } from "@/annotation/tools/text";
 import type { AnnotationObject, AnnotationStyle, ToolType } from "@/annotation/types";
 import { SELECTION_COLOR } from "@/lib/colors";
@@ -71,7 +78,7 @@ let magnifierSourceImage: HTMLImageElement | null = null;
 let magnifierScaleFactor = 1;
 let magnifierSourceRect: Rect | null = null;
 let focusPreview: {
-  tool: "rect" | "ellipse";
+  shape: "rect" | "ellipse" | "circle";
   start: Point;
   end: Point;
   style: AnnotationStyle;
@@ -199,6 +206,7 @@ const TOOL_HANDLERS: Partial<Record<ToolType, ToolHandlers>> = {
   arrow: { start: onArrowStart, move: onArrowMove, end: onArrowEnd },
   rect: { start: onRectStart, move: onRectMove, end: onRectEnd },
   ellipse: { start: onEllipseStart, move: onEllipseMove, end: onEllipseEnd },
+  spotlight: { start: onSpotlightStart, move: onSpotlightMove, end: onSpotlightEnd },
   highlight: { start: onHighlightStart, move: onHighlightMove, end: onHighlightEnd },
   blur: { start: onBlurStart, move: onBlurMove, end: onBlurEnd },
   marker: { start: onMarkerStart, move: onMarkerMove, end: () => onMarkerEnd() },
@@ -215,6 +223,13 @@ function objectBasePosition(obj: AnnotationObject): { x: number; y: number } {
 
   if (obj.type === "ellipse") {
     return { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+  }
+
+  if (obj.type === "spotlight") {
+    if (spotlightShape(obj.style) === "circle") {
+      return { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    }
+    return { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y) };
   }
 
   if (obj.type === "text") {
@@ -354,7 +369,7 @@ export function transformerConfigForObject(obj: AnnotationObject | undefined): {
   if (isEndpointEditableObject(obj)) return { useTransformer: false, rotateEnabled: false, enabledAnchors: [] };
   if (obj.type === "draw") return { useTransformer: true, rotateEnabled: false, enabledAnchors: [] };
   if (obj.type === "marker") return { useTransformer: true, rotateEnabled: false, enabledAnchors: [] };
-  if (obj.type === "text" || obj.type === "blur" || obj.type === "magnifier") {
+  if (obj.type === "text" || obj.type === "blur" || obj.type === "magnifier" || obj.type === "spotlight") {
     return { useTransformer: true, rotateEnabled: false, enabledAnchors: TRANSFORMER_ANCHORS };
   }
   return { useTransformer: true, rotateEnabled: true, enabledAnchors: TRANSFORMER_ANCHORS };
@@ -407,16 +422,20 @@ function currentStageSize(): { width: number; height: number } | undefined {
 
 function focusPreviewHole(): FocusHole | null {
   if (!focusPreview) return null;
-  const x = Math.min(focusPreview.start.x, focusPreview.end.x);
-  const y = Math.min(focusPreview.start.y, focusPreview.end.y);
-  const width = Math.abs(focusPreview.end.x - focusPreview.start.x);
-  const height = Math.abs(focusPreview.end.y - focusPreview.start.y);
+  const bounds = focusPreview.shape === "circle"
+    ? spotlightBounds(focusPreview.start, focusPreview.end, "circle")
+    : {
+      x: Math.min(focusPreview.start.x, focusPreview.end.x),
+      y: Math.min(focusPreview.start.y, focusPreview.end.y),
+      width: Math.abs(focusPreview.end.x - focusPreview.start.x),
+      height: Math.abs(focusPreview.end.y - focusPreview.start.y),
+    };
 
-  if (focusPreview.tool === "rect") {
-    return rectFocusHole(x, y, width, height, focusPreview.style);
+  if (focusPreview.shape === "rect") {
+    return rectFocusHole(bounds.x, bounds.y, bounds.width, bounds.height, focusPreview.style);
   }
 
-  return ellipseFocusHole(x, y, width, height);
+  return ellipseFocusHole(bounds.x, bounds.y, bounds.width, bounds.height);
 }
 
 function currentFocusHoles(previewObject?: AnnotationObject): FocusHole[] {
@@ -453,13 +472,20 @@ function syncFocusMask(previewObject?: AnnotationObject) {
 }
 
 function beginFocusPreview(tool: ToolType, point: Point, style: AnnotationStyle) {
-  if ((tool !== "rect" && tool !== "ellipse") || !isSpotlightStyle(style)) {
+  const shape = (() => {
+    if (tool === "spotlight") return spotlightShape(style) === "circle" ? "circle" : "rect";
+    if (tool === "rect" && isSpotlightStyle(style)) return "rect";
+    if (tool === "ellipse" && isSpotlightStyle(style)) return "ellipse";
+    return null;
+  })();
+
+  if (!shape) {
     focusPreview = null;
     return;
   }
 
   focusPreview = {
-    tool,
+    shape,
     start: point,
     end: point,
     style: { ...style },

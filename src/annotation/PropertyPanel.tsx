@@ -14,6 +14,7 @@ import {
   type AnnotationStyle,
   type MagnifierShape,
   type MeasureMode,
+  type SpotlightShape,
   type ToolType,
 } from "@/annotation/types";
 import { MARKER_DEFAULT_FONT_SIZE, MARKER_NUMBER_MAX, MARKER_NUMBER_MIN } from "@/annotation/markerStyle";
@@ -1011,58 +1012,6 @@ function FilledCircleIcon() {
   );
 }
 
-function SpotlightSquareIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path
-        data-spotlight-shadow
-        d="M3 3H21V21H3Z M8 8H16V16H8Z"
-        fill="currentColor"
-        opacity="0.28"
-        stroke="none"
-        fillRule="evenodd"
-      />
-      <rect data-spotlight-hole x="8" y="8" width="8" height="8" rx="1.25" fill="none" />
-    </svg>
-  );
-}
-
-function SpotlightCircleIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path
-        data-spotlight-shadow
-        d="M12 2a10 10 0 1 0 0 20 10 10 0 1 0 0-20Z M12 8a4 4 0 1 0 0 8 4 4 0 1 0 0-8Z"
-        fill="currentColor"
-        opacity="0.28"
-        stroke="none"
-        fillRule="evenodd"
-      />
-      <circle data-spotlight-hole cx="12" cy="12" r="4" fill="none" />
-    </svg>
-  );
-}
-
 function MosaicIcon() {
   return (
     <svg
@@ -1500,24 +1449,18 @@ function RectSection({
   set: (p: Partial<AnnotationStyle>) => void;
 }) {
   const t = usePanelT();
-  const isSpotlight = style.fill === "spotlight" || style.focusMode === "spotlight";
   return (
     <>
-      {!isSpotlight && (
-        <>
-          <ColorPicker value={style.color} onChange={(color) => set({ color })} />
-          <Separator />
-          <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
-          <Separator />
-        </>
-      )}
+      <ColorPicker value={style.color} onChange={(color) => set({ color })} />
+      <Separator />
+      <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
+      <Separator />
       <ToggleGroup
         options={[
           { value: "hollow", label: PanelIcon(Square), title: t("annotation.hollow") },
           { value: "solid", label: <FilledSquareIcon />, title: t("annotation.filled") },
-          { value: "spotlight", label: <SpotlightSquareIcon />, title: t("annotation.focus") },
         ]}
-        value={isSpotlight ? "spotlight" : (style.fill ?? "hollow")}
+        value={style.fill === "solid" ? "solid" : "hollow"}
         onChange={(fill) => set({ fill })}
       />
       <Separator />
@@ -1537,26 +1480,53 @@ function EllipseSection({
   set: (p: Partial<AnnotationStyle>) => void;
 }) {
   const t = usePanelT();
-  const isSpotlight = style.fill === "spotlight" || style.focusMode === "spotlight";
   return (
     <>
-      {!isSpotlight && (
-        <>
-          <ColorPicker value={style.color} onChange={(color) => set({ color })} />
-          <Separator />
-          <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
-          <Separator />
-        </>
-      )}
+      <ColorPicker value={style.color} onChange={(color) => set({ color })} />
+      <Separator />
+      <StrokeWidthDropdown value={style.strokeWidth} onChange={(strokeWidth) => set({ strokeWidth })} />
+      <Separator />
       <ToggleGroup
         options={[
           { value: "hollow", label: PanelIcon(Circle), title: t("annotation.hollow") },
           { value: "solid", label: <FilledCircleIcon />, title: t("annotation.filled") },
-          { value: "spotlight", label: <SpotlightCircleIcon />, title: t("annotation.focus") },
         ]}
-        value={isSpotlight ? "spotlight" : (style.fill ?? "hollow")}
+        value={style.fill === "solid" ? "solid" : "hollow"}
         onChange={(fill) => set({ fill })}
       />
+    </>
+  );
+}
+
+function SpotlightSection({
+  style,
+  set,
+}: {
+  style: AnnotationStyle;
+  set: (p: Partial<AnnotationStyle>) => void;
+}) {
+  const t = usePanelT();
+  const shape = style.spotlightShape === "circle" ? "circle" : "rect";
+  return (
+    <>
+      <IconTabs<SpotlightShape>
+        label={t("annotation.spotlightShape")}
+        options={[
+          { value: "rect", label: t("annotation.tool.rectangle"), icon: PanelIcon(Square) },
+          { value: "circle", label: t("annotation.circle"), icon: PanelIcon(Circle) },
+        ]}
+        value={shape}
+        onChange={(spotlightShape) => set({ fill: "spotlight", spotlightShape })}
+      />
+      {shape === "rect" && (
+        <>
+          <Separator />
+          <CornerRadiusDropdown
+            value={style.cornerRadius ?? 0}
+            onChange={(cornerRadius) => set({ cornerRadius })}
+          />
+        </>
+      )}
     </>
   );
 }
@@ -1941,6 +1911,7 @@ export function PropertyPanel({ tool, style: containerStyle, object, panelRef, l
         {tool === "arrow" && <ArrowSection style={style} set={set} />}
         {tool === "rect" && <RectSection style={style} set={set} />}
         {tool === "ellipse" && <EllipseSection style={style} set={set} />}
+        {tool === "spotlight" && <SpotlightSection style={style} set={set} />}
         {tool === "text" && <TextSection style={style} set={set} />}
         {tool === "marker" && <MarkerSection style={style} set={set} />}
         {tool === "magnifier" && <MagnifierSection style={style} set={set} />}

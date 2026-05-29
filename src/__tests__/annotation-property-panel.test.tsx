@@ -61,23 +61,17 @@ describe("Annotation property panel", () => {
 
     const rectHollowIcon = fillOptionIcon(container, "Hollow");
     const rectFilledIcon = fillOptionIcon(container, "Filled");
-    const rectSpotlightIcon = fillOptionIcon(container, "Focus");
     expect(rectHollowIcon.querySelector("rect")?.getAttribute("width")).toBe("18");
     expect(rectFilledIcon.querySelector("rect")?.getAttribute("width")).toBe("18");
     expect(rectFilledIcon.querySelector("rect")?.getAttribute("fill")).toBe("currentColor");
-    expect(rectSpotlightIcon.querySelector("path[data-spotlight-shadow]")?.getAttribute("d")).toBe("M3 3H21V21H3Z M8 8H16V16H8Z");
-    expect(rectSpotlightIcon.querySelector("rect[data-spotlight-hole]")?.getAttribute("width")).toBe("8");
 
     rerender(<PropertyPanel tool="ellipse" />);
 
     const ellipseHollowIcon = fillOptionIcon(container, "Hollow");
     const ellipseFilledIcon = fillOptionIcon(container, "Filled");
-    const ellipseSpotlightIcon = fillOptionIcon(container, "Focus");
     expect(ellipseHollowIcon.querySelector("circle")?.getAttribute("r")).toBe("10");
     expect(ellipseFilledIcon.querySelector("circle")?.getAttribute("r")).toBe("10");
     expect(ellipseFilledIcon.querySelector("circle")?.getAttribute("fill")).toBe("currentColor");
-    expect(ellipseSpotlightIcon.querySelector("path[data-spotlight-shadow]")?.getAttribute("d")).toBe("M12 2a10 10 0 1 0 0 20 10 10 0 1 0 0-20Z M12 8a4 4 0 1 0 0 8 4 4 0 1 0 0-8Z");
-    expect(ellipseSpotlightIcon.querySelector("circle[data-spotlight-hole]")?.getAttribute("r")).toBe("4");
     expect(ellipseHollowIcon.querySelector("rect")).toBeNull();
     expect(ellipseFilledIcon.querySelector("rect")).toBeNull();
   });
@@ -241,42 +235,35 @@ describe("Annotation property panel", () => {
     expect(useAnnotation.getState().activeStyle.magnifierZoom).toBe(3.5);
   });
 
-  it("offers focus as a shape fill option without separate focus controls", () => {
+  it("keeps spotlight out of shape fill options and exposes it as its own shape tool", () => {
     const { rerender } = render(<PropertyPanel tool="rect" />);
 
     expect(screen.getByRole("button", { name: "Hollow" })).not.toBeNull();
     expect(screen.getByRole("button", { name: "Filled" })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Focus" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Focus" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Focus opacity:/ })).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Focus" }));
-    expect(useAnnotation.getState().activeStyle.fill).toBe("spotlight");
 
     rerender(<PropertyPanel tool="ellipse" />);
 
     expect(screen.getByRole("button", { name: "Hollow" })).not.toBeNull();
     expect(screen.getByRole("button", { name: "Filled" })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Focus" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Focus" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Focus opacity:/ })).toBeNull();
+
+    rerender(<PropertyPanel tool="spotlight" />);
+
+    const rectangleTab = screen.getByRole("tab", { name: "Rectangle" });
+    const circleTab = screen.getByRole("tab", { name: "Circle" });
+    expect(rectangleTab.querySelector(".lucide-square")).not.toBeNull();
+    expect(circleTab.querySelector(".lucide-circle")).not.toBeNull();
+
+    fireEvent.click(circleTab);
+    expect(useAnnotation.getState().activeStyle.spotlightShape).toBe("circle");
 
     rerender(<PropertyPanel tool="line" />);
 
     expect(screen.queryByRole("button", { name: "Focus" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Focus opacity:/ })).toBeNull();
-
-    rerender(<PropertyPanel tool="text" />);
-
-    expect(screen.queryByRole("button", { name: "Focus" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Focus opacity:/ })).toBeNull();
-
-    rerender(<PropertyPanel tool="highlight" />);
-
-    expect(screen.queryByRole("button", { name: "Focus" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Focus opacity:/ })).toBeNull();
-
-    act(() => {
-      useAnnotation.getState().setActiveStyle({ fill: "hollow" });
-    });
   });
 
   it("shows immediate custom tooltips for numeric controls on hover", () => {

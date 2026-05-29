@@ -13,6 +13,7 @@ export type ToolType =
   | "text"
   | "blur"
   | "highlight"
+  | "spotlight"
   | "marker"
   | "magnifier"
   | "eraser";
@@ -25,6 +26,7 @@ export type FillMode = "hollow" | "solid" | "spotlight";
 export type BlurMode = "mosaic" | "gaussian" | "solid";
 export type HighlightMode = "freehand" | "straight";
 export type FocusMode = "none" | "spotlight";
+export type SpotlightShape = "rect" | "circle";
 export type MagnifierShape = "circle" | "rounded-rect";
 export type MeasureMode = "free" | "axis";
 
@@ -47,6 +49,7 @@ export type AnnotationStyle = {
   focusMode?: FocusMode;
   focusOpacity?: number;
   focusColor?: string;
+  spotlightShape?: SpotlightShape;
   measureMode?: MeasureMode;
   markerFill?: string;
   markerTextColor?: string;
@@ -60,7 +63,7 @@ export type AnnotationStyle = {
 
 export type AnnotationObject = {
   id: AnnotationId;
-  type: "draw" | "line" | "measure" | "arrow" | "rect" | "ellipse" | "text" | "blur" | "highlight" | "marker" | "magnifier";
+  type: "draw" | "line" | "measure" | "arrow" | "rect" | "ellipse" | "text" | "blur" | "highlight" | "spotlight" | "marker" | "magnifier";
   points?: number[];
   start?: Point;
   end?: Point;
@@ -118,6 +121,7 @@ export const DEFAULT_STYLE: AnnotationStyle = {
   blurSolidColor: "#000000",
   highlightMode: "freehand",
   opacity: 0.35,
+  spotlightShape: "rect",
   measureMode: "free",
   markerFill: "#ff0000",
   magnifierShape: "circle",
