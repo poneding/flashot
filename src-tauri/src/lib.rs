@@ -10,6 +10,7 @@ pub mod overlay_window;
 pub mod permission;
 pub mod pin_mgr;
 pub mod saver;
+pub mod scroll_capture;
 pub mod scroll_session;
 pub mod scroll_stitch;
 pub mod settings_store;
