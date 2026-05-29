@@ -149,18 +149,10 @@ export const zhCN = {
   "pin.screenshotAlt": "贴图截图",
   "pin.annotationsAlt": "贴图标注",
 
-  "scroll.cantDetect": "无法检测滚动，请尝试慢一点滚动。",
-  "scroll.maxLength": "已达到最大长度",
-  "scroll.bottomReached": "已到达底部",
   "scroll.framesStatus": "{frames} 帧 · {height}px",
-  "scroll.donePreview": "完成",
   "scroll.prompt": "滚动下方窗口以继续截图…",
   "scroll.starting": "正在开始...",
-  "scroll.copying": "正在复制...",
-  "scroll.saving": "正在保存...",
   "scroll.finishing": "正在完成...",
-  "scroll.copy": "复制",
-  "scroll.save": "保存",
   "scroll.done": "完成",
   "scroll.cancel": "取消",
 } as const;

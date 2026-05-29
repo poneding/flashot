@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ScrollEndReason, ScrollProgress } from "@/lib/types";
+import type { ScrollProgress } from "@/lib/types";
 import { createTranslator } from "@/i18n";
 import {
-  onScrollEndDetected,
-  onScrollMatchFailed,
   onScrollProgress,
-  scrollCopy,
-  scrollSave,
+  scrollPin,
   stopScrollSession,
 } from "@/lib/ipc";
 import {
@@ -40,24 +37,20 @@ export function ScrollChromeRoute() {
   const t = createTranslator(useStoredLanguage());
   const [parsed] = useState(() => parseScrollChromeRoute());
   const [progress, setProgress] = useState<ScrollProgress | null>(null);
-  const [finalized, setFinalized] = useState<{ width: number; height: number } | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-  const [endReason, setEndReason] = useState<ScrollEndReason | null>(null);
-  const [busy, setBusy] = useState<"done" | "copy" | "save" | null>(null);
+  const [busy, setBusy] = useState<"done" | null>(null);
   const finalizingRef = useRef(false);
 
   const finalize = useCallback(async () => {
-    if (finalizingRef.current || finalized) return;
+    if (finalizingRef.current) return;
     finalizingRef.current = true;
     setBusy("done");
     try {
-      const r = await stopScrollSession(true);
-      if (r) setFinalized({ width: r.width, height: r.height });
+      await scrollPin();
     } finally {
       setBusy(null);
       finalizingRef.current = false;
     }
-  }, [finalized]);
+  }, []);
 
   useEffect(() => {
     const sub = onScrollProgress((p) => setProgress(p));
@@ -66,55 +59,11 @@ export function ScrollChromeRoute() {
     };
   }, []);
 
-  useEffect(() => {
-    const p = onScrollMatchFailed(({ consecutiveFailures }) => {
-      if (consecutiveFailures >= 5) {
-        setToast(t("scroll.cantDetect"));
-        window.setTimeout(() => setToast(null), 3000);
-      }
-    });
-    return () => {
-      p.then((u) => u()).catch(() => {});
-    };
-  }, []);
-
-  useEffect(() => {
-    const p = onScrollEndDetected((reason) => {
-      setEndReason(reason);
-    });
-    return () => {
-      p.then((u) => u()).catch(() => {});
-    };
-  }, []);
-
   const onDone = finalize;
   const onCancel = async () => {
     await stopScrollSession(false);
   };
-  const onCopy = async () => {
-    if (busy) return;
-    setBusy("copy");
-    try {
-      await scrollCopy();
-    } finally {
-      setBusy(null);
-    }
-  };
-  const onSave = async () => {
-    if (busy) return;
-    setBusy("save");
-    try {
-      await scrollSave();
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const statusText = endReason
-    ? endReason === "max-height"
-      ? t("scroll.maxLength")
-      : t("scroll.bottomReached")
-    : t("scroll.framesStatus", { frames: progress?.frames ?? 0, height: progress?.height ?? 0 });
+  const statusText = t("scroll.framesStatus", { frames: progress?.frames ?? 0, height: progress?.height ?? 0 });
 
   if (!parsed) return null;
 
@@ -139,26 +88,6 @@ export function ScrollChromeRoute() {
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       }}
     >
-      {toast && (
-        <div
-          style={{
-            position: "absolute",
-            top: 8,
-            left: 8,
-            right: 8,
-            background: "rgba(220, 38, 38, 0.95)",
-            color: "white",
-            padding: "6px 10px",
-            borderRadius: 6,
-            fontSize: 12,
-            textAlign: "center",
-            zIndex: 10,
-          }}
-        >
-          {toast}
-        </div>
-      )}
-
       <div
         style={{
           flex: 1,
@@ -188,7 +117,7 @@ export function ScrollChromeRoute() {
           />
         ) : (
           <span style={{ color: "rgba(255,255,255,0.55)", fontSize: 12 }}>
-            {finalized ? t("scroll.donePreview") : t("scroll.prompt")}
+            {t("scroll.prompt")}
           </span>
         )}
       </div>
@@ -205,54 +134,26 @@ export function ScrollChromeRoute() {
           borderTop: "1px solid rgba(255,255,255,0.08)",
         }}
       >
-        {finalized ? (
-          <>
-            <span style={{ opacity: 0.9 }}>
-              {finalized.width}×{finalized.height}
-            </span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                onClick={onCopy}
-                disabled={!!busy}
-                style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
-              >
-                {busy === "copy" ? t("scroll.copying") : t("scroll.copy")}
-              </button>
-              <button
-                type="button"
-                onClick={onSave}
-                disabled={!!busy}
-                style={{ ...BTN_BASE, background: "#4ade80", color: "#0a2a17" }}
-              >
-                {busy === "save" ? t("scroll.saving") : t("scroll.save")}
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <span style={{ opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
-              {statusText}
-            </span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                onClick={onDone}
-                disabled={!!busy}
-                style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
-              >
-                {busy === "done" ? t("scroll.finishing") : t("scroll.done")}
-              </button>
-              <button
-                type="button"
-                onClick={onCancel}
-                style={{ ...BTN_BASE, background: "rgba(255,255,255,0.12)", color: "white" }}
-              >
-                {t("scroll.cancel")}
-              </button>
-            </div>
-          </>
-        )}
+        <span style={{ opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
+          {statusText}
+        </span>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            onClick={onDone}
+            disabled={!!busy}
+            style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
+          >
+            {busy === "done" ? t("scroll.finishing") : t("scroll.done")}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{ ...BTN_BASE, background: "rgba(255,255,255,0.12)", color: "white" }}
+          >
+            {t("scroll.cancel")}
+          </button>
+        </div>
       </div>
     </div>
   );

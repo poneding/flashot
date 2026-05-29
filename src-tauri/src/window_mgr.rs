@@ -25,6 +25,7 @@ struct Inner {
 pub(crate) struct ScrollState {
     pub monitor_id: u32,
     pub rect: crate::types::Rect, // physical px
+    pub logical_rect: crate::types::Rect,
     pub stitcher: Arc<tokio::sync::Mutex<ScrollStitcher>>,
     pub cancel: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -205,6 +206,12 @@ mod tests {
         mgr.set_scroll(super::ScrollState {
             monitor_id: 1,
             rect: crate::types::Rect {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 2,
+            },
+            logical_rect: crate::types::Rect {
                 x: 0,
                 y: 0,
                 width: 2,

@@ -149,18 +149,10 @@ export const en = {
   "pin.screenshotAlt": "Pinned screenshot",
   "pin.annotationsAlt": "Pinned annotations",
 
-  "scroll.cantDetect": "Can't detect scroll — try scrolling more slowly.",
-  "scroll.maxLength": "Maximum length reached",
-  "scroll.bottomReached": "Bottom reached",
   "scroll.framesStatus": "{frames} frames · {height}px",
-  "scroll.donePreview": "Done",
   "scroll.prompt": "Scroll the window below to capture…",
   "scroll.starting": "Starting...",
-  "scroll.copying": "Copying...",
-  "scroll.saving": "Saving...",
   "scroll.finishing": "Finishing...",
-  "scroll.copy": "Copy",
-  "scroll.save": "Save",
   "scroll.done": "Done",
   "scroll.cancel": "Cancel",
 } as const;

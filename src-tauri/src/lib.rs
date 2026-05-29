@@ -266,6 +266,7 @@ pub fn run() {
             commands::copy_pin,
             commands::start_scroll_session,
             commands::stop_scroll_session,
+            commands::scroll_pin,
             commands::scroll_copy,
             commands::scroll_save,
         ])

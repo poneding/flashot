@@ -149,18 +149,10 @@ export const zhTW = {
   "pin.screenshotAlt": "釘選的截圖",
   "pin.annotationsAlt": "釘選的標註",
 
-  "scroll.cantDetect": "無法偵測捲動，請試著慢一點捲動。",
-  "scroll.maxLength": "已達最大長度",
-  "scroll.bottomReached": "已到達底部",
   "scroll.framesStatus": "{frames} 張影格 · {height}px",
-  "scroll.donePreview": "完成",
   "scroll.prompt": "捲動下方視窗以繼續擷取…",
   "scroll.starting": "正在開始...",
-  "scroll.copying": "正在複製...",
-  "scroll.saving": "正在儲存...",
   "scroll.finishing": "正在完成...",
-  "scroll.copy": "複製",
-  "scroll.save": "儲存",
   "scroll.done": "完成",
   "scroll.cancel": "取消",
 } as const;

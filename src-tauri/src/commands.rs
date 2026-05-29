@@ -705,13 +705,35 @@ pub async fn pin_image(
         frame.scale_factor,
     );
 
+    let pin_id = create_pin_from_image(
+        &app,
+        &pin_mgr,
+        monitor_id,
+        rect,
+        cropped,
+        annotation_png,
+        corner_radius,
+    )?;
+    mgr.end_session_deactivating_app(&app);
+    Ok(pin_id)
+}
+
+fn create_pin_from_image(
+    app: &AppHandle,
+    pin_mgr: &Arc<PinManager>,
+    monitor_id: u32,
+    display_rect: Rect,
+    image: CroppedImage,
+    annotation_png: Option<Vec<u8>>,
+    corner_radius: u32,
+) -> Result<String, String> {
     let pin_id = Uuid::new_v4().to_string();
     let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
     let pins_dir = cache_dir.join("pins");
     std::fs::create_dir_all(&pins_dir).map_err(|e| e.to_string())?;
 
     let image_path = pins_dir.join(format!("pin-{}.png", pin_id));
-    save_pin_png(&cropped.rgba, cropped.width, cropped.height, &image_path)?;
+    save_pin_png(&image.rgba, image.width, image.height, &image_path)?;
 
     let annotation_path = match annotation_png {
         Some(png_data) if !png_data.is_empty() => {
@@ -738,25 +760,27 @@ pub async fn pin_image(
     }
     let url = tauri::WebviewUrl::App(route.into());
 
-    let outer_width = rect.width as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_CONTROLS_SIDE_RESERVE;
-    let outer_height = rect.height as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_TOOLBAR_BOTTOM_RESERVE;
+    let outer_width =
+        display_rect.width as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_CONTROLS_SIDE_RESERVE;
+    let outer_height =
+        display_rect.height as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_TOOLBAR_BOTTOM_RESERVE;
 
-    // Position the pin window so the *image* lands exactly where the
-    // user's selection was on screen. `rect` is in monitor-local logical
-    // pixels; the window includes a PIN_SHADOW_PADDING ring on every side
-    // for the glow plus right/bottom gutters for controls. Since the image
-    // starts after the left/top shadow padding, only those sides affect the
-    // window origin. We also need the monitor's global origin so
-    // multi-display setups land on the right screen.
+    // Position the pin window so the *image* lands exactly where the user's
+    // selection was on screen. `display_rect` is in monitor-local logical
+    // pixels; the window includes a PIN_SHADOW_PADDING ring on every side for
+    // the glow plus right/bottom gutters for controls. Since the image starts
+    // after the left/top shadow padding, only those sides affect the window
+    // origin. We also need the monitor's global origin so multi-display setups
+    // land on the right screen.
     let monitor_origin = crate::capture::enumerate_monitors()
         .ok()
         .and_then(|ms| ms.into_iter().find(|m| m.id == monitor_id))
         .map(|m| (m.rect.x as f64, m.rect.y as f64))
         .unwrap_or((0.0, 0.0));
-    let pin_x = monitor_origin.0 + rect.x as f64 - PIN_SHADOW_PADDING;
-    let pin_y = monitor_origin.1 + rect.y as f64 - PIN_SHADOW_PADDING;
+    let pin_x = monitor_origin.0 + display_rect.x as f64 - PIN_SHADOW_PADDING;
+    let pin_y = monitor_origin.1 + display_rect.y as f64 - PIN_SHADOW_PADDING;
 
-    let window = tauri::WebviewWindowBuilder::new(&app, &window_label, url)
+    let window = tauri::WebviewWindowBuilder::new(app, &window_label, url)
         .title("")
         .inner_size(outer_width, outer_height)
         .position(pin_x, pin_y)
@@ -777,12 +801,11 @@ pub async fn pin_image(
         image_path,
         annotation_path,
         window_label,
-        original_width: rect.width,
-        original_height: rect.height,
+        original_width: display_rect.width,
+        original_height: display_rect.height,
         current_scale: 1.0,
     });
 
-    mgr.end_session_deactivating_app(&app);
     Ok(pin_id)
 }
 
@@ -1196,6 +1219,7 @@ pub async fn start_scroll_session(
     mgr.set_scroll(ScrollState {
         monitor_id,
         rect: phys_rect,
+        logical_rect: rect,
         stitcher,
         cancel,
     });
@@ -1311,6 +1335,48 @@ pub async fn stop_scroll_session(
         height,
         frame_count,
     }))
+}
+
+#[tauri::command]
+pub async fn scroll_pin(
+    app: AppHandle,
+    mgr: State<'_, Arc<WindowMgr>>,
+    pin_mgr: State<'_, Arc<PinManager>>,
+) -> Result<String, String> {
+    let (monitor_id, logical_rect) = mgr
+        .scroll_ref(|s| (s.monitor_id, s.logical_rect))
+        .ok_or("no active scroll session")?;
+    let img = materialize_scroll_image(&mgr).await?;
+    let _ = mgr.take_scroll();
+    close_scroll_chrome(&app, monitor_id);
+
+    let display_scale = if logical_rect.width > 0 {
+        (img.width as f64 / logical_rect.width as f64).max(1.0)
+    } else {
+        1.0
+    };
+    let display_height = ((img.height as f64 / display_scale).round()).max(1.0) as u32;
+    let display_rect = Rect {
+        x: logical_rect.x,
+        y: logical_rect.y,
+        width: logical_rect.width.max(1),
+        height: display_height,
+    };
+    let pin_id = create_pin_from_image(
+        &app,
+        &pin_mgr,
+        monitor_id,
+        display_rect,
+        CroppedImage {
+            rgba: img.rgba,
+            width: img.width,
+            height: img.height,
+        },
+        None,
+        0,
+    );
+    mgr.end_session_deactivating_app(&app);
+    pin_id
 }
 
 async fn materialize_scroll_image(
@@ -1476,6 +1542,7 @@ mod tests {
             "crop_and_copy",
             "cancel_capture",
             "pin_image",
+            "scroll_pin",
             "scroll_copy",
         ] {
             let body = function_body(&source, name);
@@ -1944,7 +2011,7 @@ mod tests {
     #[test]
     fn pin_image_appends_radius_to_route_when_nonzero() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
-        let body = function_body(&source, "pin_image");
+        let body = function_body(&source, "create_pin_from_image");
         assert!(
             body.contains("&radius="),
             "pin_image must forward corner_radius to the pin route URL when > 0",
@@ -1982,23 +2049,25 @@ mod tests {
     #[test]
     fn pin_window_reserves_right_and_bottom_gutters_without_left_control_gutter() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
-        let pin_body = function_body(&source, "pin_image");
+        let pin_body = function_body(&source, "create_pin_from_image");
         let scale_body = function_body(&source, "set_pin_scale");
 
         assert!(
             pin_body.contains(
-                "rect.width as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_CONTROLS_SIDE_RESERVE",
+                "display_rect.width as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_CONTROLS_SIDE_RESERVE",
             ),
             "pin window width should reserve controls only on the right side",
         );
         assert!(
             pin_body.contains(
-                "rect.height as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_TOOLBAR_BOTTOM_RESERVE",
+                "display_rect.height as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_TOOLBAR_BOTTOM_RESERVE",
             ),
             "pin window height should reserve the annotation toolbar gutter at the bottom",
         );
         assert!(
-            pin_body.contains("let pin_x = monitor_origin.0 + rect.x as f64 - PIN_SHADOW_PADDING;"),
+            pin_body.contains(
+                "let pin_x = monitor_origin.0 + display_rect.x as f64 - PIN_SHADOW_PADDING;",
+            ),
             "pin image should start after only the left shadow padding",
         );
         assert!(

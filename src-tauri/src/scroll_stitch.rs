@@ -2,9 +2,9 @@
 //!
 //! Each `ingest()` call receives a fresh capture of the same on-screen rect
 //! and decides how much of it is *new* (i.e. has scrolled into view since the
-//! previous frame) by matching a column-sampled ROI from the previous frame
-//! against the current frame. The new strip is appended to an accumulating
-//! RGBA canvas which is consumed via `finalize()`.
+//! previous frame) by matching feature-sampled ROIs between adjacent frames.
+//! The new strip is appended to an accumulating RGBA canvas which is consumed
+//! via `finalize()`.
 
 #[derive(Clone, Copy, Debug)]
 pub struct StitchConfig {
@@ -12,7 +12,6 @@ pub struct StitchConfig {
     pub roi_rows: u32,
     pub min_match_score: f32,
     pub max_height_px: u32,
-    pub end_of_scroll_frames: u32,
 }
 
 impl Default for StitchConfig {
@@ -22,10 +21,6 @@ impl Default for StitchConfig {
             roi_rows: 50,
             min_match_score: 0.85,
             max_height_px: 32_768,
-            // The capture loop samples every 60ms. A 5-frame idle window is
-            // only ~300ms, which is shorter than normal wheel-scroll pauses
-            // and compositor/capture latency on Windows and Linux.
-            end_of_scroll_frames: 30,
         }
     }
 }
@@ -38,11 +33,24 @@ pub enum IngestResult {
         score: f32,
     },
     NoChange,
-    EndOfScroll,
     MatchFailed {
         score: f32,
     },
     MaxHeightReached,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MatchCandidate {
+    dy: u32,
+    score: f32,
+    trusted_positive: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct BandMatch {
+    dy: u32,
+    score: f32,
+    moving_bands: usize,
 }
 
 pub struct StitchedImage {
@@ -59,7 +67,6 @@ pub struct ScrollStitcher {
     last_frame: Vec<u8>,
     static_drop_offset: u32,
     accepted_frames: u32,
-    consecutive_no_change: u32,
     config: StitchConfig,
 }
 
@@ -83,7 +90,6 @@ impl ScrollStitcher {
             last_frame: initial_frame,
             static_drop_offset: 0,
             accepted_frames: 0,
-            consecutive_no_change: 0,
             config,
         }
     }
@@ -122,19 +128,10 @@ impl ScrollStitcher {
         }
 
         if dy == 0 {
-            if self.accepted_frames == 0 {
-                return IngestResult::NoChange;
-            }
-            self.consecutive_no_change += 1;
-            if self.consecutive_no_change >= self.config.end_of_scroll_frames {
-                return IngestResult::EndOfScroll;
-            }
             // Don't replace last_frame on no-change; we want to keep the
             // canonical reference so a tiny redraw blip doesn't accumulate.
             return IngestResult::NoChange;
         }
-
-        self.consecutive_no_change = 0;
 
         // Append rows [frame_height - dy .. frame_height] from the new frame
         // (the bottom `dy` rows — the freshly-revealed content).
@@ -170,9 +167,29 @@ impl ScrollStitcher {
         let roi_rows = self.config.roi_rows.clamp(1, self.frame_height);
         let sample_columns = self.config.sample_columns.max(1);
         let mut best_any = (0, f32::MIN);
-        let mut best_positive: Option<(u32, f32)> = None;
+        let mut best_positive: Option<MatchCandidate> = None;
 
         for offset in self.match_offsets(roi_rows) {
+            let band_candidate = band_match_ncc(
+                frame_rgba,       // template_source: take its ROI
+                &self.last_frame, // search_image: look for the ROI here
+                self.width,
+                self.frame_height,
+                offset,
+                roi_rows,
+                sample_columns,
+            );
+            Self::consider_match(
+                &mut best_any,
+                &mut best_positive,
+                self.config.min_match_score,
+                MatchCandidate {
+                    dy: band_candidate.dy,
+                    score: band_candidate.score,
+                    trusted_positive: band_candidate.moving_bands >= 2,
+                },
+            );
+
             let candidate = column_match_ncc(
                 frame_rgba,       // template_source: take its ROI
                 &self.last_frame, // search_image: look for the ROI here
@@ -182,25 +199,46 @@ impl ScrollStitcher {
                 roi_rows,
                 sample_columns,
             );
-
-            if candidate.1 > best_any.1 {
-                best_any = candidate;
-            }
-            if candidate.0 > 0
-                && candidate.1 >= self.config.min_match_score
-                && best_positive.is_none_or(|(_, score)| candidate.1 > score)
-            {
-                best_positive = Some(candidate);
-            }
+            Self::consider_match(
+                &mut best_any,
+                &mut best_positive,
+                self.config.min_match_score,
+                MatchCandidate {
+                    dy: candidate.0,
+                    score: candidate.1,
+                    trusted_positive: false,
+                },
+            );
         }
 
         if let Some(positive) = best_positive {
-            if best_any.0 == 0 || positive.1 + 0.02 >= best_any.1 {
-                return positive;
+            if positive.trusted_positive || best_any.0 == 0 || positive.score + 0.02 >= best_any.1 {
+                return (positive.dy, positive.score);
             }
         }
 
         best_any
+    }
+
+    fn consider_match(
+        best_any: &mut (u32, f32),
+        best_positive: &mut Option<MatchCandidate>,
+        min_match_score: f32,
+        candidate: MatchCandidate,
+    ) {
+        if candidate.score > best_any.1 {
+            *best_any = (candidate.dy, candidate.score);
+        }
+        if candidate.dy > 0
+            && candidate.score >= min_match_score
+            && best_positive.is_none_or(|best| {
+                candidate.trusted_positive && !best.trusted_positive
+                    || candidate.trusted_positive == best.trusted_positive
+                        && candidate.score > best.score
+            })
+        {
+            *best_positive = Some(candidate);
+        }
     }
 
     fn match_offsets(&self, roi_rows: u32) -> Vec<u32> {
@@ -315,6 +353,251 @@ pub fn column_match_ncc(
     (best_y - static_drop_offset, best_score)
 }
 
+fn band_match_ncc(
+    prev: &[u8],
+    curr: &[u8],
+    width: u32,
+    height: u32,
+    static_drop_offset: u32,
+    roi_rows: u32,
+    sample_columns: usize,
+) -> BandMatch {
+    debug_assert_eq!(prev.len(), (width * height * 4) as usize);
+    debug_assert_eq!(curr.len(), (width * height * 4) as usize);
+    debug_assert!(static_drop_offset + roi_rows <= height);
+
+    let band_count = horizontal_band_count(width, sample_columns);
+    let bands = horizontal_bands(width, band_count);
+    let prev_features = extract_horizontal_band_features(prev, width, height, &bands);
+    let curr_features = extract_horizontal_band_features(curr, width, height, &bands);
+
+    let moving_bands = select_feature_bands(
+        &prev_features,
+        &curr_features,
+        band_count,
+        static_drop_offset,
+        roi_rows,
+        true,
+    );
+    let moving_band_count = moving_bands.len();
+    let selected_bands = if moving_band_count >= 2 {
+        moving_bands
+    } else {
+        select_feature_bands(
+            &prev_features,
+            &curr_features,
+            band_count,
+            static_drop_offset,
+            roi_rows,
+            false,
+        )
+    };
+    let selected_bands = if selected_bands.is_empty() {
+        (0..band_count).collect::<Vec<_>>()
+    } else {
+        selected_bands
+    };
+
+    let (dy, score) = feature_strip_match_ncc(
+        &prev_features,
+        &curr_features,
+        band_count,
+        &selected_bands,
+        height,
+        static_drop_offset,
+        roi_rows,
+    );
+
+    BandMatch {
+        dy,
+        score,
+        moving_bands: moving_band_count,
+    }
+}
+
+fn horizontal_band_count(width: u32, sample_columns: usize) -> usize {
+    let desired = sample_columns.saturating_mul(2).clamp(8, 24);
+    desired.min(width.max(1) as usize)
+}
+
+fn horizontal_bands(width: u32, band_count: usize) -> Vec<(u32, u32)> {
+    let width = width.max(1);
+    (0..band_count)
+        .map(|i| {
+            let start = (i as u32 * width) / band_count as u32;
+            let end = (((i + 1) as u32 * width) / band_count as u32)
+                .max(start + 1)
+                .min(width);
+            (start, end)
+        })
+        .collect()
+}
+
+fn extract_horizontal_band_features(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    bands: &[(u32, u32)],
+) -> Vec<f32> {
+    let mut out = Vec::with_capacity(height as usize * bands.len());
+    for y in 0..height {
+        for &(start, end) in bands {
+            let span = end.saturating_sub(start).max(1);
+            let samples = span.min(12);
+            let mut sum = 0.0f32;
+            for i in 0..samples {
+                let x_offset = (((i * span) + span / 2) / samples).min(span - 1);
+                sum += luma_at(rgba, width, start + x_offset, y);
+            }
+            out.push(sum / samples as f32);
+        }
+    }
+    out
+}
+
+fn select_feature_bands(
+    prev_features: &[f32],
+    curr_features: &[f32],
+    band_count: usize,
+    y_start: u32,
+    rows: u32,
+    require_movement: bool,
+) -> Vec<usize> {
+    const MIN_VARIANCE: f32 = 0.75;
+    const MIN_MOVEMENT: f32 = 0.75;
+
+    let mut scored = Vec::new();
+    for band in 0..band_count {
+        let (variance, movement) = band_feature_stats(
+            prev_features,
+            curr_features,
+            band_count,
+            band,
+            y_start,
+            rows,
+        );
+        if variance >= MIN_VARIANCE && (!require_movement || movement >= MIN_MOVEMENT) {
+            scored.push((band, variance * (1.0 + movement)));
+        }
+    }
+
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(band_count.min(12));
+    scored.sort_unstable_by_key(|(band, _)| *band);
+    scored.into_iter().map(|(band, _)| band).collect()
+}
+
+fn band_feature_stats(
+    prev_features: &[f32],
+    curr_features: &[f32],
+    band_count: usize,
+    band: usize,
+    y_start: u32,
+    rows: u32,
+) -> (f32, f32) {
+    let mut sum = 0.0f32;
+    let mut movement = 0.0f32;
+    for row in 0..rows {
+        let idx = ((y_start + row) as usize * band_count) + band;
+        let value = prev_features[idx];
+        sum += value;
+        movement += (value - curr_features[idx]).abs();
+    }
+
+    let mean = sum / rows as f32;
+    let mut variance = 0.0f32;
+    for row in 0..rows {
+        let idx = ((y_start + row) as usize * band_count) + band;
+        let delta = prev_features[idx] - mean;
+        variance += delta * delta;
+    }
+
+    (variance / rows as f32, movement / rows as f32)
+}
+
+fn feature_strip_match_ncc(
+    template_features: &[f32],
+    search_features: &[f32],
+    band_count: usize,
+    selected_bands: &[usize],
+    height: u32,
+    static_drop_offset: u32,
+    roi_rows: u32,
+) -> (u32, f32) {
+    let template = extract_feature_strip(
+        template_features,
+        band_count,
+        selected_bands,
+        static_drop_offset,
+        roi_rows,
+    );
+    let t_mean = template.iter().sum::<f32>() / template.len() as f32;
+    let t_demean: Vec<f32> = template.iter().map(|v| v - t_mean).collect();
+    let t_norm = t_demean.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-6);
+
+    let max_y = height.saturating_sub(roi_rows);
+    let mut best_y = static_drop_offset;
+    let mut best_score = f32::MIN;
+
+    for y in static_drop_offset..=max_y {
+        let c_mean = feature_strip_mean(search_features, band_count, selected_bands, y, roi_rows);
+        let mut dot = 0.0f32;
+        let mut c_sq = 0.0f32;
+        let mut i = 0usize;
+        for row in 0..roi_rows {
+            let base = (y + row) as usize * band_count;
+            for &band in selected_bands {
+                let cd = search_features[base + band] - c_mean;
+                dot += t_demean[i] * cd;
+                c_sq += cd * cd;
+                i += 1;
+            }
+        }
+        let c_norm = c_sq.sqrt().max(1e-6);
+        let score = dot / (t_norm * c_norm);
+        if score > best_score {
+            best_score = score;
+            best_y = y;
+        }
+    }
+
+    (best_y - static_drop_offset, best_score)
+}
+
+fn extract_feature_strip(
+    features: &[f32],
+    band_count: usize,
+    selected_bands: &[usize],
+    y_start: u32,
+    rows: u32,
+) -> Vec<f32> {
+    let mut out = Vec::with_capacity(selected_bands.len() * rows as usize);
+    for row in 0..rows {
+        let base = (y_start + row) as usize * band_count;
+        for &band in selected_bands {
+            out.push(features[base + band]);
+        }
+    }
+    out
+}
+
+fn feature_strip_mean(
+    features: &[f32],
+    band_count: usize,
+    selected_bands: &[usize],
+    y_start: u32,
+    rows: u32,
+) -> f32 {
+    let mut sum = 0.0f32;
+    for row in 0..rows {
+        let base = (y_start + row) as usize * band_count;
+        for &band in selected_bands {
+            sum += features[base + band];
+        }
+    }
+    sum / (selected_bands.len() * rows as usize) as f32
+}
+
 /// Extract a flat vector of grayscale samples at the given (cols × rows) grid.
 fn extract_column_strip(
     rgba: &[u8],
@@ -326,17 +609,20 @@ fn extract_column_strip(
     let mut out = Vec::with_capacity(cols.len() * rows as usize);
     for row in 0..rows {
         let y = y_start + row;
-        let row_start = (y * width) as usize * 4;
         for &x in cols {
-            let p = row_start + x as usize * 4;
-            // Rec. 601 luma; good enough for matching.
-            let r = rgba[p] as f32;
-            let g = rgba[p + 1] as f32;
-            let b = rgba[p + 2] as f32;
-            out.push(0.299 * r + 0.587 * g + 0.114 * b);
+            out.push(luma_at(rgba, width, x, y));
         }
     }
     out
+}
+
+fn luma_at(rgba: &[u8], width: u32, x: u32, y: u32) -> f32 {
+    let p = ((y * width + x) as usize) * 4;
+    // Rec. 601 luma; good enough for matching.
+    let r = rgba[p] as f32;
+    let g = rgba[p + 1] as f32;
+    let b = rgba[p + 2] as f32;
+    0.299 * r + 0.587 * g + 0.114 * b
 }
 
 #[cfg(test)]
@@ -429,27 +715,22 @@ mod tests {
     }
 
     #[test]
-    fn repeated_identical_frames_after_scroll_trigger_end_of_scroll() {
+    fn repeated_identical_frames_after_scroll_do_not_trigger_end_of_scroll() {
         let width = 80;
         let frame_h = 600;
         let initial = gradient_frame(width, frame_h, 0);
         let next = gradient_frame(width, frame_h, 37);
-        let config = StitchConfig {
-            end_of_scroll_frames: 5,
-            ..StitchConfig::default()
-        };
-        let mut stitcher = ScrollStitcher::new(width, frame_h, initial, config);
+        let mut stitcher = ScrollStitcher::new(width, frame_h, initial, StitchConfig::default());
 
         assert!(matches!(
             stitcher.ingest(&next),
             IngestResult::Appended { .. }
         ));
 
-        for i in 0..4 {
+        for i in 0..40 {
             let r = stitcher.ingest(&next);
             assert_eq!(r, IngestResult::NoChange, "iteration {i}");
         }
-        assert_eq!(stitcher.ingest(&next), IngestResult::EndOfScroll);
     }
 
     #[test]
@@ -501,6 +782,32 @@ mod tests {
         v
     }
 
+    fn frame_with_static_sidebars_and_narrow_content(
+        width: u32,
+        height: u32,
+        content_start: u32,
+    ) -> Vec<u8> {
+        let mut v = Vec::with_capacity((width * height * 4) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                let l = if x < 78 {
+                    ((y.wrapping_mul(17) + x.wrapping_mul(31)) % 190 + 35) as u8
+                } else if (126..141).contains(&x) {
+                    let content_row = (content_start + y) as u64;
+                    let mut h = content_row.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+                    h ^= h >> 30;
+                    h = h.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                    h ^= (x as u64).wrapping_mul(0x94D0_49BB_1331_11EB);
+                    (h & 0xff) as u8
+                } else {
+                    245
+                };
+                v.extend_from_slice(&[l, l, l, 255]);
+            }
+        }
+        v
+    }
+
     #[test]
     fn ingest_uses_lower_roi_when_top_rows_are_static() {
         let width = 80;
@@ -516,6 +823,29 @@ mod tests {
                 assert!(score > 0.95, "score too low: {score}");
             }
             other => panic!("expected Appended through static header, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ingest_uses_moving_area_when_legacy_columns_are_static_or_blank() {
+        let width = 240;
+        let frame_h = 220;
+        let initial = frame_with_static_sidebars_and_narrow_content(width, frame_h, 0);
+        let next = frame_with_static_sidebars_and_narrow_content(width, frame_h, 37);
+
+        let legacy = column_match_ncc(&next, &initial, width, frame_h, 0, 50, 9);
+        assert_eq!(
+            legacy.0, 0,
+            "legacy column matcher should be dominated by static/blank columns in this layout",
+        );
+
+        let mut stitcher = ScrollStitcher::new(width, frame_h, initial, StitchConfig::default());
+        match stitcher.ingest(&next) {
+            IngestResult::Appended { dy, score, .. } => {
+                assert!((dy as i32 - 37).abs() <= 1, "dy={dy}");
+                assert!(score > 0.85, "score too low: {score}");
+            }
+            other => panic!("expected Appended through moving-area matcher, got {other:?}"),
         }
     }
 

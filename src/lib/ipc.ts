@@ -3,7 +3,6 @@ import type {
   ImageAdjustments,
   QuickShotFlashPayload,
   Rect,
-  ScrollEndReason,
   ScrollProgress,
   ScrollResult,
   Settings,
@@ -183,6 +182,10 @@ export async function stopScrollSession(commit: boolean): Promise<ScrollResult |
   return await invoke<ScrollResult | null>("stop_scroll_session", { commit });
 }
 
+export async function scrollPin(): Promise<string> {
+  return await invoke<string>("scroll_pin");
+}
+
 export async function scrollCopy(): Promise<void> {
   await invoke("scroll_copy");
 }
@@ -191,7 +194,7 @@ export async function scrollSave(): Promise<string | null> {
   return await invoke<string | null>("scroll_save");
 }
 
-// Note: scroll_copy / scroll_save / stop_scroll_session do NOT take a monitorId
+// Note: scroll_pin / scroll_copy / scroll_save / stop_scroll_session do NOT take a monitorId
 // argument. The backend reads it from the active ScrollState and uses it to
 // tear down the chrome window. This keeps the TS surface minimal.
 
@@ -211,14 +214,4 @@ export function onScrollProgress(cb: (p: ScrollProgress) => void): Promise<Unlis
       lastScore: e.payload.last_score,
     });
   });
-}
-
-export function onScrollEndDetected(cb: (reason: ScrollEndReason) => void): Promise<UnlistenFn> {
-  return listen<{ reason: ScrollEndReason }>("scroll:end-detected", (e) => cb(e.payload.reason));
-}
-
-export function onScrollMatchFailed(cb: (info: { consecutiveFailures: number; score: number }) => void): Promise<UnlistenFn> {
-  return listen<{ consecutive_failures: number; score: number }>("scroll:match-failed", (e) =>
-    cb({ consecutiveFailures: e.payload.consecutive_failures, score: e.payload.score }),
-  );
 }

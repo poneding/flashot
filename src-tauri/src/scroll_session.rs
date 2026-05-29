@@ -23,17 +23,6 @@ struct ProgressPayload {
     last_score: f32,
 }
 
-#[derive(serde::Serialize, Clone)]
-struct EndDetectedPayload {
-    reason: String,
-}
-
-#[derive(serde::Serialize, Clone)]
-struct MatchFailedPayload {
-    consecutive_failures: u32,
-    score: f32,
-}
-
 pub fn spawn_loop(
     app: AppHandle,
     monitor_id: u32,
@@ -112,24 +101,9 @@ pub fn spawn_loop(
                         target: "scroll",
                         "match failed: score={score:.3} consecutive={consecutive_failures}"
                     );
-                    let _ = app.emit(
-                        "scroll:match-failed",
-                        MatchFailedPayload {
-                            consecutive_failures,
-                            score,
-                        },
-                    );
                 }
-                IngestResult::EndOfScroll | IngestResult::MaxHeightReached => {
-                    let is_max = matches!(result, IngestResult::MaxHeightReached);
-                    let reason = if is_max { "max-height" } else { "bottom" };
-                    tracing::info!(target: "scroll", "end detected: {reason} frames={frames_accepted}");
-                    let _ = app.emit(
-                        "scroll:end-detected",
-                        EndDetectedPayload {
-                            reason: reason.to_string(),
-                        },
-                    );
+                IngestResult::MaxHeightReached => {
+                    tracing::info!(target: "scroll", "max height reached frames={frames_accepted}");
                     cancel.store(true, Ordering::SeqCst);
                     break;
                 }
@@ -169,18 +143,14 @@ fn base64_encode(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn end_detection_emits_without_materializing_canvas() {
+    fn scroll_loop_does_not_emit_bottom_detection() {
         let source = include_str!("scroll_session.rs").replace("\r\n", "\n");
-        let start = source.find("IngestResult::EndOfScroll").unwrap();
-        let end = source[start..]
-            .find("fn base64_encode")
-            .map(|idx| start + idx)
-            .unwrap();
-        let body = &source[start..end];
+        let event_name = ["scroll", "end-detected"].join(":");
+        let payload_name = ["End", "Detected", "Payload"].join("");
 
         assert!(
-            !body.contains("canvas_bytes_clone"),
-            "auto-finish should emit the end event immediately and defer full-image cloning",
+            !source.contains(&event_name) && !source.contains(&payload_name),
+            "scroll capture should wait for the user to click Done instead of guessing the bottom",
         );
     }
 }

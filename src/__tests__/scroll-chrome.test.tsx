@@ -1,14 +1,9 @@
 /** @vitest-environment jsdom */
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { stopScrollSession } from "@/lib/ipc";
+import { scrollPin, stopScrollSession } from "@/lib/ipc";
 import { ScrollChromeRoute } from "@/routes/ScrollChrome";
-import type { ScrollEndReason } from "@/lib/types";
-
-const scrollListeners = vi.hoisted(() => ({
-  endDetected: undefined as undefined | ((reason: ScrollEndReason) => void),
-}));
 
 vi.mock("@/lib/ipc", () => ({
   getSettings: vi.fn().mockResolvedValue({
@@ -18,11 +13,7 @@ vi.mock("@/lib/ipc", () => ({
   }),
   onSettingsChanged: vi.fn().mockResolvedValue(vi.fn()),
   onScrollProgress: vi.fn().mockResolvedValue(vi.fn()),
-  onScrollMatchFailed: vi.fn().mockResolvedValue(vi.fn()),
-  onScrollEndDetected: vi.fn((cb: (reason: ScrollEndReason) => void) => {
-    scrollListeners.endDetected = cb;
-    return Promise.resolve(vi.fn());
-  }),
+  scrollPin: vi.fn().mockResolvedValue("pin-1"),
   scrollCopy: vi.fn().mockResolvedValue(undefined),
   scrollSave: vi.fn().mockResolvedValue(null),
   stopScrollSession: vi.fn().mockResolvedValue({ width: 300, height: 1200, frameCount: 4 }),
@@ -31,7 +22,6 @@ vi.mock("@/lib/ipc", () => ({
 describe("ScrollChromeRoute", () => {
   beforeEach(() => {
     window.location.hash = "#/scroll-chrome/1";
-    scrollListeners.endDetected = undefined;
     vi.clearAllMocks();
   });
 
@@ -39,20 +29,17 @@ describe("ScrollChromeRoute", () => {
     cleanup();
   });
 
-  it("does not finalize until the user clicks Done", async () => {
+  it("pins directly when the user clicks Done", async () => {
     render(<ScrollChromeRoute />);
 
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
     await waitFor(() => {
-      expect(scrollListeners.endDetected).toBeDefined();
+      expect(scrollPin).toHaveBeenCalledTimes(1);
     });
-
-    await act(async () => {
-      scrollListeners.endDetected?.("bottom");
-    });
-
     expect(stopScrollSession).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
-    expect(screen.getByText("Bottom reached")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
   });
 
   it("renders scroll status and actions in Traditional Chinese", async () => {
@@ -66,17 +53,9 @@ describe("ScrollChromeRoute", () => {
     render(<ScrollChromeRoute />);
 
     await waitFor(() => {
-      expect(scrollListeners.endDetected).toBeDefined();
-    });
-
-    await act(async () => {
-      scrollListeners.endDetected?.("bottom");
-    });
-
-    await waitFor(() => {
       expect(screen.getByRole("button", { name: "完成" })).toBeInTheDocument();
     });
-    expect(screen.getByText("已到達底部")).toBeInTheDocument();
+    expect(screen.getByText("0 張影格 · 0px")).toBeInTheDocument();
   });
 
   it("matches the screenshot toolbar surface style", () => {

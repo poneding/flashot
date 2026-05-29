@@ -89,8 +89,6 @@ export type ScrollProgress = {
   lastScore: number;
 };
 
-export type ScrollEndReason = "bottom" | "max-height" | "user";
-
 export type ScrollResult = {
   width: number;
   height: number;
