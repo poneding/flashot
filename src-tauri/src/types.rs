@@ -38,11 +38,9 @@ pub struct MonitorInfo {
 #[serde(rename_all = "camelCase")]
 pub struct ImageAdjustments {
     pub grayscale: bool,
-    pub auto_levels: bool,
     pub brightness: i32,
     pub contrast: i32,
     pub saturation: i32,
-    pub sharpness: u32,
 }
 
 #[derive(Debug, Clone)]

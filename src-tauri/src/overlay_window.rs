@@ -19,6 +19,12 @@ pub fn bring_capture_overlay_to_front(window: &WebviewWindow) -> Result<()> {
     })
 }
 
+pub fn show_capture_overlay(window: &WebviewWindow) -> Result<()> {
+    run_on_window_main_thread(window, "show capture overlay", |window| {
+        show_platform_overlay(window)
+    })
+}
+
 pub fn prepare_overlay_text_input(window: &WebviewWindow) -> Result<()> {
     run_on_window_main_thread(window, "prepare overlay text input", |window| {
         prepare_platform_text_input(window)
@@ -35,15 +41,16 @@ pub fn capture_overlay_accepts_first_mouse() -> bool {
     true
 }
 
+#[cfg(target_os = "macos")]
 pub fn capture_overlay_should_take_focus() -> bool {
-    // We always want the overlay to own keyboard focus while it's
-    // visible: otherwise shortcuts like X (toggle color format) and
-    // C (copy color) get delivered to whatever app the user had
-    // active, which is both a UX bug (shortcuts don't work) and a
-    // safety bug (X indents code, C overwrites the clipboard, etc).
-    // On macOS, `bring_platform_overlay_to_front` activates our app
-    // and calls `makeKeyAndOrderFront:`; the subsequent `set_focus()`
-    // from lib.rs is a defense-in-depth no-op once we're already key.
+    // Activating the app so the overlay can become key also lets macOS
+    // reorder existing Flashot utility windows. Keep capture overlays
+    // visually frontmost on macOS without changing the active app.
+    false
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn capture_overlay_should_take_focus() -> bool {
     true
 }
 
@@ -130,42 +137,24 @@ fn configure_platform_overlay(
 }
 
 #[cfg(target_os = "macos")]
+fn show_platform_overlay(window: &WebviewWindow) -> Result<()> {
+    bring_platform_overlay_to_front(window)
+}
+
+#[cfg(target_os = "macos")]
 fn bring_platform_overlay_to_front(window: &WebviewWindow) -> Result<()> {
     use objc::{
-        runtime::{Class, Object, Sel, YES},
+        runtime::{Object, Sel},
         Message,
     };
 
     let ns_window = window.ns_window()? as *mut Object;
     unsafe {
-        // Bring the window to the front visually first. This works
-        // even when our app isn't the active app — but it doesn't
-        // grant key-window status, so keyboard events would still go
-        // to whatever app the user came from.
+        // Bring the overlay to the front visually without activating
+        // Flashot. Activating the app can reorder already-open utility
+        // windows like Settings, About, or Updater.
         let ns_window = &*ns_window;
         ns_window.send_message::<_, ()>(Sel::register("orderFrontRegardless"), ())?;
-
-        // Activate the application so the system will let our window
-        // become key. Without this, `makeKeyAndOrderFront:` is a
-        // silent no-op when we're not already the foreground app —
-        // the exact failure mode the user hit when X/C kept hitting
-        // their editor under the overlay.
-        if let Some(app_class) = Class::get("NSApplication") {
-            let app: *mut Object =
-                app_class.send_message(Sel::register("sharedApplication"), ())?;
-            if !app.is_null() {
-                (*app)
-                    .send_message::<_, ()>(Sel::register("activateIgnoringOtherApps:"), (YES,))?;
-            }
-        }
-
-        // Now claim key-window status so the overlay receives all
-        // subsequent keyDown events instead of the previously-active
-        // app.
-        ns_window.send_message::<_, ()>(
-            Sel::register("makeKeyAndOrderFront:"),
-            (std::ptr::null_mut::<Object>(),),
-        )?;
     }
 
     Ok(())
@@ -174,7 +163,7 @@ fn bring_platform_overlay_to_front(window: &WebviewWindow) -> Result<()> {
 #[cfg(target_os = "macos")]
 fn prepare_platform_text_input(window: &WebviewWindow) -> Result<()> {
     use objc::{
-        runtime::{Class, Object, Sel, YES},
+        runtime::{Object, Sel},
         Message,
     };
 
@@ -185,15 +174,6 @@ fn prepare_platform_text_input(window: &WebviewWindow) -> Result<()> {
             Sel::register("setLevel:"),
             (text_input_overlay_window_level(),),
         )?;
-
-        if let Some(app_class) = Class::get("NSApplication") {
-            let app: *mut Object =
-                app_class.send_message(Sel::register("sharedApplication"), ())?;
-            if !app.is_null() {
-                (*app)
-                    .send_message::<_, ()>(Sel::register("activateIgnoringOtherApps:"), (YES,))?;
-            }
-        }
 
         ns_window.send_message::<_, ()>(
             Sel::register("makeKeyAndOrderFront:"),
@@ -331,6 +311,13 @@ fn screen_frame_for_monitor(monitor_id: u32) -> Result<Option<NSRect>> {
     }
 
     Ok(None)
+}
+
+#[cfg(target_os = "linux")]
+fn show_platform_overlay(window: &WebviewWindow) -> Result<()> {
+    window
+        .show()
+        .map_err(|e| anyhow!("failed to show overlay: {e}"))
 }
 
 #[cfg(target_os = "linux")]
@@ -630,6 +617,13 @@ fn restore_platform_after_text_input(_window: &WebviewWindow) -> Result<()> {
 }
 
 #[cfg(target_os = "windows")]
+fn show_platform_overlay(window: &WebviewWindow) -> Result<()> {
+    window
+        .show()
+        .map_err(|e| anyhow!("failed to show overlay: {e}"))
+}
+
+#[cfg(target_os = "windows")]
 fn configure_platform_overlay(
     _window: &WebviewWindow,
     _monitor_id: u32,
@@ -669,11 +663,27 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_capture_overlay_takes_focus_so_keyboard_shortcuts_work() {
-        // Without this, X/C while the overlay is visible would be
-        // delivered to whatever app the user had focused before
-        // capture started, instead of activating the color picker.
-        assert!(super::capture_overlay_should_take_focus());
+    fn macos_capture_overlay_does_not_activate_app() {
+        assert!(!super::capture_overlay_should_take_focus());
+    }
+
+    #[test]
+    fn macos_overlay_activation_does_not_raise_all_app_windows() {
+        let source = include_str!("overlay_window.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "bring_platform_overlay_to_front");
+
+        assert!(
+            body.contains("orderFrontRegardless"),
+            "capture overlays should still be visually raised above the screen",
+        );
+        assert!(
+            !body.contains("activateIgnoringOtherApps:") && !body.contains("activateWithOptions:"),
+            "activateIgnoringOtherApps brings existing settings/about/updater windows forward during capture",
+        );
+        assert!(
+            !body.contains("makeKeyAndOrderFront:") && !body.contains("makeMainWindow"),
+            "capture overlay fronting must not make the app key/main because that can reorder utility windows",
+        );
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -746,5 +756,27 @@ mod tests {
         let options = super::capture_presentation_options(existing);
 
         assert_eq!(options, existing);
+    }
+
+    fn function_body<'a>(source: &'a str, name: &str) -> &'a str {
+        let needle = format!("fn {name}");
+        let start = source
+            .find(&needle)
+            .unwrap_or_else(|| panic!("{name} not found"));
+        let body_start = source[start..].find('{').map(|idx| start + idx).unwrap();
+        let mut depth = 0usize;
+        for (idx, ch) in source[body_start..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &source[body_start..body_start + idx + 1];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("{name} body did not close");
     }
 }

@@ -161,6 +161,17 @@ The `.github/workflows/release.yml` workflow builds macOS (ARM + Intel), Windows
 
 The Homebrew update step downloads `Flashot_<version>_aarch64.dmg` and `Flashot_<version>_x64.dmg`, computes their SHA256 hashes, and commits the updated cask to `poneding/homebrew-flashot`. `.github/workflows/homebrew.yml` remains available as a manual recovery workflow.
 
+### Beta Releases
+
+To publish a beta, bump the app version to a prerelease SemVer version, create a matching tag, and run the same release workflow:
+
+```bash
+git tag v0.1.1-beta.1
+git push origin v0.1.1-beta.1
+```
+
+The release workflow marks tags containing `-` as GitHub prereleases and copies the signed updater `latest.json` to the `beta branch` as `latest.json`. Users who enable **Allow beta updates** check `https://raw.githubusercontent.com/poneding/flashot/beta/latest.json` first, then fall back to the stable endpoint if the beta manifest does not exist yet. Users who leave beta updates off continue to use GitHub Releases `latest`, which does not include prereleases. The beta raw URL returns 404 until the first beta release creates the `beta` branch.
+
 The release and manual Homebrew workflows require a repository secret named `HOMEBREW_TAP_TOKEN`. Use a fine-grained personal access token with Contents read/write access to `poneding/homebrew-flashot`; the default `GITHUB_TOKEN` cannot push to the separate tap repository.
 
 macOS release builds also require fixed self-signed code-signing secrets. Generate the certificate once and keep the `.p12` file and password backed up so future releases use the same signing identity.

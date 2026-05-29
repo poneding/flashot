@@ -1,3 +1,4 @@
+use crate::settings_store::Language;
 use anyhow::Result;
 use std::time::Duration;
 use tauri::{
@@ -15,8 +16,15 @@ pub fn install(
     capture_hotkey: &str,
     fullscreen_hotkey: &str,
     active_window_hotkey: &str,
+    language: Language,
 ) -> Result<()> {
-    let menu = build_menu(app, capture_hotkey, fullscreen_hotkey, active_window_hotkey)?;
+    let menu = build_menu(
+        app,
+        capture_hotkey,
+        fullscreen_hotkey,
+        active_window_hotkey,
+        language,
+    )?;
     let tray_icon = tray_icon_image()?;
 
     TrayIconBuilder::with_id(TRAY_ID)
@@ -242,6 +250,7 @@ pub fn update_menu(
     capture_hotkey: &str,
     fullscreen_hotkey: &str,
     active_window_hotkey: &str,
+    language: Language,
 ) -> Result<()> {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return Ok(());
@@ -251,6 +260,7 @@ pub fn update_menu(
         capture_hotkey,
         fullscreen_hotkey,
         active_window_hotkey,
+        language,
     )?))?;
 
     Ok(())
@@ -261,12 +271,14 @@ fn build_menu(
     capture_hotkey: &str,
     fullscreen_hotkey: &str,
     active_window_hotkey: &str,
+    language: Language,
 ) -> Result<Menu<tauri::Wry>> {
     let icon_theme = current_menu_icon_theme(app);
+    let labels = tray_labels(language);
     let capture = IconMenuItem::with_id(
         app,
         "capture",
-        "Capture Region",
+        labels.capture_region,
         true,
         Some(menu_item_icon(Some(MenuIcon::Crop), icon_theme)),
         capture_menu_accelerator(capture_hotkey),
@@ -274,7 +286,7 @@ fn build_menu(
     let active_screen = IconMenuItem::with_id(
         app,
         "quick-active-screen",
-        "Capture Screen",
+        labels.capture_screen,
         true,
         Some(menu_item_icon(Some(MenuIcon::Monitor), icon_theme)),
         active_screen_menu_accelerator(fullscreen_hotkey),
@@ -282,7 +294,7 @@ fn build_menu(
     let active_window = IconMenuItem::with_id(
         app,
         "quick-active-window",
-        "Capture Window",
+        labels.capture_window,
         true,
         Some(menu_item_icon(Some(MenuIcon::AppWindow), icon_theme)),
         active_window_menu_accelerator(active_window_hotkey),
@@ -290,7 +302,7 @@ fn build_menu(
     let settings = IconMenuItem::with_id(
         app,
         "settings",
-        "Settings…",
+        labels.settings,
         true,
         Some(menu_item_icon(Some(MenuIcon::Settings), icon_theme)),
         settings_menu_accelerator(),
@@ -298,7 +310,7 @@ fn build_menu(
     let updates = IconMenuItem::with_id(
         app,
         "updates",
-        "Check for updates",
+        labels.updates,
         true,
         Some(menu_item_icon(Some(MenuIcon::Refresh), icon_theme)),
         None::<&str>,
@@ -306,7 +318,7 @@ fn build_menu(
     let about = IconMenuItem::with_id(
         app,
         "about",
-        "About",
+        labels.about,
         true,
         Some(menu_item_icon(Some(MenuIcon::Info), icon_theme)),
         None::<&str>,
@@ -315,7 +327,7 @@ fn build_menu(
     let quit = IconMenuItem::with_id(
         app,
         "quit",
-        "Quit Flashot",
+        labels.quit,
         true,
         Some(menu_item_icon(Some(MenuIcon::CircleX), icon_theme)),
         quit_menu_accelerator(),
@@ -354,16 +366,71 @@ fn build_menu(
     Ok(menu)
 }
 
+#[derive(Clone, Copy)]
+struct TrayLabels {
+    capture_region: &'static str,
+    capture_screen: &'static str,
+    capture_window: &'static str,
+    settings: &'static str,
+    updates: &'static str,
+    about: &'static str,
+    quit: &'static str,
+}
+
+fn tray_labels(language: Language) -> TrayLabels {
+    let text = crate::i18n::native_text(language);
+    TrayLabels {
+        capture_region: text.capture_region,
+        capture_screen: text.capture_screen,
+        capture_window: text.capture_window,
+        settings: text.settings_menu,
+        updates: text.check_updates_menu,
+        about: text.about_menu,
+        quit: text.quit_menu,
+    }
+}
+
 fn capture_menu_accelerator(capture_hotkey: &str) -> Option<&str> {
-    Some(capture_hotkey)
+    menu_accelerator_for_supported_modifiers(capture_hotkey, menu_supports_super_accelerator())
 }
 
 fn active_screen_menu_accelerator(fullscreen_hotkey: &str) -> Option<&str> {
-    Some(fullscreen_hotkey)
+    menu_accelerator_for_supported_modifiers(fullscreen_hotkey, menu_supports_super_accelerator())
 }
 
 fn active_window_menu_accelerator(active_window_hotkey: &str) -> Option<&str> {
-    Some(active_window_hotkey)
+    menu_accelerator_for_supported_modifiers(
+        active_window_hotkey,
+        menu_supports_super_accelerator(),
+    )
+}
+
+fn menu_supports_super_accelerator() -> bool {
+    !cfg!(target_os = "windows")
+}
+
+fn menu_accelerator_for_supported_modifiers(
+    accelerator: &str,
+    supports_super: bool,
+) -> Option<&str> {
+    if !supports_super && accelerator_uses_explicit_super_modifier(accelerator) {
+        return None;
+    }
+    Some(accelerator)
+}
+
+fn accelerator_uses_explicit_super_modifier(accelerator: &str) -> bool {
+    let mut parts = accelerator.split('+').map(str::trim).collect::<Vec<_>>();
+    if parts.len() < 2 {
+        return false;
+    }
+    parts.pop();
+    parts.iter().any(|part| {
+        matches!(
+            part.to_ascii_lowercase().as_str(),
+            "cmd" | "command" | "super" | "meta" | "win" | "windows"
+        )
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -388,6 +455,7 @@ fn quit_menu_accelerator() -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    use crate::settings_store::Language;
     use std::time::Duration;
 
     #[test]
@@ -404,6 +472,19 @@ mod tests {
             ),
             "tray screenshot actions should wait for the menu surface to close before capture"
         );
+    }
+
+    #[test]
+    fn tray_labels_use_traditional_chinese_taiwan_copy() {
+        let labels = super::tray_labels(Language::ZhTw);
+
+        assert_eq!(labels.capture_region, "擷取區域");
+        assert_eq!(labels.capture_screen, "擷取螢幕");
+        assert_eq!(labels.capture_window, "擷取目前活動視窗");
+        assert_eq!(labels.settings, "設定…");
+        assert_eq!(labels.updates, "檢查更新");
+        assert_eq!(labels.about, "關於");
+        assert_eq!(labels.quit, "結束 Flashot");
     }
 
     #[test]
@@ -467,6 +548,38 @@ mod tests {
         assert_eq!(super::capture_menu_accelerator("F1"), Some("F1"));
         assert_eq!(
             super::capture_menu_accelerator("Cmd+Shift+X"),
+            Some("Cmd+Shift+X")
+        );
+    }
+
+    #[test]
+    fn menu_accelerator_omits_explicit_super_when_platform_cannot_show_it() {
+        assert_eq!(
+            super::menu_accelerator_for_supported_modifiers("Win+F", false),
+            None
+        );
+        assert_eq!(
+            super::menu_accelerator_for_supported_modifiers("Super+W", false),
+            None
+        );
+        assert_eq!(
+            super::menu_accelerator_for_supported_modifiers("CommandOrControl+F", false),
+            Some("CommandOrControl+F")
+        );
+        assert_eq!(
+            super::menu_accelerator_for_supported_modifiers("Option+F", false),
+            Some("Option+F")
+        );
+    }
+
+    #[test]
+    fn menu_accelerator_keeps_explicit_super_when_platform_supports_it() {
+        assert_eq!(
+            super::menu_accelerator_for_supported_modifiers("Super+F", true),
+            Some("Super+F")
+        );
+        assert_eq!(
+            super::menu_accelerator_for_supported_modifiers("Cmd+Shift+X", true),
             Some("Cmd+Shift+X")
         );
     }

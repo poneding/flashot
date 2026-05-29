@@ -1,3 +1,4 @@
+use crate::app_activation::schedule_app_deactivation_macos;
 use crate::scroll_stitch::ScrollStitcher;
 use crate::types::FrozenFrame;
 use parking_lot::Mutex;
@@ -90,6 +91,11 @@ impl WindowMgr {
         let _ = app.emit("capture:end", ());
     }
 
+    pub fn end_session_deactivating_app(&self, app: &AppHandle) {
+        self.end_session(app);
+        schedule_app_deactivation_macos(app);
+    }
+
     fn clear_session_state(&self) {
         let mut inner = self.inner.lock();
         inner.frames.clear();
@@ -100,7 +106,7 @@ impl WindowMgr {
     }
 
     fn end(&self, app: &AppHandle) {
-        self.end_session(app);
+        self.end_session_deactivating_app(app);
     }
 
     fn hide_overlays(&self, app: &AppHandle) {
@@ -211,5 +217,43 @@ mod tests {
         mgr.clear_session_state();
         assert!(cancel.load(Ordering::SeqCst), "scroll cancel must be set");
         assert!(mgr.scroll_ref(|_| ()).is_none());
+    }
+
+    #[test]
+    fn capture_session_does_not_reorder_utility_windows_after_overlay_hide() {
+        let source = include_str!("window_mgr.rs").replace("\r\n", "\n");
+        let begin_body = function_body(&source, "begin");
+        let end_body = function_body(&source, "end_session");
+
+        assert!(
+            !begin_body.contains("inactive_visible_utility_window_labels"),
+            "session start should not snapshot utility windows for later compensation",
+        );
+        assert!(
+            !end_body.contains("order_inactive_utility_windows_back_macos"),
+            "capture end must not reorder utility windows; their original z-order should be left untouched",
+        );
+    }
+
+    fn function_body<'a>(source: &'a str, name: &str) -> &'a str {
+        let needle = format!("fn {name}");
+        let start = source
+            .find(&needle)
+            .unwrap_or_else(|| panic!("{name} not found"));
+        let body_start = source[start..].find('{').map(|idx| start + idx).unwrap();
+        let mut depth = 0usize;
+        for (idx, ch) in source[body_start..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &source[body_start..body_start + idx + 1];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("{name} body did not close");
     }
 }

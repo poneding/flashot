@@ -252,14 +252,14 @@ fn parse_optional_accelerator(accelerator: &str) -> Option<HotKey> {
 }
 
 /// Parse strings like "Cmd+Shift+X", "CommandOrControl+Shift+X", "Ctrl+Alt+1".
-/// Recognized modifier tokens (case-insensitive): cmd, command, super, meta, ctrl,
+/// Recognized modifier tokens (case-insensitive): cmd, command, super, meta, win, ctrl,
 /// control, alt, option, shift, commandorcontrol.
 pub fn parse_accelerator(s: &str) -> Result<HotKey> {
     let mut mods = Modifiers::empty();
     let mut code: Option<Code> = None;
     for raw in s.split('+').map(str::trim) {
         match raw.to_ascii_lowercase().as_str() {
-            "cmd" | "command" | "super" | "meta" => mods |= Modifiers::SUPER,
+            "cmd" | "command" | "super" | "meta" | "win" | "windows" => mods |= Modifiers::SUPER,
             "ctrl" | "control" => mods |= Modifiers::CONTROL,
             "alt" | "option" => mods |= Modifiers::ALT,
             "shift" => mods |= Modifiers::SHIFT,
@@ -357,6 +357,14 @@ mod tests {
         assert!(h.mods.contains(Modifiers::CONTROL));
         assert!(h.mods.contains(Modifiers::ALT));
         assert_eq!(h.key, Code::Digit1);
+    }
+
+    #[test]
+    fn parses_win_alias_as_super_modifier() {
+        let h = parse_accelerator("Win+F").unwrap();
+
+        assert!(h.mods.contains(Modifiers::SUPER));
+        assert_eq!(h.key, Code::KeyF);
     }
 
     #[test]

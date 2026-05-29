@@ -1,7 +1,9 @@
+pub mod app_activation;
 pub mod capture;
 pub mod clipboard;
 pub mod commands;
 pub mod hotkey;
+pub mod i18n;
 pub mod image_adjust;
 pub mod mask;
 pub mod overlay_window;
@@ -27,6 +29,9 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use window_mgr::WindowMgr;
 
 static FRAME_REVISION_COUNTER: AtomicU64 = AtomicU64::new(0);
+const AUTO_UPDATE_POLL_INTERVAL: Duration = Duration::from_secs(60);
+const MIN_UPDATE_CHECK_INTERVAL_HOURS: u32 = 1;
+const MAX_UPDATE_CHECK_INTERVAL_HOURS: u32 = 168;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -83,6 +88,7 @@ pub fn run() {
                 &settings.capture_hotkey,
                 &settings.fullscreen_hotkey,
                 &settings.active_window_hotkey,
+                settings.language,
             ) {
                 tracing::warn!("tray menu theme update failed: {e}");
             }
@@ -120,6 +126,7 @@ pub fn run() {
                 &settings.capture_hotkey,
                 &settings.fullscreen_hotkey,
                 &settings.active_window_hotkey,
+                settings.language,
             );
 
             // Set up hotkey service
@@ -127,6 +134,7 @@ pub fn run() {
 
             // Register configured hotkeys
             register_startup_hotkeys(&settings, hotkey::set_all);
+            spawn_auto_update_check_loop(app.handle());
 
             let receiver = hotkey::receiver();
             let app_handle = app.handle().clone();
@@ -158,7 +166,7 @@ pub fn run() {
                             );
                         }
                         Some(hotkey::HotkeyAction::CancelCapture) => {
-                            mgr_for_hotkey.end_session(&app_handle);
+                            mgr_for_hotkey.end_session_deactivating_app(&app_handle);
                         }
                         None => {}
                     }
@@ -188,6 +196,7 @@ pub fn run() {
                     &s.capture_hotkey,
                     &s.fullscreen_hotkey,
                     &s.active_window_hotkey,
+                    s.language,
                 ) {
                     tracing::warn!("tray menu update failed: {e}");
                 }
@@ -239,6 +248,9 @@ pub fn run() {
             commands::cancel_capture,
             commands::get_settings,
             commands::set_settings,
+            commands::choose_default_save_dir,
+            commands::check_for_update,
+            commands::download_and_install_update,
             commands::open_settings_window,
             commands::begin_text_input_session,
             commands::end_text_input_session,
@@ -250,6 +262,7 @@ pub fn run() {
             commands::close_pin,
             commands::set_pin_scale,
             commands::update_pin_annotation,
+            commands::save_pin,
             commands::copy_pin,
             commands::start_scroll_session,
             commands::stop_scroll_session,
@@ -279,6 +292,77 @@ fn init_tracing() {
 
     // Leak the guard to keep logging alive for the app lifetime
     std::mem::forget(_guard);
+}
+
+fn spawn_auto_update_check_loop(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            run_due_auto_update_check(app.clone()).await;
+            tokio::time::sleep(AUTO_UPDATE_POLL_INTERVAL).await;
+        }
+    });
+}
+
+async fn run_due_auto_update_check(app: AppHandle) {
+    let mut settings = match settings_store::load() {
+        Ok(settings) => settings,
+        Err(e) => {
+            tracing::debug!("failed to load settings for auto update check: {e}");
+            return;
+        }
+    };
+
+    let now = current_unix_timestamp();
+    if !auto_update_check_due(&settings, now) {
+        return;
+    }
+
+    let allow_beta = settings.allow_beta_updates;
+    settings.last_update_check_at = Some(now);
+    if let Err(e) = settings_store::save(&settings) {
+        tracing::warn!("failed to persist auto update check timestamp: {e}");
+    }
+
+    match commands::check_for_update(app.clone(), allow_beta).await {
+        Ok(Some(_)) => {
+            let app_for_window = app.clone();
+            if let Err(e) = app.run_on_main_thread(move || {
+                if let Err(e) = commands::open_updater_window(app_for_window) {
+                    tracing::warn!("failed to open updater window after auto update check: {e}");
+                }
+            }) {
+                tracing::warn!("failed to dispatch auto updater window: {e}");
+            }
+        }
+        Ok(None) => {}
+        Err(e) => tracing::debug!("auto update check failed: {e}"),
+    }
+}
+
+fn auto_update_check_due(settings: &settings_store::Settings, now: i64) -> bool {
+    if !settings.auto_check_updates {
+        return false;
+    }
+
+    let Some(last_check) = settings.last_update_check_at else {
+        return true;
+    };
+
+    let interval_seconds =
+        normalized_update_check_interval_hours(settings.update_check_interval_hours) as i64 * 60 * 60;
+    now.saturating_sub(last_check) >= interval_seconds
+}
+
+fn normalized_update_check_interval_hours(hours: u32) -> u32 {
+    hours.clamp(MIN_UPDATE_CHECK_INTERVAL_HOURS, MAX_UPDATE_CHECK_INTERVAL_HOURS)
+}
+
+fn current_unix_timestamp() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }
 
 fn spawn_overlays(app: &AppHandle) -> Result<()> {
@@ -318,6 +402,7 @@ fn ensure_overlays_for_monitors(app: &AppHandle, monitors: &[types::MonitorInfo]
             .resizable(false)
             .skip_taskbar(true)
             .always_on_top(true)
+            .focused(false)
             .visible_on_all_workspaces(true)
             .shadow(false)
             .visible(false)
@@ -411,6 +496,7 @@ fn install_tray(
     capture_hotkey: &str,
     fullscreen_hotkey: &str,
     active_window_hotkey: &str,
+    language: settings_store::Language,
 ) {
     tray_template_icon::install();
     #[cfg(target_os = "linux")]
@@ -425,6 +511,7 @@ fn install_tray(
                 &capture_hotkey,
                 &fullscreen_hotkey,
                 &active_window_hotkey,
+                language,
             )
         }));
         match result {
@@ -435,8 +522,13 @@ fn install_tray(
     }
     #[cfg(not(target_os = "linux"))]
     {
-        if let Err(e) = tray::install(app, capture_hotkey, fullscreen_hotkey, active_window_hotkey)
-        {
+        if let Err(e) = tray::install(
+            app,
+            capture_hotkey,
+            fullscreen_hotkey,
+            active_window_hotkey,
+            language,
+        ) {
             tracing::warn!("tray icon install failed: {e}");
         }
     }
@@ -544,12 +636,11 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         let label = overlay_label(mon.id);
         tracing::info!("run_capture: showing overlay window: {}", label);
         if let Some(window) = app.get_webview_window(&label) {
-            window.show().context("Failed to show overlay window")?;
             window
                 .set_ignore_cursor_events(false)
                 .context("Failed to enable cursor events")?;
-            overlay_window::bring_capture_overlay_to_front(&window)
-                .context("Failed to bring overlay window to front")?;
+            overlay_window::show_capture_overlay(&window)
+                .context("Failed to show overlay window")?;
             if overlay_window::capture_overlay_should_take_focus() {
                 if let Err(e) = window.set_focus() {
                     tracing::warn!("run_capture: failed to focus overlay window {label}: {e}");
@@ -717,11 +808,8 @@ fn show_quick_shot_flash(
     window
         .set_ignore_cursor_events(true)
         .context("Failed to enable quick shot flash cursor passthrough")?;
-    window
-        .show()
+    overlay_window::show_capture_overlay(&window)
         .context("Failed to show quick shot flash overlay")?;
-    overlay_window::bring_capture_overlay_to_front(&window)
-        .context("Failed to bring quick shot flash overlay to front")?;
     app.emit_to(
         capture_start_target(&label),
         "quick-shot:flash",
@@ -1422,6 +1510,50 @@ mod tests {
     }
 
     #[test]
+    fn capture_overlay_show_path_does_not_use_focus_activating_show() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "run_capture");
+
+        assert!(
+            body.contains("overlay_window::show_capture_overlay(&window)"),
+            "capture overlays must use the platform no-activation show path",
+        );
+        assert!(
+            !body.contains("window.show().context(\"Failed to show overlay window\")"),
+            "Tauri show can activate the app and bring utility windows forward on macOS",
+        );
+    }
+
+    #[test]
+    fn capture_overlay_windows_start_unfocused() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "ensure_overlays_for_monitors");
+
+        assert!(
+            body.contains(".focused(false)"),
+            "overlay windows should not request focus when created",
+        );
+    }
+
+    #[test]
+    fn cancel_hotkey_deactivates_app_after_ending_capture() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let start = source
+            .find("Some(hotkey::HotkeyAction::CancelCapture)")
+            .unwrap();
+        let end = source[start..]
+            .find("None => {}")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &source[start..end];
+
+        assert!(
+            body.contains("mgr_for_hotkey.end_session_deactivating_app(&app_handle);"),
+            "canceling from the global hotkey must not leave Flashot active with settings raised",
+        );
+    }
+
+    #[test]
     fn capture_start_payload_includes_corner_radius() {
         let source = include_str!("lib.rs").replace("\r\n", "\n");
         let start = source.find("struct CaptureStartPayload").unwrap();
@@ -1455,8 +1587,13 @@ mod tests {
             active_window_hotkey: "Cmd+Shift+W".to_string(),
             theme: settings_store::Theme::System,
             accent_color: "#4ED1FF".to_string(),
-            language: settings_store::Language::System,
+            language: settings_store::Language::En,
             launch_at_login: false,
+            auto_check_updates: false,
+            allow_beta_updates: false,
+            update_check_interval_hours: 24,
+            last_update_check_at: None,
+            default_save_dir: settings_store::default_save_dir(),
             last_save_dir: None,
             corner_radius: 0,
         };
@@ -1470,6 +1607,38 @@ mod tests {
             });
 
         assert!(registered);
+    }
+
+    #[test]
+    fn startup_auto_update_check_is_gated_by_settings() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+
+        assert!(source.contains("spawn_auto_update_check_loop(app.handle());"));
+        assert!(source.contains("if !settings.auto_check_updates"));
+        assert!(source.contains("auto_update_check_due(&settings, now)"));
+        assert!(source.contains("settings.last_update_check_at = Some(now);"));
+        assert!(source.contains("settings.allow_beta_updates"));
+        assert!(source.contains("commands::check_for_update"));
+        assert!(source.contains("commands::open_updater_window"));
+    }
+
+    #[test]
+    fn auto_update_check_due_respects_saved_interval() {
+        let mut settings = settings_store::Settings {
+            auto_check_updates: true,
+            update_check_interval_hours: 6,
+            last_update_check_at: Some(1_000),
+            ..settings_store::Settings::default()
+        };
+
+        assert!(!auto_update_check_due(&settings, 1_000 + 5 * 60 * 60));
+        assert!(auto_update_check_due(&settings, 1_000 + 6 * 60 * 60));
+
+        settings.last_update_check_at = None;
+        assert!(auto_update_check_due(&settings, 1_000));
+
+        settings.auto_check_updates = false;
+        assert!(!auto_update_check_due(&settings, 1_000 + 24 * 60 * 60));
     }
 
     #[test]
@@ -1535,5 +1704,27 @@ mod tests {
             decoder.icc_profile().expect("icc profile should decode"),
             Some(profile)
         );
+    }
+
+    fn function_body<'a>(source: &'a str, name: &str) -> &'a str {
+        let needle = format!("fn {name}");
+        let start = source
+            .find(&needle)
+            .unwrap_or_else(|| panic!("{name} not found"));
+        let body_start = source[start..].find('{').map(|idx| start + idx).unwrap();
+        let mut depth = 0usize;
+        for (idx, ch) in source[body_start..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &source[body_start..body_start + idx + 1];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("{name} body did not close");
     }
 }

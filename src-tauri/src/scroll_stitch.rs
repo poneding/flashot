@@ -22,7 +22,10 @@ impl Default for StitchConfig {
             roi_rows: 50,
             min_match_score: 0.85,
             max_height_px: 32_768,
-            end_of_scroll_frames: 5,
+            // The capture loop samples every 60ms. A 5-frame idle window is
+            // only ~300ms, which is shorter than normal wheel-scroll pauses
+            // and compositor/capture latency on Windows and Linux.
+            end_of_scroll_frames: 30,
         }
     }
 }
@@ -431,7 +434,11 @@ mod tests {
         let frame_h = 600;
         let initial = gradient_frame(width, frame_h, 0);
         let next = gradient_frame(width, frame_h, 37);
-        let mut stitcher = ScrollStitcher::new(width, frame_h, initial, StitchConfig::default());
+        let config = StitchConfig {
+            end_of_scroll_frames: 5,
+            ..StitchConfig::default()
+        };
+        let mut stitcher = ScrollStitcher::new(width, frame_h, initial, config);
 
         assert!(matches!(
             stitcher.ingest(&next),
@@ -443,6 +450,31 @@ mod tests {
             assert_eq!(r, IngestResult::NoChange, "iteration {i}");
         }
         assert_eq!(stitcher.ingest(&next), IngestResult::EndOfScroll);
+    }
+
+    #[test]
+    fn short_pause_between_scroll_ticks_does_not_trigger_end_of_scroll() {
+        let width = 80;
+        let frame_h = 600;
+        let initial = gradient_frame(width, frame_h, 0);
+        let next = gradient_frame(width, frame_h, 37);
+        let after_pause = gradient_frame(width, frame_h, 74);
+        let mut stitcher = ScrollStitcher::new(width, frame_h, initial, StitchConfig::default());
+
+        assert!(matches!(
+            stitcher.ingest(&next),
+            IngestResult::Appended { .. }
+        ));
+
+        for i in 0..10 {
+            let r = stitcher.ingest(&next);
+            assert_eq!(r, IngestResult::NoChange, "pause frame {i}");
+        }
+
+        assert!(
+            matches!(stitcher.ingest(&after_pause), IngestResult::Appended { .. }),
+            "scrolling after a brief pause should still be accepted"
+        );
     }
 
     fn frame_with_static_header(

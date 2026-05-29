@@ -248,6 +248,48 @@ jobs:
           assetNamePattern: "[name]_[version]_[arch][ext]"
           args: ${{ matrix.tauri-args }}
 
+  publish-beta-updater-manifest:
+    name: Publish beta updater manifest
+    runs-on: ubuntu-latest
+    needs: release
+    if: ${{ !inputs.draft && (inputs.prerelease || contains(github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, '-')) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Download beta updater manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rm -rf ./tmp-beta-manifest
+          mkdir -p ./tmp-beta-manifest
+          gh release download "$RELEASE_TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern latest.json \
+            --dir ./tmp-beta-manifest
+          test -f ./tmp-beta-manifest/latest.json
+
+      - name: Publish manifest to beta branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin beta || true
+          if git show-ref --verify --quiet refs/remotes/origin/beta; then
+            git switch --force-create beta origin/beta
+          else
+            git checkout --orphan beta
+            git rm -rf . || true
+          fi
+          cp ./tmp-beta-manifest/latest.json ./latest.json
+          git add latest.json
+          git diff --cached --quiet && echo "No beta manifest changes" && exit 0
+          git commit -m "chore: publish beta updater manifest for $RELEASE_TAG"
+          git push origin beta
+
   update-homebrew:
     name: Update Homebrew Cask
     runs-on: macos-latest

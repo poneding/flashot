@@ -1,14 +1,24 @@
 use crate::{
+    app_activation::schedule_app_deactivation_macos,
     clipboard, overlay_window,
     pin_mgr::{PinEntry, PinManager},
     saver, settings_store,
-    settings_store::Settings,
+    settings_store::{Language, Settings, Theme as SettingsTheme},
     types::{ImageAdjustments, Rect},
     window_mgr::WindowMgr,
 };
-use std::{path::Path, sync::Arc};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use std::{
+    path::Path,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
+use tauri::{
+    window::Color, AppHandle, Emitter, Manager, State, Theme as TauriTheme, Url, WebviewWindow,
+};
 use tauri_plugin_autostart::ManagerExt as _;
+use tauri_plugin_updater::UpdaterExt as _;
 use uuid::Uuid;
 
 #[derive(serde::Serialize, Clone)]
@@ -19,18 +29,76 @@ pub struct ScrollResult {
     pub frame_count: u32,
 }
 
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInfo {
+    pub version: String,
+    pub body: Option<String>,
+    pub date: Option<String>,
+}
+
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProgress {
+    pub downloaded: u64,
+    pub total: Option<u64>,
+}
+
 const ABOUT_WINDOW_WIDTH: f64 = 360.0;
 const ABOUT_WINDOW_HEIGHT: f64 = 300.0;
 const SETTINGS_WINDOW_WIDTH: f64 = 560.0;
 const SETTINGS_WINDOW_HEIGHT: f64 = 560.0;
 const UPDATER_WINDOW_WIDTH: f64 = 360.0;
 const UPDATER_WINDOW_HEIGHT: f64 = 280.0;
+const STABLE_UPDATE_ENDPOINT: &str =
+    "https://github.com/poneding/flashot/releases/latest/download/latest.json";
+const BETA_UPDATE_ENDPOINT: &str =
+    "https://raw.githubusercontent.com/poneding/flashot/beta/latest.json";
+const UPDATER_PROGRESS_EVENT: &str = "updater:progress";
 const MAX_CORNER_RADIUS: u32 = 60;
+const UTILITY_WINDOW_LIGHT_BACKGROUND: Color = Color(255, 255, 255, 255);
+const UTILITY_WINDOW_DARK_BACKGROUND: Color = Color(11, 17, 30, 255);
+const UTILITY_WINDOW_DARK_INIT_SCRIPT: &str = r#"
+(() => {
+  try {
+    localStorage.setItem("theme", "dark");
+    document.documentElement.classList.add("dark");
+    document.documentElement.style.colorScheme = "dark";
+  } catch (_) {}
+})();
+"#;
+const UTILITY_WINDOW_LIGHT_INIT_SCRIPT: &str = r#"
+(() => {
+  try {
+    localStorage.setItem("theme", "light");
+    document.documentElement.classList.remove("dark");
+    document.documentElement.style.colorScheme = "light";
+  } catch (_) {}
+})();
+"#;
+const UTILITY_WINDOW_SYSTEM_INIT_SCRIPT: &str = r#"
+(() => {
+  try {
+    localStorage.setItem("theme", "system");
+    const dark = typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.classList.toggle("dark", dark);
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+  } catch (_) {}
+})();
+"#;
 
 /// Extra padding (logical px per side) added to pin windows so the CSS
 /// boxShadow rendered by the frontend has room outside the image.
 /// Must match `PIN_SHADOW_PADDING` in src/routes/Pin.tsx.
 const PIN_SHADOW_PADDING: f64 = 24.0;
+/// Transparent right-side gutter reserved so the pin controls can sit
+/// outside the image without adding a left frame.
+/// Must match `PIN_CONTROLS_SIDE_RESERVE` in src/routes/Pin.tsx.
+const PIN_CONTROLS_SIDE_RESERVE: f64 = 48.0;
+/// Transparent bottom gutter reserved so the annotation toolbar can sit
+/// outside the image at the lower-left of the pin window.
+/// Must match `PIN_TOOLBAR_BOTTOM_RESERVE` in src/routes/Pin.tsx.
+const PIN_TOOLBAR_BOTTOM_RESERVE: f64 = 48.0;
 
 fn clamp_corner_radius(radius: u32) -> u32 {
     radius.min(MAX_CORNER_RADIUS)
@@ -51,6 +119,65 @@ fn show_app_window(window: &WebviewWindow) -> Result<(), String> {
         .show()
         .map_err(|e| format!("Failed to show app window: {e}"))?;
     bring_app_window_to_front(window)
+}
+
+fn show_utility_window(window: &WebviewWindow, theme: Option<TauriTheme>) -> Result<(), String> {
+    apply_utility_window_appearance(window, theme)?;
+    show_app_window(window)
+}
+
+fn utility_window_theme_for_settings(settings: &Settings) -> Option<TauriTheme> {
+    match settings.theme {
+        SettingsTheme::Dark => Some(TauriTheme::Dark),
+        SettingsTheme::Light => Some(TauriTheme::Light),
+        SettingsTheme::System => None,
+    }
+}
+
+fn stored_utility_window_preferences() -> (Option<TauriTheme>, Language) {
+    let settings = settings_store::load().unwrap_or_default();
+    (
+        utility_window_theme_for_settings(&settings),
+        settings.language,
+    )
+}
+
+fn utility_window_background_color(theme: TauriTheme) -> Color {
+    match theme {
+        TauriTheme::Dark => UTILITY_WINDOW_DARK_BACKGROUND,
+        TauriTheme::Light => UTILITY_WINDOW_LIGHT_BACKGROUND,
+        _ => UTILITY_WINDOW_LIGHT_BACKGROUND,
+    }
+}
+
+fn utility_window_initial_background(theme: Option<TauriTheme>) -> Color {
+    theme
+        .map(utility_window_background_color)
+        .unwrap_or(UTILITY_WINDOW_LIGHT_BACKGROUND)
+}
+
+fn utility_window_init_script(theme: Option<TauriTheme>) -> &'static str {
+    match theme {
+        Some(TauriTheme::Dark) => UTILITY_WINDOW_DARK_INIT_SCRIPT,
+        Some(TauriTheme::Light) => UTILITY_WINDOW_LIGHT_INIT_SCRIPT,
+        _ => UTILITY_WINDOW_SYSTEM_INIT_SCRIPT,
+    }
+}
+
+fn apply_utility_window_appearance(
+    window: &WebviewWindow,
+    theme: Option<TauriTheme>,
+) -> Result<(), String> {
+    window
+        .set_theme(theme)
+        .map_err(|e| format!("Failed to set utility window theme: {e}"))?;
+
+    let effective_theme = theme
+        .or_else(|| window.theme().ok())
+        .unwrap_or(TauriTheme::Light);
+    window
+        .set_background_color(Some(utility_window_background_color(effective_theme)))
+        .map_err(|e| format!("Failed to set utility window background: {e}"))
 }
 
 #[cfg(target_os = "macos")]
@@ -228,7 +355,7 @@ pub async fn crop_and_copy(
     );
     clipboard::copy_image(final_image.rgba, final_image.width, final_image.height)
         .map_err(|e| e.to_string())?;
-    mgr.end_session(&app);
+    mgr.end_session_deactivating_app(&app);
     Ok(())
 }
 
@@ -276,8 +403,9 @@ pub async fn crop_and_save(
         final_image.width,
         final_image.height,
         &settings,
-    )
-    .map_err(|e| e.to_string())?;
+    );
+    schedule_app_deactivation_macos(&app);
+    let path = path.map_err(|e| e.to_string())?;
     if path.is_some() {
         if let Some(saved_path) = path.as_deref() {
             saver::remember_last_save_dir(&mut settings, saved_path);
@@ -293,7 +421,7 @@ pub async fn cancel_capture(app: AppHandle, mgr: State<'_, Arc<WindowMgr>>) -> R
     if let Some(mid) = mgr.scroll_ref(|s| s.monitor_id) {
         close_scroll_chrome(&app, mid);
     }
-    mgr.end_session(&app);
+    mgr.end_session_deactivating_app(&app);
     Ok(())
 }
 
@@ -311,6 +439,13 @@ pub fn set_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
     settings_store::save(&settings).map_err(|e| e.to_string())?;
     let _ = app.emit("settings:changed", ());
     Ok(())
+}
+
+#[tauri::command]
+pub fn choose_default_save_dir(current_dir: Option<String>) -> Result<Option<String>, String> {
+    saver::choose_directory(current_dir.as_deref())
+        .map(|path| path.map(|path| path.to_string_lossy().to_string()))
+        .map_err(|e| e.to_string())
 }
 
 trait LaunchAtLogin {
@@ -339,21 +474,109 @@ fn apply_launch_at_login(
     }
 }
 
+fn update_endpoints(allow_beta: bool) -> Result<Vec<Url>, String> {
+    let mut endpoints = Vec::new();
+    if allow_beta {
+        endpoints.push(Url::parse(BETA_UPDATE_ENDPOINT).map_err(|e| {
+            format!("Invalid updater endpoint {BETA_UPDATE_ENDPOINT}: {e}")
+        })?);
+    }
+    endpoints.push(Url::parse(STABLE_UPDATE_ENDPOINT).map_err(|e| {
+        format!("Invalid updater endpoint {STABLE_UPDATE_ENDPOINT}: {e}")
+    })?);
+    Ok(endpoints)
+}
+
+async fn update_for_channel(
+    app: &AppHandle,
+    allow_beta: bool,
+) -> Result<Option<tauri_plugin_updater::Update>, String> {
+    let updater = app
+        .updater_builder()
+        .endpoints(update_endpoints(allow_beta)?)
+        .map_err(|e| e.to_string())?
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    updater.check().await.map_err(|e| e.to_string())
+}
+
+impl From<tauri_plugin_updater::Update> for UpdateInfo {
+    fn from(update: tauri_plugin_updater::Update) -> Self {
+        Self {
+            version: update.version,
+            body: update.body,
+            date: update.date.map(|date| date.to_string()),
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn check_for_update(
+    app: AppHandle,
+    allow_beta: bool,
+) -> Result<Option<UpdateInfo>, String> {
+    Ok(update_for_channel(&app, allow_beta).await?.map(Into::into))
+}
+
+#[tauri::command]
+pub async fn download_and_install_update(app: AppHandle, allow_beta: bool) -> Result<(), String> {
+    let Some(update) = update_for_channel(&app, allow_beta).await? else {
+        return Ok(());
+    };
+
+    let downloaded = Arc::new(AtomicU64::new(0));
+    let progress_downloaded = downloaded.clone();
+    let progress_app = app.clone();
+    let finish_app = app.clone();
+    let finish_downloaded = downloaded.clone();
+
+    update
+        .download_and_install(
+            move |chunk_len, total| {
+                let downloaded = progress_downloaded.fetch_add(chunk_len as u64, Ordering::Relaxed)
+                    + chunk_len as u64;
+                let _ =
+                    progress_app.emit(UPDATER_PROGRESS_EVENT, UpdateProgress { downloaded, total });
+            },
+            move || {
+                let downloaded = finish_downloaded.load(Ordering::Relaxed);
+                let _ = finish_app.emit(
+                    UPDATER_PROGRESS_EVENT,
+                    UpdateProgress {
+                        downloaded,
+                        total: Some(downloaded),
+                    },
+                );
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
+    let (theme, language) = stored_utility_window_preferences();
+    let title = crate::i18n::native_text(language).settings_title;
     if let Some(w) = app.get_webview_window("settings") {
-        show_app_window(&w)?;
+        w.set_title(title)
+            .map_err(|e| format!("Failed to set utility window title: {e}"))?;
+        show_utility_window(&w, theme)?;
         return Ok(());
     }
     let url = tauri::WebviewUrl::App("index.html#/settings".into());
     let (width, height) = settings_window_size();
     let window = tauri::WebviewWindowBuilder::new(&app, "settings", url)
-        .title("Flashot Settings")
+        .title(title)
         .inner_size(width, height)
         .resizable(false)
+        .visible(false)
+        .theme(theme)
+        .background_color(utility_window_initial_background(theme))
+        .initialization_script(utility_window_init_script(theme))
         .build()
         .map_err(|e| e.to_string())?;
-    show_app_window(&window)?;
+    show_utility_window(&window, theme)?;
     Ok(())
 }
 
@@ -369,36 +592,52 @@ pub fn end_text_input_session(window: WebviewWindow) -> Result<(), String> {
 
 #[tauri::command]
 pub fn open_about_window(app: AppHandle) -> Result<(), String> {
+    let (theme, language) = stored_utility_window_preferences();
+    let title = crate::i18n::native_text(language).about_title;
     if let Some(w) = app.get_webview_window("about") {
-        show_app_window(&w)?;
+        w.set_title(title)
+            .map_err(|e| format!("Failed to set utility window title: {e}"))?;
+        show_utility_window(&w, theme)?;
         return Ok(());
     }
     let url = tauri::WebviewUrl::App("index.html#/about".into());
     let (width, height) = about_window_size();
     let window = tauri::WebviewWindowBuilder::new(&app, "about", url)
-        .title("About Flashot")
+        .title(title)
         .inner_size(width, height)
         .resizable(false)
+        .visible(false)
+        .theme(theme)
+        .background_color(utility_window_initial_background(theme))
+        .initialization_script(utility_window_init_script(theme))
         .build()
         .map_err(|e| e.to_string())?;
-    show_app_window(&window)?;
+    show_utility_window(&window, theme)?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn open_updater_window(app: AppHandle) -> Result<(), String> {
+    let (theme, language) = stored_utility_window_preferences();
+    let title = crate::i18n::native_text(language).updates_title;
     if let Some(w) = app.get_webview_window("updater") {
-        show_app_window(&w)?;
+        w.set_title(title)
+            .map_err(|e| format!("Failed to set utility window title: {e}"))?;
+        show_utility_window(&w, theme)?;
         return Ok(());
     }
     let url = tauri::WebviewUrl::App("index.html#/updater".into());
     let window = tauri::WebviewWindowBuilder::new(&app, "updater", url)
-        .title("Check for Updates")
+        .title(title)
         .inner_size(UPDATER_WINDOW_WIDTH, UPDATER_WINDOW_HEIGHT)
         .resizable(false)
+        .visible(false)
+        .theme(theme)
+        .background_color(utility_window_initial_background(theme))
+        .initialization_script(utility_window_init_script(theme))
         .build()
         .map_err(|e| e.to_string())?;
-    show_app_window(&window)?;
+    show_utility_window(&window, theme)?;
     Ok(())
 }
 
@@ -499,15 +738,16 @@ pub async fn pin_image(
     }
     let url = tauri::WebviewUrl::App(route.into());
 
-    let outer_width = rect.width as f64 + 2.0 * PIN_SHADOW_PADDING;
-    let outer_height = rect.height as f64 + 2.0 * PIN_SHADOW_PADDING;
+    let outer_width = rect.width as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_CONTROLS_SIDE_RESERVE;
+    let outer_height = rect.height as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_TOOLBAR_BOTTOM_RESERVE;
 
     // Position the pin window so the *image* lands exactly where the
     // user's selection was on screen. `rect` is in monitor-local logical
     // pixels; the window includes a PIN_SHADOW_PADDING ring on every side
-    // for the glow, so we offset both axes by -PADDING. We also need the
-    // monitor's global origin so multi-display setups land on the right
-    // screen.
+    // for the glow plus right/bottom gutters for controls. Since the image
+    // starts after the left/top shadow padding, only those sides affect the
+    // window origin. We also need the monitor's global origin so
+    // multi-display setups land on the right screen.
     let monitor_origin = crate::capture::enumerate_monitors()
         .ok()
         .and_then(|ms| ms.into_iter().find(|m| m.id == monitor_id))
@@ -542,7 +782,7 @@ pub async fn pin_image(
         current_scale: 1.0,
     });
 
-    mgr.end_session(&app);
+    mgr.end_session_deactivating_app(&app);
     Ok(pin_id)
 }
 
@@ -575,8 +815,12 @@ pub async fn set_pin_scale(
     let entry = pin_mgr.get_pin(&pin_id).ok_or("pin not found")?;
     let clamped_scale = scale.clamp(0.5, 3.0);
 
-    let new_width = entry.original_width as f64 * clamped_scale + 2.0 * PIN_SHADOW_PADDING;
-    let new_height = entry.original_height as f64 * clamped_scale + 2.0 * PIN_SHADOW_PADDING;
+    let new_width = entry.original_width as f64 * clamped_scale
+        + 2.0 * PIN_SHADOW_PADDING
+        + PIN_CONTROLS_SIDE_RESERVE;
+    let new_height = entry.original_height as f64 * clamped_scale
+        + 2.0 * PIN_SHADOW_PADDING
+        + PIN_TOOLBAR_BOTTOM_RESERVE;
 
     if let Some(window) = app.get_webview_window(&entry.window_label) {
         window
@@ -634,9 +878,43 @@ pub async fn update_pin_annotation(
 }
 
 #[tauri::command]
+pub async fn save_pin(
+    pin_id: String,
+    annotation_png: Option<Vec<u8>>,
+    adjustments: Option<ImageAdjustments>,
+    app: AppHandle,
+    pin_mgr: State<'_, Arc<PinManager>>,
+) -> Result<Option<String>, String> {
+    let paths = pin_mgr.pin_paths(&pin_id).ok_or("pin not found")?;
+    let final_image = compose_pin_image(
+        &paths.image_path,
+        paths.annotation_path.as_deref(),
+        annotation_png.as_deref(),
+        adjustments.unwrap_or_default(),
+    )?;
+    let mut settings = settings_store::load().unwrap_or_default();
+    let path = saver::save_image_dialog(
+        final_image.rgba,
+        final_image.width,
+        final_image.height,
+        &settings,
+    )
+    .map_err(|e| e.to_string())?;
+
+    if let Some(saved_path) = path.as_deref() {
+        saver::remember_last_save_dir(&mut settings, saved_path);
+        settings_store::save(&settings).map_err(|e| e.to_string())?;
+        let _ = app.emit("settings:changed", ());
+    }
+
+    Ok(path.map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
 pub async fn copy_pin(
     pin_id: String,
     annotation_png: Option<Vec<u8>>,
+    adjustments: Option<ImageAdjustments>,
     pin_mgr: State<'_, Arc<PinManager>>,
 ) -> Result<(), String> {
     let paths = pin_mgr.pin_paths(&pin_id).ok_or("pin not found")?;
@@ -644,6 +922,7 @@ pub async fn copy_pin(
         &paths.image_path,
         paths.annotation_path.as_deref(),
         annotation_png.as_deref(),
+        adjustments.unwrap_or_default(),
     )?;
 
     clipboard::copy_image(final_image.rgba, final_image.width, final_image.height)
@@ -673,25 +952,38 @@ fn merge_pin_annotation_layers(
 
     let stored_png =
         std::fs::read(path).map_err(|e| format!("Failed to read pin annotation PNG: {e}"))?;
-    let mut stored_img: RgbaImage =
+    let stored_img: RgbaImage =
         image::load_from_memory_with_format(&stored_png, image::ImageFormat::Png)
             .map_err(|e| format!("Failed to decode stored annotation PNG: {e}"))?
             .to_rgba8();
     let next_img = image::load_from_memory_with_format(annotation_png, image::ImageFormat::Png)
         .map_err(|e| format!("Failed to decode annotation PNG: {e}"))?
         .to_rgba8();
+    let target_width = stored_img.width().max(next_img.width());
+    let target_height = stored_img.height().max(next_img.height());
 
-    let next_resized =
-        if next_img.width() != stored_img.width() || next_img.height() != stored_img.height() {
+    let mut stored_img =
+        if stored_img.width() != target_width || stored_img.height() != target_height {
             imageops::resize(
-                &next_img,
-                stored_img.width(),
-                stored_img.height(),
+                &stored_img,
+                target_width,
+                target_height,
                 imageops::FilterType::Lanczos3,
             )
         } else {
-            next_img
+            stored_img
         };
+
+    let next_resized = if next_img.width() != target_width || next_img.height() != target_height {
+        imageops::resize(
+            &next_img,
+            target_width,
+            target_height,
+            imageops::FilterType::Lanczos3,
+        )
+    } else {
+        next_img
+    };
 
     imageops::overlay(&mut stored_img, &next_resized, 0, 0);
     let (width, height) = stored_img.dimensions();
@@ -703,8 +995,15 @@ fn compose_pin_image(
     image_path: &Path,
     stored_annotation_path: Option<&Path>,
     annotation_png: Option<&[u8]>,
+    adjustments: ImageAdjustments,
 ) -> Result<CroppedImage, String> {
     let mut composed = load_pin_image(image_path)?;
+    crate::image_adjust::apply_image_adjustments(
+        &mut composed.rgba,
+        composed.width,
+        composed.height,
+        adjustments,
+    );
 
     if let Some(path) = stored_annotation_path {
         let png_data =
@@ -970,44 +1269,6 @@ fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Res
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
-fn schedule_app_deactivation_macos(app: &AppHandle) {
-    if let Err(e) = app.run_on_main_thread(deactivate_app_macos_on_main_thread) {
-        tracing::warn!("failed to schedule app deactivation on main thread: {e}");
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn schedule_app_deactivation_macos(_app: &AppHandle) {}
-
-/// Deactivate the flashot application on macOS so the previously-active app
-/// regains focus. AppKit requires this to run on the main thread; callers must
-/// go through `schedule_app_deactivation_macos`.
-#[cfg(target_os = "macos")]
-fn deactivate_app_macos_on_main_thread() {
-    use objc::{
-        runtime::{Class, Object, Sel},
-        Message,
-    };
-    unsafe {
-        if let Some(app_class) = Class::get("NSApplication") {
-            let app: *mut Object =
-                match app_class.send_message(Sel::register("sharedApplication"), ()) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        tracing::warn!("sharedApplication failed: {e}");
-                        return;
-                    }
-                };
-            if !app.is_null() {
-                if let Err(e) = (*app).send_message::<_, ()>(Sel::register("deactivate"), ()) {
-                    tracing::warn!("NSApp deactivate failed: {e}");
-                }
-            }
-        }
-    }
-}
-
 /// Tear down the chrome window for `monitor_id` (if any) and restore mouse
 /// events on the underlying overlay so the next capture session works.
 fn close_scroll_chrome(app: &AppHandle, monitor_id: u32) {
@@ -1036,7 +1297,7 @@ pub async fn stop_scroll_session(
             close_scroll_chrome(&app, mid);
         }
         let _ = mgr.take_scroll();
-        mgr.end_session(&app);
+        mgr.end_session_deactivating_app(&app);
         return Ok(None);
     }
 
@@ -1077,7 +1338,7 @@ pub async fn scroll_copy(app: AppHandle, mgr: State<'_, Arc<WindowMgr>>) -> Resu
         close_scroll_chrome(&app, mid);
     }
     clipboard::copy_image(img.rgba, img.width, img.height).map_err(|e| e.to_string())?;
-    mgr.end_session(&app);
+    mgr.end_session_deactivating_app(&app);
     Ok(())
 }
 
@@ -1099,6 +1360,7 @@ pub async fn scroll_save(
         close_scroll_chrome(&app, mid);
     }
     mgr.end_session(&app);
+    schedule_app_deactivation_macos(&app);
     saver::save_image_to_path(img.rgba, img.width, img.height, &path).map_err(|e| e.to_string())?;
     saver::remember_last_save_dir(&mut settings, &path);
     settings_store::save(&settings).map_err(|e| e.to_string())?;
@@ -1204,6 +1466,55 @@ mod tests {
         assert!(
             end_session_idx < save_dialog_idx,
             "native save dialogs must open after overlay windows are hidden",
+        );
+    }
+
+    #[test]
+    fn capture_completion_paths_deactivate_app_after_hiding_overlays() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        for name in [
+            "crop_and_copy",
+            "cancel_capture",
+            "pin_image",
+            "scroll_copy",
+        ] {
+            let body = function_body(&source, name);
+            assert!(
+                body.contains("mgr.end_session_deactivating_app(&app);"),
+                "{name} must end capture and deactivate the app so existing utility windows do not surface",
+            );
+        }
+
+        let stop_body = function_body(&source, "stop_scroll_session");
+        assert!(
+            stop_body.contains("mgr.end_session_deactivating_app(&app);"),
+            "canceling a scroll session must also deactivate after hiding overlays",
+        );
+    }
+
+    #[test]
+    fn save_paths_deactivate_app_after_user_facing_dialogs() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let crop_body = function_body(&source, "crop_and_save");
+        let crop_end_idx = crop_body.find("mgr.end_session(&app);").unwrap();
+        let dialog_idx = crop_body.find("saver::save_image_dialog").unwrap();
+        let crop_deactivate_idx = crop_body
+            .find("schedule_app_deactivation_macos(&app);")
+            .expect("crop_and_save must deactivate after the save dialog returns");
+        assert!(
+            crop_end_idx < dialog_idx && dialog_idx < crop_deactivate_idx,
+            "crop_and_save must hide overlays, show the save dialog, then deactivate the app",
+        );
+
+        let scroll_body = function_body(&source, "scroll_save");
+        let scroll_end_idx = scroll_body.find("mgr.end_session(&app);").unwrap();
+        let scroll_deactivate_idx = scroll_body
+            .find("schedule_app_deactivation_macos(&app);")
+            .expect("scroll_save must deactivate after hiding overlays");
+        let save_idx = scroll_body.find("saver::save_image_to_path").unwrap();
+        assert!(
+            scroll_end_idx < scroll_deactivate_idx && scroll_deactivate_idx < save_idx,
+            "scroll_save must deactivate immediately after hiding overlays because its path dialog already returned",
         );
     }
 
@@ -1334,14 +1645,15 @@ mod tests {
             "start_scroll_session runs on a Tauri IPC worker and must not call AppKit directly",
         );
 
-        let helper_start = source
-            .find("fn schedule_app_deactivation_macos")
+        let helper_source = include_str!("app_activation.rs").replace("\r\n", "\n");
+        let helper_start = helper_source
+            .find("pub fn schedule_app_deactivation_macos")
             .expect("missing macOS main-thread scheduling helper");
-        let helper_end = source[helper_start..]
+        let helper_end = helper_source[helper_start..]
             .find("fn deactivate_app_macos_on_main_thread")
             .map(|idx| helper_start + idx)
             .expect("missing main-thread AppKit helper");
-        let helper_body = &source[helper_start..helper_end];
+        let helper_body = &helper_source[helper_start..helper_end];
 
         assert!(
             helper_body.contains(".run_on_main_thread("),
@@ -1460,6 +1772,30 @@ mod tests {
     }
 
     #[test]
+    fn pin_annotation_update_keeps_higher_resolution_edited_layer() {
+        let tmp = tempfile::tempdir().unwrap();
+        let stored_annotation_path = tmp.path().join("pin-annotation.png");
+        let stored_annotation = vec![255, 0, 0, 255, 0, 0, 0, 0];
+        let new_annotation = vec![
+            0, 0, 0, 0, 0, 255, 0, 255, 0, 0, 0, 0, 0, 255, 0, 255, 0, 0, 0, 0, 0, 255, 0, 255, 0,
+            0, 0, 0, 0, 255, 0, 255,
+        ];
+        std::fs::write(
+            &stored_annotation_path,
+            encode_pin_png(&stored_annotation, 2, 1).unwrap(),
+        )
+        .unwrap();
+        let new_annotation_png = encode_pin_png(&new_annotation, 4, 2).unwrap();
+
+        let merged =
+            merge_pin_annotation_layers(Some(&stored_annotation_path), &new_annotation_png)
+                .expect("annotation layers should merge");
+        let decoded = image::load_from_memory(&merged).unwrap().to_rgba8();
+
+        assert_eq!(decoded.dimensions(), (4, 2));
+    }
+
+    #[test]
     fn pin_copy_composes_stored_and_unsaved_annotation_layers() {
         let tmp = tempfile::tempdir().unwrap();
         let base_path = tmp.path().join("pin.png");
@@ -1479,6 +1815,7 @@ mod tests {
             &base_path,
             Some(&stored_annotation_path),
             Some(&new_annotation_png),
+            ImageAdjustments::default(),
         )
         .unwrap();
 
@@ -1489,9 +1826,31 @@ mod tests {
     }
 
     #[test]
+    fn pin_copy_applies_image_adjustments_to_base_before_annotation_layers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base_path = tmp.path().join("pin.png");
+        let base = vec![100, 100, 100, 255];
+        std::fs::write(&base_path, encode_pin_png(&base, 1, 1).unwrap()).unwrap();
+
+        let composed = compose_pin_image(
+            &base_path,
+            None,
+            None,
+            ImageAdjustments {
+                brightness: 20,
+                ..ImageAdjustments::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(composed.rgba, vec![151, 151, 151, 255]);
+    }
+
+    #[test]
     fn pin_edit_commands_accept_annotation_png_and_are_registered() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let update_body = function_body(&source, "update_pin_annotation");
+        let save_body = function_body(&source, "save_pin");
         let copy_body = function_body(&source, "copy_pin");
 
         assert!(
@@ -1502,13 +1861,23 @@ mod tests {
         );
         assert!(
             source.contains(
-                "pub async fn copy_pin(\n    pin_id: String,\n    annotation_png: Option<Vec<u8>>,"
+                "pub async fn copy_pin(\n    pin_id: String,\n    annotation_png: Option<Vec<u8>>,\n    adjustments: Option<ImageAdjustments>,"
             ),
-            "copy_pin must accept optional unsaved annotation data",
+            "copy_pin must accept optional unsaved annotation data and image adjustments",
+        );
+        assert!(
+            source.contains(
+                "pub async fn save_pin(\n    pin_id: String,\n    annotation_png: Option<Vec<u8>>,\n    adjustments: Option<ImageAdjustments>,"
+            ),
+            "save_pin must accept optional unsaved annotation data and image adjustments",
         );
         assert!(
             update_body.contains("update_annotation"),
             "update_pin_annotation must persist the new annotation path in PinManager",
+        );
+        assert!(
+            save_body.contains("saver::save_image_dialog"),
+            "save_pin must save the composed pin image through the regular save dialog",
         );
         assert!(
             copy_body.contains("clipboard::copy_image"),
@@ -1520,6 +1889,7 @@ mod tests {
         )
         .unwrap();
         assert!(lib_source.contains("commands::update_pin_annotation"));
+        assert!(lib_source.contains("commands::save_pin"));
         assert!(lib_source.contains("commands::copy_pin"));
     }
 
@@ -1610,6 +1980,39 @@ mod tests {
     }
 
     #[test]
+    fn pin_window_reserves_right_and_bottom_gutters_without_left_control_gutter() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let pin_body = function_body(&source, "pin_image");
+        let scale_body = function_body(&source, "set_pin_scale");
+
+        assert!(
+            pin_body.contains(
+                "rect.width as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_CONTROLS_SIDE_RESERVE",
+            ),
+            "pin window width should reserve controls only on the right side",
+        );
+        assert!(
+            pin_body.contains(
+                "rect.height as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_TOOLBAR_BOTTOM_RESERVE",
+            ),
+            "pin window height should reserve the annotation toolbar gutter at the bottom",
+        );
+        assert!(
+            pin_body.contains("let pin_x = monitor_origin.0 + rect.x as f64 - PIN_SHADOW_PADDING;"),
+            "pin image should start after only the left shadow padding",
+        );
+        assert!(
+            !pin_body.contains("2.0 * PIN_CONTROLS_SIDE_RESERVE"),
+            "pin window should not reserve a left-side control gutter",
+        );
+        assert!(
+            scale_body.contains("+ PIN_CONTROLS_SIDE_RESERVE")
+                && scale_body.contains("+ PIN_TOOLBAR_BOTTOM_RESERVE"),
+            "pin scaling should preserve right and bottom tool gutters",
+        );
+    }
+
+    #[test]
     fn pin_png_encoder_uses_low_latency_settings() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let start = source.find("fn save_pin_png").unwrap();
@@ -1662,6 +2065,46 @@ mod tests {
     }
 
     #[test]
+    fn utility_window_background_tracks_effective_theme() {
+        assert_eq!(
+            utility_window_background_color(TauriTheme::Dark),
+            UTILITY_WINDOW_DARK_BACKGROUND
+        );
+        assert_eq!(
+            utility_window_background_color(TauriTheme::Light),
+            UTILITY_WINDOW_LIGHT_BACKGROUND
+        );
+    }
+
+    #[test]
+    fn utility_windows_start_hidden_with_theme_bootstrap() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        for name in [
+            "open_settings_window",
+            "open_about_window",
+            "open_updater_window",
+        ] {
+            let body = function_body(&source, name);
+            assert!(
+                body.contains(".visible(false)"),
+                "{name} must stay hidden until its background is configured",
+            );
+            assert!(
+                body.contains(".theme(theme)"),
+                "{name} must apply the saved window theme before showing",
+            );
+            assert!(
+                body.contains(".background_color(utility_window_initial_background(theme))"),
+                "{name} must configure the native/webview first-frame background",
+            );
+            assert!(
+                body.contains(".initialization_script(utility_window_init_script(theme))"),
+                "{name} must bootstrap the document theme before React mounts",
+            );
+        }
+    }
+
+    #[test]
     fn reopened_menu_windows_are_explicitly_brought_to_front() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         for name in [
@@ -1671,7 +2114,7 @@ mod tests {
         ] {
             let body = function_body(&source, name);
             assert!(
-                body.contains("show_app_window(&w)?;"),
+                body.contains("show_utility_window(&w, theme)?;"),
                 "{name} must raise an already-open window instead of only focusing it",
             );
         }
@@ -1761,6 +2204,56 @@ mod tests {
             apply_idx < save_idx,
             "login startup must be applied before settings are persisted",
         );
+    }
+
+    #[test]
+    fn updater_commands_select_stable_or_beta_endpoint_from_beta_flag() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+
+        assert!(
+            source.contains("const STABLE_UPDATE_ENDPOINT"),
+            "updater commands must keep the stable endpoint explicit",
+        );
+        assert!(
+            source.contains("const BETA_UPDATE_ENDPOINT"),
+            "updater commands must keep the beta endpoint explicit",
+        );
+        assert!(
+            source.contains("https://raw.githubusercontent.com/poneding/flashot/beta/latest.json"),
+            "beta-enabled users must read the beta channel manifest",
+        );
+        assert!(
+            source.contains("fn update_endpoints(allow_beta: bool)"),
+            "update endpoint selection must be controlled by the saved beta setting",
+        );
+        assert!(
+            source.contains(".updater_builder()")
+                && source.contains(".endpoints(update_endpoints(allow_beta)?"),
+            "custom commands must build the updater with the selected channel endpoints",
+        );
+    }
+
+    #[test]
+    fn beta_update_checks_fall_back_to_stable_when_beta_manifest_is_missing() {
+        let endpoints = update_endpoints(true).unwrap();
+
+        assert_eq!(endpoints.len(), 2);
+        assert_eq!(endpoints[0].as_str(), BETA_UPDATE_ENDPOINT);
+        assert_eq!(endpoints[1].as_str(), STABLE_UPDATE_ENDPOINT);
+        assert_eq!(
+            update_endpoints(false).unwrap()[0].as_str(),
+            STABLE_UPDATE_ENDPOINT
+        );
+    }
+
+    #[test]
+    fn updater_download_command_emits_progress_events() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+
+        assert!(source.contains("const UPDATER_PROGRESS_EVENT: &str = \"updater:progress\""));
+        assert!(source.contains("pub async fn download_and_install_update"));
+        assert!(source.contains("download_and_install("));
+        assert!(source.contains("app.emit(UPDATER_PROGRESS_EVENT"));
     }
 
     fn function_body<'a>(source: &'a str, name: &str) -> &'a str {
