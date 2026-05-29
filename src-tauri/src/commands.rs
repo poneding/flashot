@@ -1190,7 +1190,6 @@ pub async fn start_scroll_session(
             return Err(format!("scroll capture unavailable: {e}"));
         }
     };
-    hide_wayland_scroll_overlay(&app, monitor_id);
     let crate::scroll_capture::ScrollCaptureSession {
         initial_frame,
         width,
@@ -1222,22 +1221,6 @@ pub async fn start_scroll_session(
         cancel,
     });
     Ok(())
-}
-
-fn hide_wayland_scroll_overlay(app: &AppHandle, monitor_id: u32) {
-    #[cfg(target_os = "linux")]
-    if std::env::var("XDG_SESSION_TYPE")
-        .map(|session| session.eq_ignore_ascii_case("wayland"))
-        .unwrap_or(false)
-        || std::env::var_os("WAYLAND_DISPLAY").is_some()
-    {
-        if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
-            let _ = w.hide();
-        }
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = (app, monitor_id);
 }
 
 /// Spawn the always-on-top chrome window that hosts the status bar and live
@@ -1669,15 +1652,18 @@ mod tests {
     }
 
     #[test]
-    fn wayland_scroll_start_hides_overlay_only_after_capture_starts() {
+    fn wayland_scroll_start_keeps_overlay_visible_for_selection_outline() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let body = function_body(&source, "start_scroll_session");
-        let factory_idx = body.find("start_scroll_capture_session").unwrap();
-        let hide_idx = body
-            .find("hide_wayland_scroll_overlay")
-            .expect("scroll startup should hide the wayland overlay after capture starts");
 
-        assert!(factory_idx < hide_idx);
+        assert!(
+            body.contains("set_ignore_cursor_events(true)"),
+            "the overlay should become mouse-transparent so the underlying app can scroll",
+        );
+        assert!(
+            !body.contains("hide_wayland_scroll_overlay"),
+            "scrolling mode must keep the overlay window visible so SelectionBox can show the capture outline",
+        );
     }
 
     #[test]
