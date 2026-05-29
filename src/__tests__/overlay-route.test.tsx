@@ -347,6 +347,9 @@ describe("OverlayRoute", () => {
         expect(useOverlay.getState().mode).toBe("committed");
         expect(useOverlay.getState().selection).toEqual(selection);
       });
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("initial capture failed");
+      expect(screen.getByRole("button", { name: "Scrolling screenshot" })).toBeTruthy();
       expect(warn).toHaveBeenCalled();
     } finally {
       warn.mockRestore();

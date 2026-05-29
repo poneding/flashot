@@ -124,7 +124,9 @@ export function OverlayRoute() {
   const cornerRadius = useOverlay((s) => s.cornerRadius);
   const monitorRect = useOverlay((s) => s.monitorRect);
   const [flashRect, setFlashRect] = useState<Rect | null>(null);
+  const [scrollError, setScrollError] = useState<string | null>(null);
   const flashTimerRef = useRef<number | null>(null);
+  const scrollErrorTimerRef = useRef<number | null>(null);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
@@ -157,6 +159,9 @@ export function OverlayRoute() {
       document.body.classList.remove("overlay");
       if (flashTimerRef.current != null) {
         window.clearTimeout(flashTimerRef.current);
+      }
+      if (scrollErrorTimerRef.current != null) {
+        window.clearTimeout(scrollErrorTimerRef.current);
       }
       unsubStart?.();
       unsubEnd?.();
@@ -378,13 +383,24 @@ export function OverlayRoute() {
   const handleScroll = async () => {
     if (monitorId == null || !selection) return;
     const scrollSelection = selection;
+    if (scrollErrorTimerRef.current != null) {
+      window.clearTimeout(scrollErrorTimerRef.current);
+      scrollErrorTimerRef.current = null;
+    }
+    setScrollError(null);
     startScroll();
     try {
       await waitForOverlayPaint();
       await startScrollSession(monitorId, scrollSelection);
       activateScroll();
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       useOverlay.getState().commit(scrollSelection);
+      setScrollError(message);
+      scrollErrorTimerRef.current = window.setTimeout(() => {
+        setScrollError(null);
+        scrollErrorTimerRef.current = null;
+      }, 3600);
       console.warn("Failed to start scrolling screenshot", error);
     }
   };
@@ -556,6 +572,13 @@ export function OverlayRoute() {
           />
         </>
       )}
+      {scrollError && selection && monitorRect && (
+        <ScrollErrorToast
+          message={scrollError}
+          selection={selection}
+          monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
+        />
+      )}
       {flashRect && <QuickShotFlash rect={flashRect} />}
     </div>
   );
@@ -635,6 +658,55 @@ function ScrollStartupStatus({ selection, monitorRect, locale }: { selection: Re
       }}
     >
       {t("scroll.starting")}
+    </div>
+  );
+}
+
+function ScrollErrorToast({
+  message,
+  selection,
+  monitorRect,
+}: {
+  message: string;
+  selection: Rect;
+  monitorRect: Rect;
+}) {
+  const width = Math.min(320, Math.max(180, monitorRect.width - 16));
+  const height = 44;
+  const gap = 10;
+  const left = Math.min(
+    Math.max(selection.x, 8),
+    Math.max(8, monitorRect.width - width - 8),
+  );
+  const above = selection.y - height - gap;
+  const below = selection.y + selection.height + gap;
+  const top = above >= 8 ? above : Math.min(below, Math.max(8, monitorRect.height - height - 8));
+
+  return (
+    <div
+      role="alert"
+      style={{
+        position: "fixed",
+        left,
+        top,
+        width,
+        minHeight: height,
+        boxSizing: "border-box",
+        display: "flex",
+        alignItems: "center",
+        padding: "8px 12px",
+        borderRadius: 6,
+        background: "rgba(34, 18, 18, 0.94)",
+        border: "1px solid rgba(255, 128, 128, 0.32)",
+        color: "rgba(255,255,255,0.92)",
+        fontSize: 12,
+        lineHeight: 1.35,
+        fontWeight: 500,
+        pointerEvents: "none",
+        zIndex: 10002,
+      }}
+    >
+      {message}
     </div>
   );
 }
