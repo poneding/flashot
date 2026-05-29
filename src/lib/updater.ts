@@ -1,9 +1,10 @@
-import { check } from "@tauri-apps/plugin-updater";
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export interface UpdateInfo {
   version: string;
-  body: string | undefined;
-  date: string | undefined;
+  body: string | null | undefined;
+  date: string | null | undefined;
 }
 
 export interface UpdateProgress {
@@ -11,36 +12,36 @@ export interface UpdateProgress {
   total: number | null;
 }
 
-export async function checkForUpdate(): Promise<UpdateInfo | null> {
-  const update = await check();
-  if (!update) return null;
-  return {
-    version: update.version,
-    body: update.body,
-    date: update.date,
-  };
+export interface UpdateCheckOptions {
+  allowBeta?: boolean;
+}
+
+const UPDATER_PROGRESS_EVENT = "updater:progress";
+
+export async function checkForUpdate(options: UpdateCheckOptions = {}): Promise<UpdateInfo | null> {
+  return await invoke<UpdateInfo | null>("check_for_update", {
+    allowBeta: options.allowBeta ?? false,
+  });
 }
 
 export async function downloadAndInstall(
-  onProgress?: (progress: UpdateProgress) => void
+  onProgress?: (progress: UpdateProgress) => void,
+  options: UpdateCheckOptions = {},
 ): Promise<void> {
-  const update = await check();
-  if (!update) return;
+  let unlisten: UnlistenFn | null = null;
 
-  let downloaded = 0;
-  let total: number | null = null;
-  await update.downloadAndInstall((event) => {
-    switch (event.event) {
-      case "Started":
-        total = event.data.contentLength ?? null;
-        onProgress?.({ downloaded: 0, total });
-        break;
-      case "Progress":
-        downloaded += event.data.chunkLength;
-        onProgress?.({ downloaded, total });
-        break;
-      case "Finished":
-        break;
-    }
-  });
+  if (onProgress) {
+    onProgress({ downloaded: 0, total: null });
+    unlisten = await listen<UpdateProgress>(UPDATER_PROGRESS_EVENT, (event) => {
+      onProgress(event.payload);
+    });
+  }
+
+  try {
+    await invoke("download_and_install_update", {
+      allowBeta: options.allowBeta ?? false,
+    });
+  } finally {
+    unlisten?.();
+  }
 }

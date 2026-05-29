@@ -3,13 +3,15 @@ import { open } from "@tauri-apps/plugin-shell";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { UtilityWindowShell } from "@/components/UtilityWindowShell";
-import { useStoredAccentColor } from "@/settings/useStoredAccentColor";
+import { createTranslator } from "@/i18n";
+import { useStoredAppearance, useStoredLanguage } from "@/settings/useStoredAccentColor";
 
 const REPO_URL = "https://github.com/poneding/flashot";
 
 export function AboutRoute() {
   const [version, setVersion] = useState<string | null>(null);
-  useStoredAccentColor();
+  useStoredAppearance();
+  const t = createTranslator(useStoredLanguage());
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => setVersion(null));
@@ -25,16 +27,16 @@ export function AboutRoute() {
         <h1 className="text-2xl font-semibold">Flashot</h1>
         <img
           src="/app-logo.svg"
-          alt="Flashot app icon"
+          alt={t("about.appIconAlt")}
           className="size-16"
           draggable={false}
         />
         <p className="font-mono text-sm text-muted-foreground">
-          {version ? `Version ${version}` : "Version unavailable"}
+          {version ? t("about.version", { version }) : t("about.versionUnavailable")}
         </p>
       </div>
       <Button onClick={() => open(REPO_URL)}>
-        GitHub Repository
+        {t("about.repository")}
       </Button>
     </UtilityWindowShell>
   );

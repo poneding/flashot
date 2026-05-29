@@ -20,6 +20,9 @@ vi.mock("@/lib/ipc", () => ({
 describe("AboutRoute", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    document.documentElement.classList.remove("dark");
+    document.documentElement.style.removeProperty("color-scheme");
     document.documentElement.style.removeProperty("--flashot-accent");
     vi.mocked(getSettings).mockResolvedValue({
       captureHotkey: "Cmd+Shift+A",
@@ -27,8 +30,13 @@ describe("AboutRoute", () => {
       activeWindowHotkey: "Cmd+Shift+W",
       theme: "system",
       accentColor: "#F43F5E",
-      language: "system",
+      language: "en",
       launchAtLogin: false,
+      autoCheckUpdates: false,
+      allowBetaUpdates: false,
+      updateCheckIntervalHours: 24,
+      lastUpdateCheckAt: null,
+      defaultSaveDir: "/Users/dp/Pictures/Flashot",
       lastSaveDir: null,
       cornerRadius: 0,
     });
@@ -40,6 +48,31 @@ describe("AboutRoute", () => {
     expect(screen.getByRole("heading", { name: "Flashot" })).toBeTruthy();
     await waitFor(() => expect(screen.getByText("Version 0.1.0")).toBeTruthy());
     expect(screen.getByRole("button", { name: "GitHub Repository" })).toBeTruthy();
+  });
+
+  it("renders About copy in Traditional Chinese", async () => {
+    vi.mocked(getSettings).mockResolvedValue({
+      captureHotkey: "Cmd+Shift+A",
+      fullscreenHotkey: "Cmd+Shift+F",
+      activeWindowHotkey: "Cmd+Shift+W",
+      theme: "system",
+      accentColor: "#F43F5E",
+      language: "zh-TW",
+      launchAtLogin: false,
+      autoCheckUpdates: false,
+      allowBetaUpdates: false,
+      updateCheckIntervalHours: 24,
+      lastUpdateCheckAt: null,
+      defaultSaveDir: "/Users/dp/Pictures/Flashot",
+      lastSaveDir: null,
+      cornerRadius: 0,
+    });
+
+    render(<AboutRoute />);
+
+    await waitFor(() => expect(screen.getByText("版本 0.1.0")).toBeTruthy());
+    expect(screen.getByRole("button", { name: "GitHub 存放庫" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Flashot 應用程式圖示" })).toBeTruthy();
   });
 
   it("shows the app icon below the title and renders the version in mono", async () => {
@@ -77,6 +110,33 @@ describe("AboutRoute", () => {
     await waitFor(() => {
       expect(document.documentElement.style.getPropertyValue("--flashot-accent")).toBe("#F43F5E");
     });
+  });
+
+  it("applies the saved dark theme for the utility window", async () => {
+    vi.mocked(getSettings).mockResolvedValue({
+      captureHotkey: "Cmd+Shift+A",
+      fullscreenHotkey: "Cmd+Shift+F",
+      activeWindowHotkey: "Cmd+Shift+W",
+      theme: "dark",
+      accentColor: "#F43F5E",
+      language: "en",
+      launchAtLogin: false,
+      autoCheckUpdates: false,
+      allowBetaUpdates: false,
+      updateCheckIntervalHours: 24,
+      lastUpdateCheckAt: null,
+      defaultSaveDir: "/Users/dp/Pictures/Flashot",
+      lastSaveDir: null,
+      cornerRadius: 0,
+    });
+
+    render(<AboutRoute />);
+
+    await waitFor(() => {
+      expect(document.documentElement.classList.contains("dark")).toBe(true);
+    });
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+    expect(localStorage.getItem("theme")).toBe("dark");
   });
 
 });

@@ -5,6 +5,20 @@
     <link rel="icon" type="image/svg+xml" href="/app-logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Flashot</title>
+    <script>
+      (() => {
+        try {
+          const theme = localStorage.getItem("theme") || "system";
+          const dark =
+            theme === "dark" ||
+            (theme === "system" &&
+              typeof window.matchMedia === "function" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.classList.toggle("dark", dark);
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch (_) {}
+      })();
+    </script>
   </head>
 
   <body>

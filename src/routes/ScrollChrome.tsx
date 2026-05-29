@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ScrollEndReason, ScrollProgress } from "@/lib/types";
+import { createTranslator } from "@/i18n";
 import {
   onScrollEndDetected,
   onScrollMatchFailed,
@@ -13,6 +14,7 @@ import {
   SCREENSHOT_TOOLBAR_BORDER,
   SCREENSHOT_TOOLBAR_RADIUS,
 } from "@/overlay/Toolbar";
+import { useStoredLanguage } from "@/settings/useStoredAccentColor";
 
 function parseScrollChromeRoute(): { monitorId: number } | null {
   const h = window.location.hash || "";
@@ -35,6 +37,7 @@ const BTN_BASE: React.CSSProperties = {
 };
 
 export function ScrollChromeRoute() {
+  const t = createTranslator(useStoredLanguage());
   const [parsed] = useState(() => parseScrollChromeRoute());
   const [progress, setProgress] = useState<ScrollProgress | null>(null);
   const [finalized, setFinalized] = useState<{ width: number; height: number } | null>(null);
@@ -66,7 +69,7 @@ export function ScrollChromeRoute() {
   useEffect(() => {
     const p = onScrollMatchFailed(({ consecutiveFailures }) => {
       if (consecutiveFailures >= 5) {
-        setToast("Can't detect scroll — try scrolling more slowly.");
+        setToast(t("scroll.cantDetect"));
         window.setTimeout(() => setToast(null), 3000);
       }
     });
@@ -109,9 +112,9 @@ export function ScrollChromeRoute() {
 
   const statusText = endReason
     ? endReason === "max-height"
-      ? "Maximum length reached"
-      : "Bottom reached"
-    : `${progress?.frames ?? 0} frames · ${progress?.height ?? 0}px`;
+      ? t("scroll.maxLength")
+      : t("scroll.bottomReached")
+    : t("scroll.framesStatus", { frames: progress?.frames ?? 0, height: progress?.height ?? 0 });
 
   if (!parsed) return null;
 
@@ -185,7 +188,7 @@ export function ScrollChromeRoute() {
           />
         ) : (
           <span style={{ color: "rgba(255,255,255,0.55)", fontSize: 12 }}>
-            {finalized ? "Done" : "Scroll the window below to capture…"}
+            {finalized ? t("scroll.donePreview") : t("scroll.prompt")}
           </span>
         )}
       </div>
@@ -214,7 +217,7 @@ export function ScrollChromeRoute() {
                 disabled={!!busy}
                 style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
               >
-                {busy === "copy" ? "Copying..." : "Copy"}
+                {busy === "copy" ? t("scroll.copying") : t("scroll.copy")}
               </button>
               <button
                 type="button"
@@ -222,7 +225,7 @@ export function ScrollChromeRoute() {
                 disabled={!!busy}
                 style={{ ...BTN_BASE, background: "#4ade80", color: "#0a2a17" }}
               >
-                {busy === "save" ? "Saving..." : "Save"}
+                {busy === "save" ? t("scroll.saving") : t("scroll.save")}
               </button>
             </div>
           </>
@@ -238,14 +241,14 @@ export function ScrollChromeRoute() {
                 disabled={!!busy}
                 style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
               >
-                {busy === "done" ? "Finishing..." : "Done"}
+                {busy === "done" ? t("scroll.finishing") : t("scroll.done")}
               </button>
               <button
                 type="button"
                 onClick={onCancel}
                 style={{ ...BTN_BASE, background: "rgba(255,255,255,0.12)", color: "white" }}
               >
-                Cancel
+                {t("scroll.cancel")}
               </button>
             </div>
           </>

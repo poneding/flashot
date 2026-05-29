@@ -58,6 +58,11 @@ export async function getSettings(): Promise<Settings> {
 export async function setSettings(s: Settings): Promise<void> {
   await invoke("set_settings", { settings: s });
 }
+export async function chooseDefaultSaveDir(currentDir?: string): Promise<string | null> {
+  return await invoke<string | null>("choose_default_save_dir", {
+    currentDir: currentDir ?? null,
+  });
+}
 export async function onSettingsChanged(cb: () => void): Promise<UnlistenFn> {
   return listen("settings:changed", cb);
 }
@@ -103,10 +108,26 @@ export async function updatePinAnnotation(
     annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
   });
 }
-export async function copyPin(pinId: string, annotationPng?: ArrayBuffer): Promise<void> {
+export async function savePin(
+  pinId: string,
+  annotationPng?: ArrayBuffer,
+  adjustments?: ImageAdjustments,
+): Promise<string | null> {
+  return await invoke<string | null>("save_pin", {
+    pinId,
+    annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
+    adjustments: adjustments ?? null,
+  });
+}
+export async function copyPin(
+  pinId: string,
+  annotationPng?: ArrayBuffer,
+  adjustments?: ImageAdjustments,
+): Promise<void> {
   await invoke("copy_pin", {
     pinId,
     annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
+    adjustments: adjustments ?? null,
   });
 }
 

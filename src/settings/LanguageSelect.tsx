@@ -15,9 +15,9 @@ type LanguageOption = {
 };
 
 const DEFAULT_LANGUAGE_LABELS: Record<Language, string> = {
-  system: "System",
   en: "English",
-  "zh-CN": "Simplified Chinese",
+  "zh-CN": "简体中文",
+  "zh-TW": "繁體中文",
 };
 
 export function LanguageSelect({
@@ -32,9 +32,9 @@ export function LanguageSelect({
   labels?: Record<Language, string>;
 }) {
   const options: LanguageOption[] = [
-    { value: "system", title: labels.system },
     { value: "en", title: labels.en },
     { value: "zh-CN", title: labels["zh-CN"] },
+    { value: "zh-TW", title: labels["zh-TW"] },
   ];
 
   const selected = options.find((option) => option.value === value) ?? options[0];
@@ -50,8 +50,8 @@ export function LanguageSelect({
       isItemEqualToValue={(option, current) => option.value === current.value}
     >
       <ComboboxTrigger className="w-40" aria-label={ariaLabel}>
-        <ComboboxValue placeholder={labels.system}>
-          {(option: LanguageOption | null) => option?.title ?? labels.system}
+        <ComboboxValue placeholder={labels.en}>
+          {(option: LanguageOption | null) => option?.title ?? labels.en}
         </ComboboxValue>
       </ComboboxTrigger>
       <ComboboxContent>

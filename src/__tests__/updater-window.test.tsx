@@ -35,6 +35,9 @@ vi.mock("@/lib/updater", () => ({
 describe("UpdaterRoute", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    document.documentElement.classList.remove("dark");
+    document.documentElement.style.removeProperty("color-scheme");
     document.documentElement.style.removeProperty("--flashot-accent");
     vi.mocked(getSettings).mockResolvedValue({
       captureHotkey: "Cmd+Shift+A",
@@ -42,8 +45,13 @@ describe("UpdaterRoute", () => {
       activeWindowHotkey: "Cmd+Shift+W",
       theme: "system",
       accentColor: "#F43F5E",
-      language: "system",
+      language: "en",
       launchAtLogin: false,
+      autoCheckUpdates: false,
+      allowBetaUpdates: false,
+      updateCheckIntervalHours: 24,
+      lastUpdateCheckAt: null,
+      defaultSaveDir: "/Users/dp/Pictures/Flashot",
       lastSaveDir: null,
       cornerRadius: 0,
     });
@@ -57,6 +65,34 @@ describe("UpdaterRoute", () => {
     await waitFor(() => {
       expect(document.documentElement.style.getPropertyValue("--flashot-accent")).toBe("#F43F5E");
     });
+  });
+
+  it("applies the saved dark theme for the utility window", async () => {
+    mockCheckForUpdate.mockReturnValue(new Promise(() => {}));
+    vi.mocked(getSettings).mockResolvedValue({
+      captureHotkey: "Cmd+Shift+A",
+      fullscreenHotkey: "Cmd+Shift+F",
+      activeWindowHotkey: "Cmd+Shift+W",
+      theme: "dark",
+      accentColor: "#F43F5E",
+      language: "en",
+      launchAtLogin: false,
+      autoCheckUpdates: false,
+      allowBetaUpdates: false,
+      updateCheckIntervalHours: 24,
+      lastUpdateCheckAt: null,
+      defaultSaveDir: "/Users/dp/Pictures/Flashot",
+      lastSaveDir: null,
+      cornerRadius: 0,
+    });
+
+    render(<UpdaterRoute />);
+
+    await waitFor(() => {
+      expect(document.documentElement.classList.contains("dark")).toBe(true);
+    });
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+    expect(localStorage.getItem("theme")).toBe("dark");
   });
 
   it("uses the shared utility window shell", async () => {
@@ -79,6 +115,32 @@ describe("UpdaterRoute", () => {
     });
   });
 
+  it("shows checking state in Traditional Chinese", async () => {
+    mockCheckForUpdate.mockReturnValue(new Promise(() => {}));
+    vi.mocked(getSettings).mockResolvedValue({
+      captureHotkey: "Cmd+Shift+A",
+      fullscreenHotkey: "Cmd+Shift+F",
+      activeWindowHotkey: "Cmd+Shift+W",
+      theme: "system",
+      accentColor: "#F43F5E",
+      language: "zh-TW",
+      launchAtLogin: false,
+      autoCheckUpdates: false,
+      allowBetaUpdates: false,
+      updateCheckIntervalHours: 24,
+      lastUpdateCheckAt: null,
+      defaultSaveDir: "/Users/dp/Pictures/Flashot",
+      lastSaveDir: null,
+      cornerRadius: 0,
+    });
+
+    render(<UpdaterRoute />);
+
+    await waitFor(() => {
+      expect(screen.getByText("正在檢查更新…")).toBeInTheDocument();
+    });
+  });
+
   it("shows up-to-date when no update available", async () => {
     mockCheckForUpdate.mockResolvedValue(null);
     render(<UpdaterRoute />);
@@ -86,6 +148,33 @@ describe("UpdaterRoute", () => {
       expect(screen.getByText("You're up to date")).toBeInTheDocument();
     });
     expect(screen.getByText("Version 0.2.1")).toBeInTheDocument();
+  });
+
+  it("checks the beta channel when beta updates are allowed", async () => {
+    vi.mocked(getSettings).mockResolvedValue({
+      captureHotkey: "Cmd+Shift+A",
+      fullscreenHotkey: "Cmd+Shift+F",
+      activeWindowHotkey: "Cmd+Shift+W",
+      theme: "system",
+      accentColor: "#F43F5E",
+      language: "en",
+      launchAtLogin: false,
+      autoCheckUpdates: false,
+      allowBetaUpdates: true,
+      updateCheckIntervalHours: 24,
+      lastUpdateCheckAt: null,
+      defaultSaveDir: "/Users/dp/Pictures/Flashot",
+      lastSaveDir: null,
+      cornerRadius: 0,
+    });
+    mockCheckForUpdate.mockResolvedValue(null);
+
+    render(<UpdaterRoute />);
+
+    await waitFor(() => {
+      expect(mockCheckForUpdate).toHaveBeenCalledWith({ allowBeta: true });
+    });
+    expect(screen.getByText("Beta updates: allowed")).toBeInTheDocument();
   });
 
   it("shows available state with version info", async () => {
@@ -100,6 +189,22 @@ describe("UpdaterRoute", () => {
     });
     expect(screen.getByText("v0.3.0")).toBeInTheDocument();
     expect(screen.getByText("Bug fixes and improvements")).toBeInTheDocument();
+  });
+
+  it("renders release notes as Markdown instead of raw Markdown text", async () => {
+    mockCheckForUpdate.mockResolvedValue({
+      version: "0.3.0",
+      body: "## Changes\n\n- **Fix** the updater notes",
+      date: "2026-05-19",
+    });
+
+    render(<UpdaterRoute />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Changes" })).toBeInTheDocument();
+    });
+    expect(screen.getByText("Fix")).toBeInTheDocument();
+    expect(screen.queryByText(/## Changes/)).not.toBeInTheDocument();
   });
 
   it("shows available state without release notes when body is empty", async () => {
@@ -153,6 +258,40 @@ describe("UpdaterRoute", () => {
 
     await userEvent.click(screen.getByText("Download & Install"));
     expect(screen.getByText("Downloading…")).toBeInTheDocument();
+  });
+
+  it("downloads from the beta channel selected during the check", async () => {
+    vi.mocked(getSettings).mockResolvedValue({
+      captureHotkey: "Cmd+Shift+A",
+      fullscreenHotkey: "Cmd+Shift+F",
+      activeWindowHotkey: "Cmd+Shift+W",
+      theme: "system",
+      accentColor: "#F43F5E",
+      language: "en",
+      launchAtLogin: false,
+      autoCheckUpdates: false,
+      allowBetaUpdates: true,
+      updateCheckIntervalHours: 24,
+      lastUpdateCheckAt: null,
+      defaultSaveDir: "/Users/dp/Pictures/Flashot",
+      lastSaveDir: null,
+      cornerRadius: 0,
+    });
+    mockCheckForUpdate.mockResolvedValue({
+      version: "0.3.0-beta.1",
+      body: null,
+      date: null,
+    });
+    mockDownloadAndInstall.mockResolvedValue(undefined);
+
+    render(<UpdaterRoute />);
+    await waitFor(() => {
+      expect(screen.getByText("Download & Install")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText("Download & Install"));
+
+    expect(mockDownloadAndInstall).toHaveBeenCalledWith(expect.any(Function), { allowBeta: true });
   });
 
   it("close button calls window close", async () => {

@@ -2,24 +2,32 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const ACCENT_OPTIONS = [
-  { name: "Cyan", value: "#4ED1FF" },
-  { name: "Rose", value: "#F43F5E" },
-  { name: "Amber", value: "#F59E0B" },
-  { name: "Emerald", value: "#10B981" },
-  { name: "Violet", value: "#8B5CF6" },
+  { id: "amber", name: "Amber", value: "#F59E0B" },
+  { id: "cyan", name: "Cyan", value: "#4ED1FF" },
+  { id: "rose", name: "Rose", value: "#F43F5E" },
+  { id: "emerald", name: "Emerald", value: "#10B981" },
+  { id: "violet", name: "Violet", value: "#8B5CF6" },
 ] as const;
+type AccentName = (typeof ACCENT_OPTIONS)[number]["id"];
 
 export function AccentColorSelect({
   value,
   onChange,
+  ariaLabel = "Accent color",
+  optionLabel = (name) => `Accent color: ${name}`,
+  colorNames,
 }: {
   value: string;
   onChange: (value: string) => void;
+  ariaLabel?: string;
+  optionLabel?: (name: string) => string;
+  colorNames?: Partial<Record<AccentName, string>>;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Accent color">
+    <div className="flex flex-wrap items-center gap-2" role="group" aria-label={ariaLabel}>
       {ACCENT_OPTIONS.map((option) => {
         const selected = option.value.toLowerCase() === value.toLowerCase();
+        const name = colorNames?.[option.id] ?? option.name;
 
         return (
           <Button
@@ -27,8 +35,8 @@ export function AccentColorSelect({
             type="button"
             variant="outline"
             size="icon-sm"
-            aria-label={`Accent color: ${option.name}`}
-            title={option.name}
+            aria-label={optionLabel(name)}
+            title={name}
             aria-pressed={selected}
             className={cn(
               "rounded-full p-0",

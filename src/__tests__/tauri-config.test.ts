@@ -34,6 +34,7 @@ describe("Tauri capabilities", () => {
     expect(capability.windows).toContain("settings");
     expect(capability.windows).toContain("about");
     expect(capability.permissions).toContain("core:window:allow-set-cursor-icon");
+    expect(capability.permissions).toContain("core:window:allow-set-title");
   });
 });
 
@@ -80,5 +81,14 @@ describe("Tauri asset protocol", () => {
     expect(ipcSource).toContain("quick-shot:flash");
     expect(overlaySource).toContain("onQuickShotFlash");
     expect(overlaySource).toContain("QuickShotFlash");
+  });
+
+  it("draws quick shot feedback with an inward glow and no border", () => {
+    const styles = readFileSync(resolve(__dirname, "../styles/globals.css"), "utf8");
+    const flashRule = styles.match(/body\.overlay \.quick-shot-flash \{([\s\S]*?)\n  \}/)?.[1] ?? "";
+
+    expect(flashRule).not.toContain("border:");
+    expect(flashRule).toMatch(/box-shadow:[\s\S]*inset/);
+    expect(flashRule).not.toContain("9999px");
   });
 });

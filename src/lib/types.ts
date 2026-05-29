@@ -35,11 +35,9 @@ export type QuickShotFlashPayload = {
 
 export type ImageAdjustments = {
   grayscale: boolean;
-  autoLevels: boolean;
   brightness: number;
   contrast: number;
   saturation: number;
-  sharpness: number;
 };
 
 export type Mode =
@@ -64,8 +62,13 @@ export type Settings = {
   activeWindowHotkey: string; // e.g. "Cmd+Shift+W"
   theme: "system" | "light" | "dark";
   accentColor: string;
-  language: "system" | "en" | "zh-CN";
+  language: "en" | "zh-CN" | "zh-TW";
   launchAtLogin: boolean;
+  autoCheckUpdates: boolean;
+  allowBetaUpdates: boolean;
+  updateCheckIntervalHours: number;
+  lastUpdateCheckAt: number | null;
+  defaultSaveDir: string;
   lastSaveDir: string | null;
   cornerRadius: number;
 };

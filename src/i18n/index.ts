@@ -1,40 +1,32 @@
 import { en } from "@/i18n/en";
 import { zhCN } from "@/i18n/zh-CN";
+import { zhTW } from "@/i18n/zh-TW";
 
-export type Locale = "en" | "zh-CN";
-export type LocalePreference = Locale | "system";
+export type Locale = "en" | "zh-CN" | "zh-TW";
+export type LocalePreference = Locale;
 
 type Dictionary = Record<string, string>;
 
 const dictionaries: Record<Locale, Dictionary> = {
   en,
   "zh-CN": zhCN,
+  "zh-TW": zhTW,
 };
 
-function normalizeLocaleTag(tag: string): Locale | null {
-  const lower = tag.toLowerCase();
-  if (lower === "zh-cn" || lower.startsWith("zh-hans") || lower.startsWith("zh")) {
-    return "zh-CN";
-  }
-  if (lower.startsWith("en")) return "en";
-  return null;
-}
-
 export function resolveLocale(
-  preference: LocalePreference,
-  systemLanguages: readonly string[] = typeof navigator === "undefined" ? [] : navigator.languages,
+  preference: unknown,
 ): Locale {
-  if (preference !== "system") return preference;
-
-  for (const language of systemLanguages) {
-    const locale = normalizeLocaleTag(language);
-    if (locale) return locale;
-  }
-
-  return "en";
+  return preference === "zh-CN" || preference === "zh-TW" || preference === "en"
+    ? preference
+    : "en";
 }
 
 export function createTranslator(locale: Locale) {
-  const dictionary = dictionaries[locale];
-  return (key: string): string => dictionary[key] ?? en[key as keyof typeof en] ?? key;
+  const dictionary = dictionaries[resolveLocale(locale)];
+  return (key: string, values: Record<string, string | number> = {}): string => {
+    const template = dictionary[key] ?? en[key as keyof typeof en] ?? key;
+    return template.replace(/\{(\w+)\}/g, (_, name: string) =>
+      values[name] == null ? `{${name}}` : String(values[name]),
+    );
+  };
 }

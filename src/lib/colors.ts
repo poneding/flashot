@@ -1,6 +1,6 @@
-// Cyan accent used for selection borders, window-detect highlights,
+// Default accent used for selection borders, window-detect highlights,
 // crosshair, and the pin window glow.
-export const SELECTION_COLOR = "#4ED1FF";
+export const SELECTION_COLOR = "#F59E0B";
 export const ACCENT_COLOR_CSS_VAR = "var(--flashot-accent)";
 export const ACCENT_RGB_CSS_VAR = "var(--flashot-accent-rgb)";
 export const ACCENT_SOFT_CSS_VAR = "var(--flashot-accent-soft)";

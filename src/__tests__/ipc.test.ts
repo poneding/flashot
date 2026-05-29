@@ -1,7 +1,15 @@
 /** @vitest-environment jsdom */
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
-import { copyPin, cropAndCopy, cropAndSave, pinImage, updatePinAnnotation } from "@/lib/ipc";
+import {
+  chooseDefaultSaveDir,
+  copyPin,
+  cropAndCopy,
+  cropAndSave,
+  pinImage,
+  savePin,
+  updatePinAnnotation,
+} from "@/lib/ipc";
 import type { ImageAdjustments, Rect } from "@/lib/types";
 
 function captureInvocations() {
@@ -56,11 +64,9 @@ describe("ipc wrappers", () => {
     const rect: Rect = { x: 0, y: 0, width: 10, height: 10 };
     const adjustments: ImageAdjustments = {
       grayscale: true,
-      autoLevels: true,
       brightness: 12,
       contrast: -8,
       saturation: 25,
-      sharpness: 40,
     };
     const invocations = captureInvocations();
 
@@ -84,12 +90,14 @@ describe("ipc wrappers", () => {
     ]);
   });
 
-  it("serializes pin annotation updates and copy requests", async () => {
+  it("serializes pin annotation updates, save requests, and copy requests", async () => {
     const annotationPng = new Uint8Array([7, 8, 9]).buffer;
     const invocations = captureInvocations();
 
     await updatePinAnnotation("pin-1", annotationPng);
     await updatePinAnnotation("pin-1");
+    await savePin("pin-1", annotationPng);
+    await savePin("pin-1");
     await copyPin("pin-1", annotationPng);
     await copyPin("pin-1");
 
@@ -103,14 +111,57 @@ describe("ipc wrappers", () => {
         payload: { pinId: "pin-1", annotationPng: null },
       },
       {
-        cmd: "copy_pin",
-        payload: { pinId: "pin-1", annotationPng: [7, 8, 9] },
+        cmd: "save_pin",
+        payload: { pinId: "pin-1", annotationPng: [7, 8, 9], adjustments: null },
+      },
+      {
+        cmd: "save_pin",
+        payload: { pinId: "pin-1", annotationPng: null, adjustments: null },
       },
       {
         cmd: "copy_pin",
-        payload: { pinId: "pin-1", annotationPng: null },
+        payload: { pinId: "pin-1", annotationPng: [7, 8, 9], adjustments: null },
+      },
+      {
+        cmd: "copy_pin",
+        payload: { pinId: "pin-1", annotationPng: null, adjustments: null },
       },
     ]);
+  });
+
+  it("serializes image adjustments for pin save and copy outputs", async () => {
+    const adjustments: ImageAdjustments = {
+      grayscale: true,
+      brightness: 18,
+      contrast: -12,
+      saturation: 30,
+    };
+    const invocations = captureInvocations();
+
+    await savePin("pin-1", undefined, adjustments);
+    await copyPin("pin-1", undefined, adjustments);
+
+    expect(invocations).toEqual([
+      {
+        cmd: "save_pin",
+        payload: { pinId: "pin-1", annotationPng: null, adjustments },
+      },
+      {
+        cmd: "copy_pin",
+        payload: { pinId: "pin-1", annotationPng: null, adjustments },
+      },
+    ]);
+  });
+
+  it("passes the current default save location to the directory picker", async () => {
+    const invocations = captureInvocations();
+
+    await chooseDefaultSaveDir("/Users/dp/Pictures/Flashot");
+
+    expect(invocations[invocations.length - 1]).toEqual({
+      cmd: "choose_default_save_dir",
+      payload: { currentDir: "/Users/dp/Pictures/Flashot" },
+    });
   });
 
   describe("cropAndCopy/Save/pinImage forward cornerRadius", () => {

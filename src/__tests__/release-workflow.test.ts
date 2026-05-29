@@ -136,6 +136,19 @@ describe("release workflow", () => {
     expect(workflow).toContain("inputs.prerelease");
   });
 
+  it("publishes prerelease updater manifests to the beta channel branch", () => {
+    const workflow = readFileSync(releaseWorkflowPath, "utf8");
+
+    expect(workflow).toContain("publish-beta-updater-manifest:");
+    expect(workflow).toContain("name: Publish beta updater manifest");
+    expect(workflow).toContain("needs: release");
+    expect(workflow).toContain("if: ${{ !inputs.draft && (inputs.prerelease || contains(github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, '-')) }}");
+    expect(workflow).toContain('gh release download "$RELEASE_TAG"');
+    expect(workflow).toContain("--pattern latest.json");
+    expect(workflow).toContain("git checkout --orphan beta");
+    expect(workflow).toContain("git push origin beta");
+  });
+
   it("does not publish the internal Rust crate to Cargo", () => {
     const workflow = readFileSync(releaseWorkflowPath, "utf8");
     const readme = readFileSync(readmePath, "utf8");
@@ -161,5 +174,14 @@ describe("release workflow", () => {
     expect(readme).toContain("HOMEBREW_TAP_TOKEN");
     expect(readme).toContain("MACOS_CODESIGN_CERTIFICATE");
     expect(readme).toContain("scripts/macos/create-self-signed-codesign-cert.sh");
+  });
+
+  it("documents beta updater publishing for users who opt in", () => {
+    const readme = readFileSync(readmePath, "utf8");
+
+    expect(readme).toContain("git tag v0.1.1-beta.1");
+    expect(readme).toContain("Allow beta updates");
+    expect(readme).toContain("beta branch");
+    expect(readme).toContain("https://raw.githubusercontent.com/poneding/flashot/beta/latest.json");
   });
 });

@@ -6,10 +6,10 @@
   :root {
     --background: 0 0% 100%;
     --foreground: 222 47% 11%;
-    --accent: 199 100% 65%;
-    --flashot-accent: #4ED1FF;
-    --flashot-accent-rgb: 78, 209, 255;
-    --flashot-accent-soft: rgba(78, 209, 255, 0.06);
+    --accent: 38 92% 50%;
+    --flashot-accent: #F59E0B;
+    --flashot-accent-rgb: 245, 158, 11;
+    --flashot-accent-soft: rgba(245, 158, 11, 0.06);
     --border: 220 13% 91%;
     --radius: 0.625rem;
     --radius-sm: calc(var(--radius) - 4px);
@@ -21,7 +21,7 @@
     --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
-    --primary: 199 100% 65%;
+    --primary: 38 92% 50%;
     --primary-foreground: 222 47% 8%;
     --secondary: 220 13% 91%;
     --secondary-foreground: 222 47% 11%;
@@ -31,22 +31,22 @@
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
     --input: 220 13% 91%;
-    --ring: 199 100% 65%;
+    --ring: 38 92% 50%;
   }
   .dark {
     --background: 222 47% 8%;
     --foreground: 0 0% 98%;
-    --accent: 199 100% 65%;
-    --flashot-accent: #4ED1FF;
-    --flashot-accent-rgb: 78, 209, 255;
-    --flashot-accent-soft: rgba(78, 209, 255, 0.06);
+    --accent: 38 92% 50%;
+    --flashot-accent: #F59E0B;
+    --flashot-accent-rgb: 245, 158, 11;
+    --flashot-accent-soft: rgba(245, 158, 11, 0.06);
     --border: 217 19% 27%;
     /* shadcn token extensions */
     --card: 222 47% 11%;
     --card-foreground: 0 0% 98%;
     --popover: 222 47% 11%;
     --popover-foreground: 0 0% 98%;
-    --primary: 199 100% 65%;
+    --primary: 38 92% 50%;
     --primary-foreground: 222 47% 8%;
     --secondary: 217 19% 27%;
     --secondary-foreground: 0 0% 98%;
@@ -56,7 +56,7 @@
     --destructive: 0 62% 30%;
     --destructive-foreground: 0 0% 98%;
     --input: 217 19% 27%;
-    --ring: 199 100% 65%;
+    --ring: 38 92% 50%;
   }
   html, body, #root { height: 100%; }
   body {
@@ -100,11 +100,11 @@
   body.overlay .quick-shot-flash {
     position: absolute;
     box-sizing: border-box;
-    border: 2px solid rgba(255, 255, 255, 0.96);
-    background: rgba(74, 195, 255, 0.2);
+    background: transparent;
     box-shadow:
-      0 0 0 9999px rgba(255, 255, 255, 0.08),
-      0 0 28px rgba(74, 195, 255, 0.5);
+      inset 0 0 0 1px rgba(255, 255, 255, 0.36),
+      inset 0 0 22px rgba(var(--flashot-accent-rgb), 0.7),
+      inset 0 0 48px rgba(255, 255, 255, 0.24);
     animation: quick-shot-flash 420ms ease-out both;
   }
   @keyframes quick-shot-flash {
@@ -121,4 +121,15 @@
   * {
     @apply border-border;
   }
+}
+
+[data-slot="checkbox"][data-checked] {
+  background-color: var(--flashot-accent);
+  border-color: var(--flashot-accent);
+  color: #fff;
+}
+
+.dark [data-slot="checkbox"][data-checked] {
+  background-color: var(--flashot-accent);
+  border-color: var(--flashot-accent);
 }

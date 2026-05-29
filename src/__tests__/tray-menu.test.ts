@@ -16,14 +16,19 @@ const libSource = readFileSync(
   path.resolve(__dirname, "../../src-tauri/src/lib.rs"),
   "utf8",
 );
+const i18nSource = readFileSync(
+  path.resolve(__dirname, "../../src-tauri/src/i18n.rs"),
+  "utf8",
+);
 
 describe("tray menu", () => {
   it("uses the configured capture hotkey for the capture accelerator", () => {
-    expect(traySource).toMatch(/install\(\s*app: &AppHandle,\s*capture_hotkey: &str,\s*fullscreen_hotkey: &str,\s*active_window_hotkey: &str,\s*\)/);
+    expect(traySource).toMatch(/install\(\s*app: &AppHandle,\s*capture_hotkey: &str,\s*fullscreen_hotkey: &str,\s*active_window_hotkey: &str,\s*language: Language,\s*\)/);
     expect(traySource).toContain("capture_menu_accelerator(capture_hotkey)");
     expect(traySource).toContain("active_screen_menu_accelerator(fullscreen_hotkey)");
     expect(traySource).toContain("active_window_menu_accelerator(active_window_hotkey)");
     expect(traySource).toContain("pub fn update_menu(");
+    expect(libSource).toContain("settings.language");
   });
 
   it("adds tray menu actions for active screen and active window quick shots", () => {
@@ -34,9 +39,15 @@ describe("tray menu", () => {
   });
 
   it("labels and icons the three capture actions consistently", () => {
-    expect(traySource).toContain('"Capture Region"');
-    expect(traySource).toContain('"Capture Screen"');
-    expect(traySource).toContain('"Capture Window"');
+    expect(traySource).toContain("let labels = tray_labels(language)");
+    expect(traySource).toContain("labels.capture_region");
+    expect(traySource).toContain("labels.capture_screen");
+    expect(traySource).toContain("labels.capture_window");
+    expect(i18nSource).toContain('"Capture Area"');
+    expect(i18nSource).toContain('"Capture Screen"');
+    expect(i18nSource).toContain('"Capture Active Window"');
+    expect(i18nSource).toContain('"擷取區域"');
+    expect(i18nSource).toContain('"擷取目前活動視窗"');
     expect(traySource).toContain("IconMenuItem::with_id");
     expect(traySource).toContain("MenuIcon::Crop");
     expect(traySource).toContain("MenuIcon::Monitor");

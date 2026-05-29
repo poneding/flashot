@@ -11,6 +11,12 @@ const scrollListeners = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/ipc", () => ({
+  getSettings: vi.fn().mockResolvedValue({
+    language: "en",
+    theme: "system",
+    accentColor: "#4ED1FF",
+  }),
+  onSettingsChanged: vi.fn().mockResolvedValue(vi.fn()),
   onScrollProgress: vi.fn().mockResolvedValue(vi.fn()),
   onScrollMatchFailed: vi.fn().mockResolvedValue(vi.fn()),
   onScrollEndDetected: vi.fn((cb: (reason: ScrollEndReason) => void) => {
@@ -47,6 +53,30 @@ describe("ScrollChromeRoute", () => {
     expect(stopScrollSession).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
     expect(screen.getByText("Bottom reached")).toBeInTheDocument();
+  });
+
+  it("renders scroll status and actions in Traditional Chinese", async () => {
+    const { getSettings } = await import("@/lib/ipc");
+    vi.mocked(getSettings).mockResolvedValue({
+      language: "zh-TW",
+      theme: "system",
+      accentColor: "#4ED1FF",
+    } as any);
+
+    render(<ScrollChromeRoute />);
+
+    await waitFor(() => {
+      expect(scrollListeners.endDetected).toBeDefined();
+    });
+
+    await act(async () => {
+      scrollListeners.endDetected?.("bottom");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "完成" })).toBeInTheDocument();
+    });
+    expect(screen.getByText("已到達底部")).toBeInTheDocument();
   });
 
   it("matches the screenshot toolbar surface style", () => {

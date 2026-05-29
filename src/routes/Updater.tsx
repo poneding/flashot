@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   CircleCheckIcon,
   ArrowUpCircleIcon,
@@ -10,8 +12,10 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UtilityWindowShell } from "@/components/UtilityWindowShell";
-import { useStoredAccentColor } from "@/settings/useStoredAccentColor";
+import { createTranslator } from "@/i18n";
+import { useStoredAppearance, useStoredLanguage } from "@/settings/useStoredAccentColor";
 import { checkForUpdate, downloadAndInstall, type UpdateInfo, type UpdateProgress } from "@/lib/updater";
+import { getSettings } from "@/lib/ipc";
 import { relaunch } from "@tauri-apps/plugin-process";
 
 type UpdaterState =
@@ -24,17 +28,23 @@ type UpdaterState =
 
 export function UpdaterRoute() {
   const [state, setState] = useState<UpdaterState>("checking");
-  useStoredAccentColor();
+  useStoredAppearance();
+  const t = createTranslator(useStoredLanguage());
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [progress, setProgress] = useState<UpdateProgress>({ downloaded: 0, total: null });
   const [errorMsg, setErrorMsg] = useState("");
   const [version, setVersion] = useState("");
+  const [allowBetaUpdates, setAllowBetaUpdates] = useState(false);
 
   const doCheck = useCallback(async () => {
     setState("checking");
     setErrorMsg("");
     try {
-      const info = await checkForUpdate();
+      const settings = await getSettings().catch(() => null);
+      const allowBeta = settings?.allowBetaUpdates ?? false;
+      setAllowBetaUpdates(allowBeta);
+
+      const info = await checkForUpdate({ allowBeta });
       if (info) {
         setUpdateInfo(info);
         setState("available");
@@ -62,7 +72,7 @@ export function UpdaterRoute() {
   const handleDownload = async () => {
     setState("downloading");
     try {
-      await downloadAndInstall((p) => setProgress(p));
+      await downloadAndInstall((p) => setProgress(p), { allowBeta: allowBetaUpdates });
       setState("restart");
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : String(e));
@@ -78,6 +88,9 @@ export function UpdaterRoute() {
     relaunch();
   };
 
+  const betaStatus = t(allowBetaUpdates ? "updater.betaAllowed" : "updater.betaBlocked");
+  const showBetaStatus = state !== "checking";
+
   return (
     <UtilityWindowShell
       windowName="updater"
@@ -89,10 +102,15 @@ export function UpdaterRoute() {
         className="size-12"
         draggable={false}
       />
+      {showBetaStatus && (
+        <p className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+          {betaStatus}
+        </p>
+      )}
       {state === "checking" && (
         <>
           <LoaderCircleIcon size={36} className="animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Checking for updates…</p>
+          <p className="text-sm text-muted-foreground">{t("updater.checking")}</p>
         </>
       )}
 
@@ -100,11 +118,11 @@ export function UpdaterRoute() {
         <>
           <CircleCheckIcon size={36} className="text-green-500" />
           <div className="space-y-1">
-            <p className="text-base font-semibold">You're up to date</p>
-            <p className="text-sm text-muted-foreground">Version {version}</p>
+            <p className="text-base font-semibold">{t("updater.upToDate")}</p>
+            <p className="text-sm text-muted-foreground">{t("updater.version", { version })}</p>
           </div>
           <Button variant="outline" onClick={handleClose}>
-            Close
+            {t("updater.close")}
           </Button>
         </>
       )}
@@ -113,19 +131,44 @@ export function UpdaterRoute() {
         <>
           <ArrowUpCircleIcon size={36} className="text-blue-500" />
           <div className="space-y-1">
-            <p className="text-base font-semibold">A new version is available</p>
+            <p className="text-base font-semibold">{t("updater.available")}</p>
             <p className="text-sm text-muted-foreground">v{updateInfo.version}</p>
           </div>
           {updateInfo.body && (
-            <div className="max-h-[160px] w-full overflow-y-auto rounded-md bg-muted/50 p-3 text-left text-xs text-muted-foreground whitespace-pre-wrap">
-              {updateInfo.body}
+            <div className="max-h-[160px] w-full overflow-y-auto rounded-md bg-muted/50 p-3 text-left text-xs text-muted-foreground">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  h1: ({ children }) => <h1 className="mb-2 text-sm font-semibold text-foreground">{children}</h1>,
+                  h2: ({ children }) => <h2 className="mb-2 text-sm font-semibold text-foreground">{children}</h2>,
+                  h3: ({ children }) => <h3 className="mb-1.5 text-xs font-semibold text-foreground">{children}</h3>,
+                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                  ul: ({ children }) => <ul className="mb-2 list-disc space-y-1 pl-4 last:mb-0">{children}</ul>,
+                  ol: ({ children }) => <ol className="mb-2 list-decimal space-y-1 pl-4 last:mb-0">{children}</ol>,
+                  li: ({ children }) => <li className="pl-0.5">{children}</li>,
+                  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                  code: ({ children }) => <code className="rounded bg-background px-1 py-0.5 font-mono text-[11px] text-foreground">{children}</code>,
+                  a: ({ children, href }) => (
+                    <a
+                      className="font-medium text-primary underline-offset-2 hover:underline"
+                      href={href}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      {children}
+                    </a>
+                  ),
+                }}
+              >
+                {updateInfo.body}
+              </ReactMarkdown>
             </div>
           )}
           <div className="flex gap-2">
             <Button variant="outline" onClick={handleClose}>
-              Later
+              {t("updater.later")}
             </Button>
-            <Button onClick={handleDownload}>Download &amp; Install</Button>
+            <Button onClick={handleDownload}>{t("updater.downloadInstall")}</Button>
           </div>
         </>
       )}
@@ -134,7 +177,7 @@ export function UpdaterRoute() {
         <>
           <ArrowDownCircleIcon size={36} className="text-blue-500" />
           <div className="space-y-1">
-            <p className="text-base font-semibold">Downloading…</p>
+            <p className="text-base font-semibold">{t("updater.downloading")}</p>
           </div>
           <div className="h-2 w-48 overflow-hidden rounded-full bg-muted">
             {progress.total ? (
@@ -158,10 +201,10 @@ export function UpdaterRoute() {
         <>
           <CircleCheckIcon size={36} className="text-green-500" />
           <div className="space-y-1">
-            <p className="text-base font-semibold">Ready to restart</p>
-            <p className="text-sm text-muted-foreground">Restart to finish updating</p>
+            <p className="text-base font-semibold">{t("updater.readyRestart")}</p>
+            <p className="text-sm text-muted-foreground">{t("updater.restartDescription")}</p>
           </div>
-          <Button onClick={handleRestart}>Restart Now</Button>
+          <Button onClick={handleRestart}>{t("updater.restartNow")}</Button>
         </>
       )}
 
@@ -169,15 +212,15 @@ export function UpdaterRoute() {
         <>
           <XCircleIcon size={36} className="text-red-500" />
           <div className="space-y-1">
-            <p className="text-base font-semibold">Update check failed</p>
+            <p className="text-base font-semibold">{t("updater.error")}</p>
             <p className="text-sm text-muted-foreground">{errorMsg}</p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={doCheck}>
-              Retry
+              {t("updater.retry")}
             </Button>
             <Button variant="outline" onClick={handleClose}>
-              Close
+              {t("updater.close")}
             </Button>
           </div>
         </>
