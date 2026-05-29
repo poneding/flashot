@@ -115,8 +115,18 @@ Manual test scenarios for Flashot V0 before release.
 
 Procedure: trigger capture → draw selection over scrollable content → click Scrolling Screenshot button in Toolbar → scroll with mouse/trackpad → verify chrome window shows live preview + frame count → click Done → paste/save stitched result and visually verify no missing rows or duplicate rows. Esc cancels the scroll session and tears down the chrome window.
 
+## Scrolling Screenshot (Wayland)
+
+| Target | GNOME Wayland | KDE Wayland | wlroots/Hyprland |
+|---|---|---|---|
+| Long web page | ⏳ pending | ⏳ pending | ⏳ pending |
+| Long PDF | ⏳ pending | ⏳ pending | ⏳ pending |
+| Chat scrollback | ⏳ pending | ⏳ pending | ⏳ pending |
+
+Expected behavior: first use may show a system screen-sharing prompt. Denying permission must show a Flashot error toast and restore the committed selection.
+
 Known limitations:
-- Wayland: passthrough behavior of `set_ignore_cursor_events` not validated; X11 only for v1.
+- Wayland: compositor-specific portal behavior still needs manual validation across GNOME, KDE, and wlroots compositors.
 - Selection height < 100 logical px: Scrolling Screenshot button is disabled.
 - Fast scrolling may yield `scroll:match-failed` events; a toast surfaces in the chrome window after 5 consecutive failures.
 
