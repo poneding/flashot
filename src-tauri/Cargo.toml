@@ -1,6 +1,6 @@
 [package]
 name = "flashot"
-version = "0.5.2"
+version = "0.6.0-beta.1"
 description = "Flashot is a screenshot tool built with Rust and Tauri."
 authors = ["poneding@gmail.com"]
 edition = "2021"
