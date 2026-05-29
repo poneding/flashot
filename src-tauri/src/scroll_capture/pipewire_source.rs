@@ -125,16 +125,16 @@ impl WaylandPipeWireSource {
         let (quit_tx, quit_rx) = channel::channel();
 
         let join = std::thread::spawn(move || {
-            if let Err(e) = run_pipewire_loop(
+            if let Err(e) = run_pipewire_loop(PipeWireLoopConfig {
                 remote_fd,
-                stream,
+                portal_stream: stream,
                 raw_size_hint,
                 monitor_rect,
                 logical_selection,
-                thread_buffer.clone(),
-                thread_stop,
+                buffer: thread_buffer.clone(),
+                stop: thread_stop,
                 quit_rx,
-            ) {
+            }) {
                 tracing::warn!("wayland pipewire scroll capture stopped: {e}");
                 thread_buffer.stop();
             }
@@ -181,7 +181,7 @@ struct ListenerUserData {
     format: VideoInfoRaw,
 }
 
-fn run_pipewire_loop(
+struct PipeWireLoopConfig {
     remote_fd: OwnedFd,
     portal_stream: PortalStreamInfo,
     raw_size_hint: Option<RawFrameSize>,
@@ -190,7 +190,20 @@ fn run_pipewire_loop(
     buffer: Arc<LatestFrameBuffer>,
     stop: Arc<AtomicBool>,
     quit_rx: channel::Receiver<()>,
-) -> Result<()> {
+}
+
+fn run_pipewire_loop(config: PipeWireLoopConfig) -> Result<()> {
+    let PipeWireLoopConfig {
+        remote_fd,
+        portal_stream,
+        raw_size_hint,
+        monitor_rect,
+        logical_selection,
+        buffer,
+        stop,
+        quit_rx,
+    } = config;
+
     pipewire::init();
 
     let main_loop = MainLoopRc::new(None).context("failed to create pipewire main loop")?;
