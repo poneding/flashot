@@ -6,6 +6,8 @@ pub(crate) mod frame_buffer;
 pub(crate) mod mapping;
 #[cfg(target_os = "linux")]
 pub(crate) mod pipewire_source;
+#[cfg(target_os = "linux")]
+pub(crate) mod portal;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScrollCaptureBackend {
