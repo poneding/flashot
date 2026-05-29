@@ -535,6 +535,7 @@ export function OverlayRoute() {
             selection={selection}
             scaleFactor={scaleFactor}
             frameUrl={frameUrl}
+            frameSourceRect={selection}
             interacting={!!selectionInteraction}
           />
           <AnnotationToolbar

@@ -7,6 +7,7 @@ import type { Point } from "@/lib/types";
 
 const MIN_LENS_SIZE = 12;
 const MAGNIFIER_BORDER_WIDTH = 4;
+const MAGNIFIER_PREVIEW_STROKE_WIDTH = 1;
 const MAGNIFIER_BORDER_RGB = "156, 163, 175";
 const MAGNIFIER_BORDER_ALPHAS = [0.72, 0.5, 0.3, 0.14];
 
@@ -74,6 +75,11 @@ function magnifierZoom(style: AnnotationStyle): number {
   return Number.isFinite(zoom) ? Math.max(2, Math.min(4, zoom)) : 2;
 }
 
+function magnifierCornerRadius(style: AnnotationStyle): number {
+  const radius = style.magnifierCornerRadius ?? 12;
+  return Number.isFinite(radius) ? Math.max(0, Math.min(60, radius)) : 12;
+}
+
 export function magnifierContentPosition(
   bounds: MagnifierBounds,
   zoom: number,
@@ -129,6 +135,7 @@ export function magnifierResizeUpdatesFromNode(
 export function onMagnifierStart(x: number, y: number) {
   const layer = getLayer();
   if (!layer) return;
+  const style = useAnnotation.getState().activeStyle;
 
   startX = x;
   startY = y;
@@ -139,7 +146,8 @@ export function onMagnifierStart(x: number, y: number) {
     width: 0,
     height: 0,
     stroke: borderStroke(MAGNIFIER_BORDER_ALPHAS[0]),
-    strokeWidth: MAGNIFIER_BORDER_WIDTH,
+    strokeWidth: MAGNIFIER_PREVIEW_STROKE_WIDTH,
+    cornerRadius: magnifierShape(style) === "rounded-rect" ? magnifierCornerRadius(style) : 0,
     dash: [4, 4],
     listening: false,
   });
@@ -222,6 +230,14 @@ function addMagnifiedContent(
   renderAnnotation?: RenderMagnifierAnnotation,
 ) {
   const position = magnifierContentPosition(bounds, zoom);
+  const sourceCrop = context.sourceRect
+    ? {
+        x: context.sourceRect.x * context.scaleFactor,
+        y: context.sourceRect.y * context.scaleFactor,
+        width: context.sourceRect.width * context.scaleFactor,
+        height: context.sourceRect.height * context.scaleFactor,
+      }
+    : undefined;
 
   const content = new Konva.Group({
     name: "magnifier-content",
@@ -239,6 +255,7 @@ function addMagnifiedContent(
     y: 0,
     width: context.stageSize.width,
     height: context.stageSize.height,
+    ...(sourceCrop ? { crop: sourceCrop } : {}),
     listening: false,
   }));
 
@@ -250,6 +267,7 @@ function setMagnifierClip(
   clip: Konva.Group,
   bounds: MagnifierBounds,
   shape: MagnifierShape,
+  cornerRadius: number,
 ) {
   clip.setAttrs({
     width: bounds.width,
@@ -262,11 +280,55 @@ function setMagnifierClip(
       return;
     }
 
+    if (typeof ctx.roundRect === "function" && cornerRadius > 0) {
+      ctx.roundRect(0, 0, bounds.width, bounds.height, cornerRadius);
+      return;
+    }
+
     ctx.rect(0, 0, bounds.width, bounds.height);
   });
 }
 
-function addMagnifierBorder(group: Konva.Group, bounds: MagnifierBounds, shape: MagnifierShape) {
+function addMagnifierHitArea(
+  group: Konva.Group,
+  bounds: MagnifierBounds,
+  shape: MagnifierShape,
+  cornerRadius: number,
+) {
+  const common = {
+    name: "magnifier-hit",
+    fill: "rgba(0,0,0,0)",
+    strokeEnabled: false,
+    listening: true,
+    perfectDrawEnabled: false,
+  };
+
+  if (shape === "circle") {
+    group.add(new Konva.Circle({
+      ...common,
+      x: bounds.width / 2,
+      y: bounds.height / 2,
+      radius: Math.min(bounds.width, bounds.height) / 2,
+    }));
+    return;
+  }
+
+  group.add(new Konva.Rect({
+    ...common,
+    x: 0,
+    y: 0,
+    width: bounds.width,
+    height: bounds.height,
+    cornerRadius,
+  }));
+}
+
+function addMagnifierBorder(
+  group: Konva.Group,
+  bounds: MagnifierBounds,
+  shape: MagnifierShape,
+  cornerRadius: number,
+) {
   const ringCount = MAGNIFIER_BORDER_WIDTH;
   for (let index = 0; index < ringCount; index++) {
     const inset = index + 0.5;
@@ -295,7 +357,7 @@ function addMagnifierBorder(group: Konva.Group, bounds: MagnifierBounds, shape: 
       y: inset,
       width: Math.max(0, bounds.width - inset * 2),
       height: Math.max(0, bounds.height - inset * 2),
-      cornerRadius: 0,
+      cornerRadius: Math.max(0, cornerRadius - index),
     }));
   }
 }
@@ -309,6 +371,7 @@ export function renderMagnifierObject(
   const transform = obj.transform;
   const shape = magnifierShape(obj.style);
   const zoom = magnifierZoom(obj.style);
+  const cornerRadius = shape === "rounded-rect" ? magnifierCornerRadius(obj.style) : 0;
   const group = new Konva.Group({
     id: obj.id,
     x: visualBounds.x,
@@ -324,14 +387,15 @@ export function renderMagnifierObject(
   const clip = new Konva.Group({
     name: "magnifier-clip",
   });
-  setMagnifierClip(clip, visualBounds, shape);
+  setMagnifierClip(clip, visualBounds, shape, cornerRadius);
 
   if (context?.sourceImage) {
     addMagnifiedContent(clip, visualBounds, context, zoom, renderAnnotation);
   }
 
   group.add(clip);
-  addMagnifierBorder(group, visualBounds, shape);
+  addMagnifierHitArea(group, visualBounds, shape, cornerRadius);
+  addMagnifierBorder(group, visualBounds, shape, cornerRadius);
 
   return group;
 }
@@ -342,6 +406,7 @@ export function refreshMagnifierObjectNode(node: Konva.Node, obj: AnnotationObje
   const visualBounds = visualBoundsForObject(obj);
   const shape = magnifierShape(obj.style);
   const zoom = magnifierZoom(obj.style);
+  const cornerRadius = shape === "rounded-rect" ? magnifierCornerRadius(obj.style) : 0;
   node.setAttrs({
     x: visualBounds.x,
     y: visualBounds.y,
@@ -353,7 +418,7 @@ export function refreshMagnifierObjectNode(node: Konva.Node, obj: AnnotationObje
   });
 
   const clip = node.findOne(".magnifier-clip") as Konva.Group | undefined;
-  if (clip) setMagnifierClip(clip, visualBounds, shape);
+  if (clip) setMagnifierClip(clip, visualBounds, shape, cornerRadius);
 
   const content = node.findOne(".magnifier-content") as Konva.Group | undefined;
   if (content) {
@@ -361,8 +426,10 @@ export function refreshMagnifierObjectNode(node: Konva.Node, obj: AnnotationObje
     content.scale({ x: zoom, y: zoom });
   }
 
+  node.find(".magnifier-hit").forEach((hit) => hit.destroy());
+  addMagnifierHitArea(node, visualBounds, shape, cornerRadius);
   node.find(".magnifier-border-ring").forEach((ring) => ring.destroy());
-  addMagnifierBorder(node, visualBounds, shape);
+  addMagnifierBorder(node, visualBounds, shape, cornerRadius);
 
   return true;
 }

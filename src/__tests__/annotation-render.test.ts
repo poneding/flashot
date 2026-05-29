@@ -309,7 +309,7 @@ describe("annotation object rendering", () => {
     expect(outerRing.radius()).toBe(39.5);
   });
 
-  it("renders rectangular magnifiers with a clipped composited image and square border", () => {
+  it("renders rectangular magnifiers with a clipped composited image and configurable rounded border", () => {
     const sourceImage = new Image();
     const node = renderObject(object({
       id: "magnifier-2",
@@ -343,7 +343,27 @@ describe("annotation object rendering", () => {
     expect(group.findOne(".magnifier-clip")).toBeInstanceOf(Konva.Group);
     expect(group.findOne(".magnifier-image")).toBeInstanceOf(Konva.Image);
     expect(border).toBeInstanceOf(Konva.Rect);
-    expect(border.cornerRadius()).toBe(0);
+    expect(border.cornerRadius()).toBe(16);
+  });
+
+  it("adds an invisible hit area so magnifiers can be selected and dragged", () => {
+    const node = renderObject(object({
+      id: "magnifier-hit-test",
+      type: "magnifier",
+      start: { x: 40, y: 50 },
+      end: { x: 140, y: 150 },
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        magnifierShape: "circle",
+      },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    })) as Konva.Group;
+
+    const hitArea = node.findOne(".magnifier-hit") as Konva.Shape;
+
+    expect(hitArea).toBeInstanceOf(Konva.Shape);
+    expect(hitArea.listening()).toBe(true);
   });
 
   it("samples transformed magnifiers from their visual position", () => {
@@ -410,6 +430,38 @@ describe("annotation object rendering", () => {
     expect(node.scaleY()).toBe(1);
     expect(content.x()).toBe(-220);
     expect(content.y()).toBe(-195);
+  });
+
+  it("crops full-monitor frame sources to the committed selection before magnifying", () => {
+    const sourceImage = new Image();
+    const node = renderObject(object({
+      id: "magnifier-cropped-source",
+      type: "magnifier",
+      start: { x: 40, y: 50 },
+      end: { x: 140, y: 150 },
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        magnifierShape: "circle",
+        magnifierZoom: 2,
+      },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    }), {
+      stageSize: { width: 240, height: 160 },
+      magnifier: {
+        sourceImage,
+        stageSize: { width: 240, height: 160 },
+        scaleFactor: 2,
+        sourceRect: { x: 100, y: 120, width: 240, height: 160 },
+        objects: [],
+      },
+    }) as Konva.Group;
+
+    const image = node.findOne(".magnifier-image") as Konva.Image;
+
+    expect(image.crop()).toEqual({ x: 200, y: 240, width: 480, height: 320 });
+    expect(image.width()).toBe(240);
+    expect(image.height()).toBe(160);
   });
 
   it("samples transformed blur effects from their visual position", () => {

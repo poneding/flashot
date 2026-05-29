@@ -826,6 +826,24 @@ function MagnifierZoomDropdown({
   );
 }
 
+function MagnifierCornerRadiusDropdown({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  const t = usePanelT();
+  return (
+    <NumberDropdown
+      title={t("annotation.magnifierCornerRadius")}
+      value={value}
+      options={CORNER_RADIUS_OPTIONS}
+      onChange={onChange}
+    />
+  );
+}
+
 function FontSizeDropdown({
   value,
   onChange,
@@ -1298,6 +1316,65 @@ function ToggleGroup<T extends string>({
   );
 }
 
+type TabOption<T extends string> = { value: T; label: string; icon: ReactNode };
+
+function IconTabButton<T extends string>({
+  option,
+  selected,
+  onSelect,
+}: {
+  option: TabOption<T>;
+  selected: boolean;
+  onSelect: (value: T) => void;
+}) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        role="tab"
+        aria-label={option.label}
+        aria-selected={selected}
+        onMouseEnter={() => setTooltipVisible(true)}
+        onMouseLeave={() => setTooltipVisible(false)}
+        onClick={() => onSelect(option.value)}
+        style={selected ? btnActive : btnBase}
+      >
+        {option.icon}
+      </button>
+      {tooltipVisible && <TooltipBubble label={option.label} anchorRef={btnRef} />}
+    </>
+  );
+}
+
+function IconTabs<T extends string>({
+  options,
+  value,
+  onChange,
+  label,
+}: {
+  options: TabOption<T>[];
+  value: T;
+  onChange: (v: T) => void;
+  label: string;
+}) {
+  return (
+    <div role="tablist" aria-label={label} style={{ display: "flex", alignItems: "center", gap: 2 }}>
+      {options.map((option) => (
+        <IconTabButton
+          key={option.value}
+          option={option}
+          selected={value === option.value}
+          onSelect={onChange}
+        />
+      ))}
+    </div>
+  );
+}
+
 // ─── Tool sections ────────────────────────────────────────────────────────────
 
 function PenSection({
@@ -1716,15 +1793,16 @@ function MagnifierSection({
   set: (p: Partial<AnnotationStyle>) => void;
 }) {
   const t = usePanelT();
+  const shape = style.magnifierShape ?? "circle";
   return (
     <>
-      <DropdownSelect<MagnifierShape>
-        title={t("annotation.magnifierShape")}
+      <IconTabs<MagnifierShape>
+        label={t("annotation.magnifierShape")}
         options={[
           { value: "circle", label: t("annotation.circle"), icon: PanelIcon(Circle) },
           { value: "rounded-rect", label: t("annotation.roundedRectangleLens"), icon: PanelIcon(Square) },
         ]}
-        value={style.magnifierShape ?? "circle"}
+        value={shape}
         onChange={(magnifierShape) => set({ magnifierShape })}
       />
       <Separator />
@@ -1732,6 +1810,15 @@ function MagnifierSection({
         value={style.magnifierZoom ?? 2}
         onChange={(magnifierZoom) => set({ magnifierZoom })}
       />
+      {shape === "rounded-rect" && (
+        <>
+          <Separator />
+          <MagnifierCornerRadiusDropdown
+            value={style.magnifierCornerRadius ?? 12}
+            onChange={(magnifierCornerRadius) => set({ magnifierCornerRadius })}
+          />
+        </>
+      )}
     </>
   );
 }

@@ -92,6 +92,7 @@ describe("annotation stage helpers", () => {
   it("keeps text and blur annotations resizable but not rotatable", () => {
     const textConfig = transformerConfigForObject(object({ type: "text", text: "Note" }));
     const blurConfig = transformerConfigForObject(object({ type: "blur" }));
+    const magnifierConfig = transformerConfigForObject(object({ type: "magnifier" }));
 
     expect(textConfig.useTransformer).toBe(true);
     expect(textConfig.rotateEnabled).toBe(false);
@@ -99,6 +100,9 @@ describe("annotation stage helpers", () => {
     expect(blurConfig.useTransformer).toBe(true);
     expect(blurConfig.rotateEnabled).toBe(false);
     expect(blurConfig.enabledAnchors.length).toBeGreaterThan(0);
+    expect(magnifierConfig.useTransformer).toBe(true);
+    expect(magnifierConfig.rotateEnabled).toBe(false);
+    expect(magnifierConfig.enabledAnchors.length).toBeGreaterThan(0);
   });
 
   it("allows markers to move without resize or rotation handles", () => {

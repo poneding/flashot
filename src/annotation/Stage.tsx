@@ -1,42 +1,3 @@
-import { useEffect, useRef, useState } from "react";
-import Konva from "konva";
-import type { Point, Rect } from "@/lib/types";
-import { useAnnotation } from "@/annotation/store";
-import { onDrawStart, onDrawMove, onDrawEnd } from "@/annotation/tools/draw";
-import {
-  lineControlPoint,
-  onLineStart,
-  onLineMove,
-  onLineEnd,
-  updateLineObjectNode,
-} from "@/annotation/tools/line";
-import {
-  onMeasureStart,
-  onMeasureMove,
-  onMeasureEnd,
-  updateMeasureObjectNode,
-} from "@/annotation/tools/measure";
-import { onArrowStart, onArrowMove, onArrowEnd } from "@/annotation/tools/arrow";
-import { onRectStart, onRectMove, onRectEnd } from "@/annotation/tools/rect";
-import { onEllipseStart, onEllipseMove, onEllipseEnd } from "@/annotation/tools/ellipse";
-import { highlightBasePosition, onHighlightStart, onHighlightMove, onHighlightEnd } from "@/annotation/tools/highlight";
-import { blurResizeUpdatesFromNode, onBlurStart, onBlurMove, onBlurEnd, refreshBlurObjectNode } from "@/annotation/tools/blur";
-import { onMarkerStart, onMarkerMove, onMarkerEnd } from "@/annotation/tools/marker";
-import {
-  magnifierBasePosition,
-  magnifierResizeUpdatesFromNode,
-  onMagnifierStart,
-  onMagnifierMove,
-  onMagnifierEnd,
-  refreshMagnifierObjectNode,
-} from "@/annotation/tools/magnifier";
-import { onEraserStart, onEraserMove, onEraserEnd } from "@/annotation/tools/eraser";
-import type { AnnotationObject, AnnotationStyle, ToolType } from "@/annotation/types";
-import { TextOverlay } from "@/annotation/TextOverlay";
-import { MarkerTextOverlay } from "@/annotation/MarkerTextOverlay";
-import { addTextToLayer } from "@/annotation/tools/text";
-import { hitTestHandle } from "@/lib/geometry";
-import { renderObject } from "@/annotation/render";
 import {
   FOCUS_MASK_NAME,
   createFocusMask,
@@ -52,13 +13,53 @@ import {
   createMagnifierRenderContext,
   type MagnifierRenderContext,
 } from "@/annotation/magnifierContext";
-import { useOverlay } from "@/overlay/state";
+import { MarkerTextOverlay } from "@/annotation/MarkerTextOverlay";
+import { renderObject } from "@/annotation/render";
+import { useAnnotation } from "@/annotation/store";
+import { TextOverlay } from "@/annotation/TextOverlay";
+import { onArrowEnd, onArrowMove, onArrowStart } from "@/annotation/tools/arrow";
+import { blurResizeUpdatesFromNode, onBlurEnd, onBlurMove, onBlurStart, refreshBlurObjectNode } from "@/annotation/tools/blur";
+import { onDrawEnd, onDrawMove, onDrawStart } from "@/annotation/tools/draw";
+import { onEllipseEnd, onEllipseMove, onEllipseStart } from "@/annotation/tools/ellipse";
+import { onEraserEnd, onEraserMove, onEraserStart } from "@/annotation/tools/eraser";
+import { highlightBasePosition, onHighlightEnd, onHighlightMove, onHighlightStart } from "@/annotation/tools/highlight";
+import {
+  lineControlPoint,
+  onLineEnd,
+  onLineMove,
+  onLineStart,
+  updateLineObjectNode,
+} from "@/annotation/tools/line";
+import {
+  magnifierBasePosition,
+  magnifierResizeUpdatesFromNode,
+  onMagnifierEnd,
+  onMagnifierMove,
+  onMagnifierStart,
+  refreshMagnifierObjectNode,
+} from "@/annotation/tools/magnifier";
+import { onMarkerEnd, onMarkerMove, onMarkerStart } from "@/annotation/tools/marker";
+import {
+  onMeasureEnd,
+  onMeasureMove,
+  onMeasureStart,
+  updateMeasureObjectNode,
+} from "@/annotation/tools/measure";
+import { onRectEnd, onRectMove, onRectStart } from "@/annotation/tools/rect";
+import { addTextToLayer } from "@/annotation/tools/text";
+import type { AnnotationObject, AnnotationStyle, ToolType } from "@/annotation/types";
 import { SELECTION_COLOR } from "@/lib/colors";
+import { hitTestHandle } from "@/lib/geometry";
+import type { Point, Rect } from "@/lib/types";
+import { useOverlay } from "@/overlay/state";
+import Konva from "konva";
+import { useEffect, useRef, useState } from "react";
 
 type Props = {
   selection: Rect;
   scaleFactor: number;
   frameUrl?: string | null;
+  frameSourceRect?: Rect | null;
   interacting?: boolean;
 };
 
@@ -68,6 +69,7 @@ let transformer: Konva.Transformer | null = null;
 let lineEditGroup: Konva.Group | null = null;
 let magnifierSourceImage: HTMLImageElement | null = null;
 let magnifierScaleFactor = 1;
+let magnifierSourceRect: Rect | null = null;
 let focusPreview: {
   tool: "rect" | "ellipse";
   start: Point;
@@ -352,7 +354,7 @@ export function transformerConfigForObject(obj: AnnotationObject | undefined): {
   if (isEndpointEditableObject(obj)) return { useTransformer: false, rotateEnabled: false, enabledAnchors: [] };
   if (obj.type === "draw") return { useTransformer: true, rotateEnabled: false, enabledAnchors: [] };
   if (obj.type === "marker") return { useTransformer: true, rotateEnabled: false, enabledAnchors: [] };
-  if (obj.type === "text" || obj.type === "blur") {
+  if (obj.type === "text" || obj.type === "blur" || obj.type === "magnifier") {
     return { useTransformer: true, rotateEnabled: false, enabledAnchors: TRANSFORMER_ANCHORS };
   }
   return { useTransformer: true, rotateEnabled: true, enabledAnchors: TRANSFORMER_ANCHORS };
@@ -487,6 +489,7 @@ export function getMagnifierRenderContext(excludeObjectId?: string): MagnifierRe
     sourceImage: magnifierSourceImage,
     stageSize,
     scaleFactor: magnifierScaleFactor,
+    sourceRect: magnifierSourceRect,
     objects: useAnnotation.getState().objects,
     excludeObjectId,
   });
@@ -575,17 +578,25 @@ function cursorWithColorPickerOverride(cursor: string): string {
   return useOverlay.getState().colorPickerVisible ? "crosshair" : cursor;
 }
 
-function toolCursor(tool = useAnnotation.getState().activeTool): string {
+function toolCursor(
+  tool = useAnnotation.getState().activeTool,
+  style = useAnnotation.getState().activeStyle,
+): string {
   switch (tool) {
     case "select": return "move";
     case "text": return "text";
     case "eraser": return "grab";
+    case "magnifier": return style.magnifierShape === "rounded-rect" ? "crosshair" : "zoom-in";
     default: return "crosshair";
   }
 }
 
-function stageCursorForTool(tool: ToolType, colorPickerVisible: boolean): string {
-  return colorPickerVisible ? "crosshair" : toolCursor(tool);
+function stageCursorForTool(
+  tool: ToolType,
+  style: AnnotationStyle,
+  colorPickerVisible: boolean,
+): string {
+  return colorPickerVisible ? "crosshair" : toolCursor(tool, style);
 }
 
 function normalizedLayerPixelRatio(scaleFactor: number): number {
@@ -723,9 +734,9 @@ function renderLineEditHandles(obj: AnnotationObject) {
   const end = lineHandlePoint(obj, "end");
   const guidePoints = handles.includes("control")
     ? (() => {
-        const control = lineHandlePoint(obj, "control");
-        return [start.x, start.y, control.x, control.y, end.x, end.y];
-      })()
+      const control = lineHandlePoint(obj, "control");
+      return [start.x, start.y, control.x, control.y, end.x, end.y];
+    })()
     : [start.x, start.y, end.x, end.y];
 
   lineEditGroup.add(new Konva.Line({
@@ -818,9 +829,10 @@ function syncLayerWithStore(prevObjects: AnnotationObject[] = []) {
   syncSelectionWithStore(selectedObjectId);
 }
 
-export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting }: Props) {
+export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceRect, interacting }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeTool = useAnnotation((s) => s.activeTool);
+  const activeStyle = useAnnotation((s) => s.activeStyle);
   const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
   const [, forceRender] = useState(0);
   const [textEditing, setTextEditing] = useState<{ position: { x: number; y: number }; editingObject: AnnotationObject | null; key: number } | null>(null);
@@ -962,6 +974,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
       transformer = null;
       lineEditGroup = null;
       magnifierSourceImage = null;
+      magnifierSourceRect = null;
       focusPreview = null;
     };
   }, []);
@@ -969,6 +982,10 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
   useEffect(() => {
     magnifierScaleFactor = scaleFactor;
   }, [scaleFactor]);
+
+  useEffect(() => {
+    magnifierSourceRect = frameSourceRect ?? null;
+  }, [frameSourceRect]);
 
   useEffect(() => {
     if (!frameUrl) {
@@ -1019,7 +1036,16 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
 
     syncFocusMask();
     stage.batchDraw();
-  }, [selection.width, selection.height, scaleFactor, interacting]);
+  }, [
+    selection.width,
+    selection.height,
+    scaleFactor,
+    frameSourceRect?.x,
+    frameSourceRect?.y,
+    frameSourceRect?.width,
+    frameSourceRect?.height,
+    interacting,
+  ]);
 
   // Sync Konva layer with store objects and selection (handles undo/redo/style/transform)
   useEffect(() => {
@@ -1177,7 +1203,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
-    const { activeTool: tool, drawingState, setDrawingState, addObject } = useAnnotation.getState();
+    const { activeTool: tool, drawingState, setDrawingState, addObject, setSelectedObject } = useAnnotation.getState();
 
     if (drawingState !== "active") return;
 
@@ -1200,6 +1226,8 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
         addObject(obj);
         if (obj.type === "marker") {
           openMarkerEditor(obj);
+        } else if (obj.type === "magnifier") {
+          setSelectedObject(obj.id);
         }
       } else {
         syncFocusMask();
@@ -1208,7 +1236,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, interacting 
     setDrawingState("idle");
   };
 
-  const cursor = stageCursorForTool(activeTool, colorPickerVisible);
+  const cursor = stageCursorForTool(activeTool, activeStyle, colorPickerVisible);
 
   return (
     <>

@@ -9,7 +9,7 @@ import { hitTestHandle, rectContainsPoint } from "@/lib/geometry";
 import type { CaptureStartPayload } from "@/lib/types";
 import { useOverlay } from "@/overlay/state";
 
-const { AnnotationStage, getLayer } = StageModule;
+const { AnnotationStage, getLayer, getTransformer } = StageModule;
 
 vi.mock("@/lib/ipc", () => ({
   beginTextInputSession: vi.fn().mockResolvedValue(undefined),
@@ -173,6 +173,56 @@ describe("AnnotationStage selection movement", () => {
     expect(stageNode.style.cursor).toBe("crosshair");
   });
 
+  it("uses zoom-in for circle magnifiers and crosshair for rectangular magnifiers", () => {
+    useAnnotation.getState().setActiveTool("magnifier");
+    useAnnotation.getState().setActiveStyle({ magnifierShape: "circle" });
+
+    const { container, rerender } = render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
+    expect(stageNode.style.cursor).toBe("zoom-in");
+
+    act(() => {
+      useAnnotation.getState().setActiveStyle({ magnifierShape: "rounded-rect" });
+    });
+    rerender(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    expect(stageNode.style.cursor).toBe("crosshair");
+  });
+
+  it("draws magnifier selection previews with a lightweight stroke", () => {
+    useAnnotation.getState().setActiveTool("magnifier");
+    const { container } = render(<AnnotationStage selection={selection} scaleFactor={2} />);
+    const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
+
+    act(() => {
+      fireEvent.mouseDown(stageNode, { clientX: 20, clientY: 24 });
+    });
+
+    const preview = getLayer()?.getChildren((node) => (
+      node instanceof Konva.Rect && Array.isArray(node.dash()) && node.dash().length > 0
+    ))[0] as Konva.Rect | undefined;
+
+    expect(preview?.strokeWidth()).toBe(1);
+  });
+
+  it("selects a completed magnifier so it can be resized immediately", () => {
+    useAnnotation.getState().setActiveTool("magnifier");
+    const { container } = render(<AnnotationStage selection={selection} scaleFactor={2} />);
+    const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
+
+    act(() => {
+      fireEvent.mouseDown(stageNode, { clientX: 40, clientY: 50 });
+      fireEvent.mouseMove(stageNode, { clientX: 140, clientY: 150 });
+      fireEvent.mouseUp(stageNode, { clientX: 140, clientY: 150 });
+    });
+
+    const magnifier = useAnnotation.getState().objects.find((obj) => obj.type === "magnifier");
+    expect(magnifier).toBeTruthy();
+    expect(useAnnotation.getState().selectedObjectId).toBe(magnifier?.id);
+    expect(getTransformer()?.nodes().map((node) => node.id())).toEqual([magnifier?.id]);
+  });
+
   it("restores the selected annotation tool cursor when the color picker is hidden", () => {
     useAnnotation.getState().setActiveTool("text");
     const { container } = render(<AnnotationStage selection={selection} scaleFactor={2} />);
@@ -255,6 +305,45 @@ describe("AnnotationStage selection movement", () => {
       expect(context?.scaleFactor).toBe(2);
       expect(context?.objects.map((obj) => obj.id)).toEqual(["rect-1"]);
     });
+  });
+
+  it("keeps magnifier transformer scale until resize is persisted", () => {
+    const magnifier: AnnotationObject = {
+      id: "magnifier-1",
+      type: "magnifier",
+      start: { x: 40, y: 50 },
+      end: { x: 140, y: 150 },
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        magnifierShape: "rounded-rect",
+        magnifierZoom: 2,
+      },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(magnifier);
+      useAnnotation.getState().setSelectedObject(magnifier.id);
+    });
+
+    const node = getLayer()?.findOne("#magnifier-1") as Konva.Group | undefined;
+    const transformer = getTransformer();
+    expect(node).toBeInstanceOf(Konva.Group);
+    expect(transformer?.nodes()).toEqual([node]);
+
+    act(() => {
+      node!.scaleX(2);
+      node!.scaleY(1.5);
+      transformer?.fire("transform");
+      transformer?.fire("transformend");
+    });
+
+    const resized = useAnnotation.getState().objects.find((obj) => obj.id === magnifier.id);
+    expect(resized?.start).toEqual({ x: 40, y: 50 });
+    expect(resized?.end).toEqual({ x: 240, y: 200 });
   });
 
   it("shows the shared spotlight mask as soon as spotlight rectangle drawing starts", () => {

@@ -202,22 +202,32 @@ describe("Annotation property panel", () => {
     expect(screen.getByRole("tooltip").textContent).toBe("Already at minimum marker number");
   });
 
-  it("shows magnifier shape and zoom controls with a fixed border", () => {
+  it("shows magnifier shape tabs and places zoom before rectangular corner radius", () => {
     render(<PropertyPanel tool="magnifier" />);
 
-    expect(screen.getByRole("button", { name: "Magnifier shape: Circle" })).not.toBeNull();
+    const shapeTabs = screen.getByRole("tablist", { name: "Magnifier shape" });
+    expect(within(shapeTabs).getByRole("tab", { name: "Circle" })).not.toBeNull();
+    expect(within(shapeTabs).getByRole("tab", { name: "Rounded rectangle lens" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Magnifier shape: Circle" })).toBeNull();
     expect(screen.getByRole("button", { name: "Magnifier zoom: 200%" })).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Magnifier border width: 8" })).toBeNull();
     expect(screen.queryByLabelText("Magnifier border color")).toBeNull();
     expect(screen.queryByRole("button", { name: "Magnifier corner radius: 12" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Magnifier shape: Circle" }));
-    const rectangleOption = screen.getByLabelText("Rounded rectangle lens");
+    const rectangleOption = within(shapeTabs).getByRole("tab", { name: "Rounded rectangle lens" });
     const rectangleIcon = rectangleOption.querySelector("svg rect");
     expect(rectangleIcon?.getAttribute("y")).toBe("3");
     expect(rectangleIcon?.getAttribute("height")).toBe("18");
     fireEvent.click(rectangleOption);
     expect(useAnnotation.getState().activeStyle.magnifierShape).toBe("rounded-rect");
+    const zoomButton = screen.getByRole("button", { name: "Magnifier zoom: 200%" });
+    const radiusButton = screen.getByRole("button", { name: "Magnifier corner radius: 12" });
+    expect(zoomButton.compareDocumentPosition(radiusButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(radiusButton);
+    const radiusList = screen.getByTestId("annotation-number-list-magnifier-corner-radius");
+    fireEvent.click(within(radiusList).getByRole("button", { name: "Magnifier corner radius: 24" }));
+    expect(useAnnotation.getState().activeStyle.magnifierCornerRadius).toBe(24);
 
     fireEvent.click(screen.getByRole("button", { name: "Magnifier zoom: 200%" }));
     const zoomList = screen.getByTestId("annotation-number-list-magnifier-zoom");
