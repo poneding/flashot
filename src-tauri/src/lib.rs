@@ -806,11 +806,11 @@ fn show_quick_shot_flash(
         return Ok(());
     };
 
+    overlay_window::show_capture_overlay(&window)
+        .context("Failed to show quick shot flash overlay")?;
     window
         .set_ignore_cursor_events(true)
         .context("Failed to enable quick shot flash cursor passthrough")?;
-    overlay_window::show_capture_overlay(&window)
-        .context("Failed to show quick shot flash overlay")?;
     app.emit_to(
         capture_start_target(&label),
         "quick-shot:flash",
@@ -1522,6 +1522,23 @@ mod tests {
         assert!(
             !body.contains("window.show().context(\"Failed to show overlay window\")"),
             "Tauri show can activate the app and bring utility windows forward on macOS",
+        );
+    }
+
+    #[test]
+    fn quick_shot_flash_enables_cursor_passthrough_after_showing_overlay() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "show_quick_shot_flash");
+        let show_idx = body
+            .find("overlay_window::show_capture_overlay(&window)")
+            .expect("quick shot flash must show the overlay");
+        let ignore_idx = body
+            .find("set_ignore_cursor_events(true)")
+            .expect("quick shot flash should be mouse-transparent");
+
+        assert!(
+            show_idx < ignore_idx,
+            "Tao's Linux cursor-ignore request requires a realized GTK window",
         );
     }
 

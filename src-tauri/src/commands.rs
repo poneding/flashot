@@ -1395,8 +1395,8 @@ fn spawn_scroll_outline(app: &AppHandle, monitor_id: u32, rect: Rect) -> Result<
         .background_color(outline_color)
         .build()
         .map_err(|e| e.to_string())?;
-        let _ = window.set_ignore_cursor_events(true);
         window.show().map_err(|e| e.to_string())?;
+        let _ = window.set_ignore_cursor_events(true);
     }
 
     Ok(())
@@ -1943,6 +1943,23 @@ mod tests {
         assert_eq!(
             (right.x, right.y, right.width, right.height),
             (350.0, 140.0, 2.0, 160.0),
+        );
+    }
+
+    #[test]
+    fn scroll_outline_sets_cursor_passthrough_after_showing_window() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "spawn_scroll_outline");
+        let show_idx = body
+            .find("window.show()")
+            .expect("outline windows must be shown");
+        let ignore_idx = body
+            .find("set_ignore_cursor_events(true)")
+            .expect("outline windows should be mouse-transparent");
+
+        assert!(
+            show_idx < ignore_idx,
+            "Tao's Linux cursor-ignore request unwraps the GTK GdkWindow, so hidden outline windows must be shown before enabling passthrough",
         );
     }
 
