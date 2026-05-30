@@ -173,6 +173,13 @@ describe("AnnotationStage selection movement", () => {
     expect(stageNode.style.cursor).toBe("crosshair");
   });
 
+  it("allows corner resize handles to change width and height freely", () => {
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    expect(getTransformer()?.keepRatio()).toBe(false);
+    expect(getTransformer()?.shiftBehavior()).toBe("none");
+  });
+
   it("uses zoom-in for circle magnifiers and crosshair for rectangular magnifiers", () => {
     useAnnotation.getState().setActiveTool("magnifier");
     useAnnotation.getState().setActiveStyle({ magnifierShape: "circle" });
@@ -344,6 +351,235 @@ describe("AnnotationStage selection movement", () => {
     const resized = useAnnotation.getState().objects.find((obj) => obj.id === magnifier.id);
     expect(resized?.start).toEqual({ x: 40, y: 50 });
     expect(resized?.end).toEqual({ x: 240, y: 200 });
+  });
+
+  it("bakes shape resize scale into bounds so selection and corner radius stay aligned", () => {
+    const rect: AnnotationObject = {
+      id: "rounded-rect-1",
+      type: "rect",
+      start: { x: 20, y: 24 },
+      end: { x: 100, y: 80 },
+      style: { color: "#ff0000", strokeWidth: 4, fill: "hollow", cornerRadius: 12 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(rect);
+      useAnnotation.getState().setSelectedObject(rect.id);
+    });
+
+    const node = getLayer()?.findOne("#rounded-rect-1") as Konva.Rect | undefined;
+    const transformer = getTransformer();
+    expect(node).toBeInstanceOf(Konva.Rect);
+
+    act(() => {
+      node!.scaleX(2);
+      node!.scaleY(1.5);
+      transformer?.fire("transformend");
+    });
+
+    const resized = useAnnotation.getState().objects.find((obj) => obj.id === rect.id);
+    expect(resized?.start).toEqual({ x: 20, y: 24 });
+    expect(resized?.end).toEqual({ x: 180, y: 108 });
+    expect(resized?.transform).toEqual({ x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 });
+
+    const rerendered = getLayer()?.findOne("#rounded-rect-1") as Konva.Rect | undefined;
+    expect(rerendered?.width()).toBe(160);
+    expect(rerendered?.height()).toBe(84);
+    expect(rerendered?.scaleX()).toBe(1);
+    expect(rerendered?.scaleY()).toBe(1);
+    expect(rerendered?.cornerRadius()).toBe(12);
+    expect(transformer?.nodes()).toEqual([rerendered]);
+  });
+
+  it("keeps rounded rectangle nodes unscaled while transformer resize is active", () => {
+    const rect: AnnotationObject = {
+      id: "live-rounded-rect-1",
+      type: "rect",
+      start: { x: 20, y: 24 },
+      end: { x: 100, y: 80 },
+      style: { color: "#ff0000", strokeWidth: 4, fill: "hollow", cornerRadius: 12 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(rect);
+      useAnnotation.getState().setSelectedObject(rect.id);
+    });
+
+    const node = getLayer()?.findOne("#live-rounded-rect-1") as Konva.Rect | undefined;
+    const transformer = getTransformer();
+    expect(node).toBeInstanceOf(Konva.Rect);
+
+    act(() => {
+      node!.scaleX(2);
+      node!.scaleY(1.5);
+      transformer?.fire("transform");
+    });
+
+    expect(node?.width()).toBe(160);
+    expect(node?.height()).toBe(84);
+    expect(node?.scaleX()).toBe(1);
+    expect(node?.scaleY()).toBe(1);
+    expect(node?.cornerRadius()).toBe(12);
+    expect(transformer?.nodes()).toEqual([node]);
+  });
+
+  it("keeps resized circle spotlight masks aligned with non-proportional bounds", () => {
+    const spotlight: AnnotationObject = {
+      id: "circle-spotlight-1",
+      type: "spotlight",
+      start: { x: 20, y: 24 },
+      end: { x: 80, y: 84 },
+      style: { color: "#ff0000", strokeWidth: 4, fill: "spotlight", spotlightShape: "circle" },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(spotlight);
+      useAnnotation.getState().setSelectedObject(spotlight.id);
+    });
+
+    const node = getLayer()?.findOne("#circle-spotlight-1") as Konva.Ellipse | undefined;
+    const transformer = getTransformer();
+    expect(node).toBeInstanceOf(Konva.Ellipse);
+
+    act(() => {
+      node!.scaleX(2);
+      node!.scaleY(1);
+      transformer?.fire("transformend");
+    });
+
+    const mask = getLayer()?.findOne(".focus-mask") as Konva.Shape | undefined;
+    const [hole] = mask?.getAttr("focusHoles") ?? [];
+    expect(hole.kind).toBe("ellipse");
+    expect(hole.width).toBe(120);
+    expect(hole.height).toBe(60);
+  });
+
+  it("keeps circle spotlight masks aligned while transformer resize is active", () => {
+    const spotlight: AnnotationObject = {
+      id: "live-circle-spotlight-1",
+      type: "spotlight",
+      start: { x: 20, y: 24 },
+      end: { x: 80, y: 84 },
+      style: { color: "#ff0000", strokeWidth: 4, fill: "spotlight", spotlightShape: "circle" },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(spotlight);
+      useAnnotation.getState().setSelectedObject(spotlight.id);
+    });
+
+    const node = getLayer()?.findOne("#live-circle-spotlight-1") as Konva.Ellipse | undefined;
+    const transformer = getTransformer();
+    expect(node).toBeInstanceOf(Konva.Ellipse);
+
+    act(() => {
+      node!.scaleX(2);
+      node!.scaleY(1);
+      transformer?.fire("transform");
+    });
+
+    expect(node?.radiusX()).toBe(60);
+    expect(node?.radiusY()).toBe(30);
+    expect(node?.scaleX()).toBe(1);
+    expect(node?.scaleY()).toBe(1);
+
+    const mask = getLayer()?.findOne(".focus-mask") as Konva.Shape | undefined;
+    const [hole] = mask?.getAttr("focusHoles") ?? [];
+    expect(hole.kind).toBe("ellipse");
+    expect(hole.width).toBe(120);
+    expect(hole.height).toBe(60);
+  });
+
+  it("shows endpoint handles instead of a transformer for straight highlights", () => {
+    const highlight: AnnotationObject = {
+      id: "straight-highlight-1",
+      type: "highlight",
+      start: { x: 20, y: 24 },
+      end: { x: 120, y: 64 },
+      points: [20, 24, 120, 64],
+      style: { color: "#ffff00", strokeWidth: 4, highlightMode: "straight", cornerRadius: 8 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(highlight);
+      useAnnotation.getState().setSelectedObject(highlight.id);
+    });
+
+    expect(getTransformer()?.nodes()).toEqual([]);
+    expect(getLayer()?.find(".line-edit-handle")).toHaveLength(2);
+    expect(getLayer()?.find(".line-edit-start")).toHaveLength(1);
+    expect(getLayer()?.find(".line-edit-end")).toHaveLength(1);
+    expect(getLayer()?.find(".line-edit-control")).toHaveLength(0);
+  });
+
+  it("updates straight highlight endpoints from edit handles", () => {
+    const highlight: AnnotationObject = {
+      id: "editable-straight-highlight-1",
+      type: "highlight",
+      start: { x: 20, y: 24 },
+      end: { x: 120, y: 64 },
+      points: [20, 24, 120, 64],
+      style: { color: "#ffff00", strokeWidth: 4, highlightMode: "straight", cornerRadius: 8 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(highlight);
+      useAnnotation.getState().setSelectedObject(highlight.id);
+    });
+
+    const startHandle = getLayer()?.findOne(".line-edit-start") as Konva.Circle | undefined;
+    expect(startHandle).toBeInstanceOf(Konva.Circle);
+
+    act(() => {
+      startHandle!.position({ x: 32, y: 36 });
+      startHandle!.fire("dragmove");
+      startHandle!.fire("dragend");
+    });
+
+    const resized = useAnnotation.getState().objects.find((obj) => obj.id === highlight.id);
+    expect(resized?.start).toEqual({ x: 32, y: 36 });
+    expect(resized?.end).toEqual({ x: 120, y: 64 });
+    expect(resized?.points).toEqual([32, 36, 120, 64]);
+  });
+
+  it("uses a move-only transformer for freehand highlights", () => {
+    const highlight: AnnotationObject = {
+      id: "freehand-highlight-1",
+      type: "highlight",
+      points: [20, 24, 48, 32, 88, 44, 120, 64],
+      style: { color: "#ffff00", strokeWidth: 4, highlightMode: "freehand", cornerRadius: 8 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(highlight);
+      useAnnotation.getState().setSelectedObject(highlight.id);
+    });
+
+    const node = getLayer()?.findOne("#freehand-highlight-1") as Konva.Group | undefined;
+    expect(getTransformer()?.nodes()).toEqual([node]);
+    expect(getTransformer()?.enabledAnchors()).toEqual([]);
+    expect(getLayer()?.find(".line-edit-handle")).toHaveLength(0);
   });
 
   it("shows the shared spotlight mask as soon as spotlight rectangle drawing starts", () => {

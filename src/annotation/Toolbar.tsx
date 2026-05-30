@@ -36,7 +36,7 @@ type ToolDef = {
 
 function MarkerIcon({ markerNumber }: { markerNumber: number }) {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="1.6" />
       <text
         x="12"

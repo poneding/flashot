@@ -14,6 +14,7 @@ import { blurSampleRectForObject } from "@/annotation/tools/blur";
 import { renderObject } from "@/annotation/render";
 import { renderTextObject } from "@/annotation/tools/text";
 import type { AnnotationObject } from "@/annotation/types";
+import { MARKER_BUBBLE_GAP, markerBadgeRadius } from "@/annotation/markerStyle";
 
 function object(overrides: Partial<AnnotationObject>): AnnotationObject {
   return {
@@ -225,6 +226,36 @@ describe("annotation object rendering", () => {
 
     expect(number.fontSize()).toBe(20);
     expect(badge.radius()).toBeGreaterThan(12);
+  });
+
+  it("shrinks only the numbered marker circle while preserving text and bubble layout", () => {
+    const node = renderObject(object({
+      id: "marker-compact-badge",
+      type: "marker",
+      start: { x: 30, y: 40 },
+      markerNumber: 8,
+      text: "Keep layout",
+      style: {
+        color: "#ff0000",
+        strokeWidth: 4,
+        markerFill: "#ff6600",
+        fontSize: 20,
+      },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    })) as Konva.Group;
+
+    const layoutRadius = markerBadgeRadius(20);
+    const badge = node.findOne(".marker-badge") as Konva.Circle;
+    const number = node.findOne(".marker-number") as Konva.Text;
+    const bubble = node.findOne(".marker-bubble") as Konva.Rect;
+
+    expect(badge.radius()).toBeLessThan(layoutRadius);
+    expect(number.fontSize()).toBe(20);
+    expect(number.width()).toBe(layoutRadius * 2);
+    expect(number.height()).toBe(layoutRadius * 2);
+    expect(number.x() + number.width() / 2).toBe(badge.x());
+    expect(number.y() + number.height() / 2).toBe(badge.y());
+    expect(bubble.x()).toBe(layoutRadius + MARKER_BUBBLE_GAP);
   });
 
   it("renders circle magnifiers with a clipped composited image and border", () => {

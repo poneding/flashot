@@ -125,6 +125,10 @@ export function highlightBasePosition(obj: AnnotationObject): { x: number; y: nu
   return { x: geometry.x, y: geometry.y };
 }
 
+export function isStraightHighlightObject(obj: AnnotationObject | undefined): boolean {
+  return obj?.type === "highlight" && obj.style.highlightMode === "straight";
+}
+
 function traceHighlightPath(ctx: CanvasRenderingContext2D, points: number[]) {
   if (points.length < 2) return;
   ctx.beginPath();
@@ -391,4 +395,10 @@ export function onHighlightEnd(x: number, y: number): AnnotationObject | null {
 
 export function renderHighlightObject(obj: AnnotationObject): Konva.Group {
   return createHighlightNode(obj.id, obj.points ?? [], obj.style, obj.transform);
+}
+
+export function updateHighlightObjectNode(node: Konva.Node, obj: AnnotationObject): boolean {
+  if (!(node instanceof Konva.Group)) return false;
+  updateHighlightNode(node, obj.points ?? [], obj.style, obj.transform);
+  return true;
 }

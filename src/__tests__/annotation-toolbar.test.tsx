@@ -176,7 +176,7 @@ describe("Annotation toolbar", () => {
     const markerButton = screen.getByRole("button", { name: "Marker" });
     const markerIcon = markerButton.querySelector("svg") as SVGSVGElement | null;
 
-    expect(markerIcon?.getAttribute("width")).toBe("22");
+    expect(markerIcon?.getAttribute("width")).toBe("20");
     const markerCircle = markerIcon?.querySelector("circle");
     const markerText = markerIcon?.querySelector("text");
     expect(markerCircle?.getAttribute("r")).toBe("10");

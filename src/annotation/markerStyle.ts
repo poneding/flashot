@@ -5,6 +5,7 @@ export const MARKER_DEFAULT_FONT_SIZE = 14;
 export const MARKER_NUMBER_MIN = 0;
 export const MARKER_NUMBER_MAX = 99;
 export const MARKER_BADGE_MIN_RADIUS = 12;
+export const MARKER_BADGE_VISUAL_RADIUS_INSET = 2;
 export const MARKER_BUBBLE_GAP = 8;
 export const MARKER_BUBBLE_PADDING_X = 8;
 export const MARKER_BUBBLE_PADDING_Y = 5;
@@ -24,6 +25,10 @@ export function markerBadgeFontSize(fontSize?: number, markerNumber = 1): number
 export function markerBadgeRadius(fontSize?: number): number {
   const base = Number.isFinite(fontSize) ? Math.max(1, fontSize ?? MARKER_DEFAULT_FONT_SIZE) : MARKER_DEFAULT_FONT_SIZE;
   return Math.max(MARKER_BADGE_MIN_RADIUS, Math.ceil(base * 0.9));
+}
+
+export function markerBadgeVisualRadius(fontSize?: number): number {
+  return Math.max(1, markerBadgeRadius(fontSize) - MARKER_BADGE_VISUAL_RADIUS_INSET);
 }
 
 function markerTextWidth(text: string, fontSize: number): number {

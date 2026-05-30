@@ -22,7 +22,14 @@ import { blurResizeUpdatesFromNode, onBlurEnd, onBlurMove, onBlurStart, refreshB
 import { onDrawEnd, onDrawMove, onDrawStart } from "@/annotation/tools/draw";
 import { onEllipseEnd, onEllipseMove, onEllipseStart } from "@/annotation/tools/ellipse";
 import { onEraserEnd, onEraserMove, onEraserStart } from "@/annotation/tools/eraser";
-import { highlightBasePosition, onHighlightEnd, onHighlightMove, onHighlightStart } from "@/annotation/tools/highlight";
+import {
+  highlightBasePosition,
+  isStraightHighlightObject,
+  onHighlightEnd,
+  onHighlightMove,
+  onHighlightStart,
+  updateHighlightObjectNode,
+} from "@/annotation/tools/highlight";
 import {
   lineControlPoint,
   onLineEnd,
@@ -280,10 +287,11 @@ function isTransformerNode(node: Konva.Node | null): boolean {
 }
 
 function isEndpointEditableObject(obj: AnnotationObject | undefined): boolean {
-  return obj?.type === "line" || obj?.type === "arrow" || obj?.type === "measure";
+  return obj?.type === "line" || obj?.type === "arrow" || obj?.type === "measure" || isStraightHighlightObject(obj);
 }
 
 function editableLineHandles(obj: AnnotationObject): LineEditHandle[] {
+  if (isStraightHighlightObject(obj)) return ["start", "end"];
   return obj.type === "measure" ? ["start", "end"] : ["start", "control", "end"];
 }
 
@@ -369,6 +377,7 @@ export function transformerConfigForObject(obj: AnnotationObject | undefined): {
   if (isEndpointEditableObject(obj)) return { useTransformer: false, rotateEnabled: false, enabledAnchors: [] };
   if (obj.type === "draw") return { useTransformer: true, rotateEnabled: false, enabledAnchors: [] };
   if (obj.type === "marker") return { useTransformer: true, rotateEnabled: false, enabledAnchors: [] };
+  if (obj.type === "highlight") return { useTransformer: true, rotateEnabled: false, enabledAnchors: [] };
   if (obj.type === "text" || obj.type === "blur" || obj.type === "magnifier" || obj.type === "spotlight") {
     return { useTransformer: true, rotateEnabled: false, enabledAnchors: TRANSFORMER_ANCHORS };
   }
@@ -540,18 +549,106 @@ function objectWithNodeTransform(obj: AnnotationObject, node: Konva.Node): Annot
 }
 
 function previewObjectForNodeTransform(obj: AnnotationObject, node: Konva.Node): AnnotationObject {
-  if (obj.type === "blur") {
-    return { ...obj, ...blurResizeUpdatesFromNode(node) };
+  return { ...obj, ...resizeUpdatesForTransformedObject(obj, node) };
+}
+
+function rectResizeBoundsFromNode(node: Konva.Node): { x: number; y: number; width: number; height: number } {
+  const shape = node as Konva.Shape;
+  const width = Math.max(1, shape.width() * Math.abs(node.scaleX()));
+  const height = Math.max(1, shape.height() * Math.abs(node.scaleY()));
+  return {
+    x: node.scaleX() < 0 ? node.x() - width : node.x(),
+    y: node.scaleY() < 0 ? node.y() - height : node.y(),
+    width,
+    height,
+  };
+}
+
+function ellipseResizeBoundsFromNode(node: Konva.Node): { x: number; y: number; width: number; height: number } {
+  const ellipse = node as Konva.Ellipse;
+  const width = Math.max(1, ellipse.radiusX() * 2 * Math.abs(node.scaleX()));
+  const height = Math.max(1, ellipse.radiusY() * 2 * Math.abs(node.scaleY()));
+  return {
+    x: node.x() - width / 2,
+    y: node.y() - height / 2,
+    width,
+    height,
+  };
+}
+
+function bakeRectNodeResize(node: Konva.Node) {
+  const bounds = rectResizeBoundsFromNode(node);
+  node.setAttrs({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    scaleX: 1,
+    scaleY: 1,
+  });
+}
+
+function bakeEllipseNodeResize(node: Konva.Node) {
+  const ellipse = node as Konva.Ellipse;
+  const bounds = ellipseResizeBoundsFromNode(node);
+  ellipse.setAttrs({
+    radiusX: bounds.width / 2,
+    radiusY: bounds.height / 2,
+    scaleX: 1,
+    scaleY: 1,
+  });
+}
+
+function bakeLiveResizeIntoNode(obj: AnnotationObject, node: Konva.Node): boolean {
+  if (obj.type === "rect") {
+    bakeRectNodeResize(node);
+    return true;
   }
-  if (obj.type === "magnifier") {
-    return { ...obj, ...magnifierResizeUpdatesFromNode(obj, node) };
+
+  if (obj.type === "ellipse") {
+    bakeEllipseNodeResize(node);
+    return true;
   }
-  return objectWithNodeTransform(obj, node);
+
+  if (obj.type === "spotlight") {
+    if (spotlightShape(obj.style) === "circle") bakeEllipseNodeResize(node);
+    else bakeRectNodeResize(node);
+    return true;
+  }
+
+  return false;
+}
+
+function bakedRectResizeUpdatesFromNode(_obj: AnnotationObject, node: Konva.Node): Partial<AnnotationObject> {
+  const bounds = rectResizeBoundsFromNode(node);
+
+  return {
+    start: { x: bounds.x, y: bounds.y },
+    end: { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+    transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: node.rotation() },
+  };
+}
+
+function bakedEllipseResizeUpdatesFromNode(_obj: AnnotationObject, node: Konva.Node): Partial<AnnotationObject> {
+  const bounds = ellipseResizeBoundsFromNode(node);
+
+  return {
+    start: { x: bounds.x, y: bounds.y },
+    end: { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+    transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: node.rotation() },
+  };
 }
 
 function resizeUpdatesForTransformedObject(obj: AnnotationObject, node: Konva.Node): Partial<AnnotationObject> {
   if (obj.type === "blur") return blurResizeUpdatesFromNode(node);
   if (obj.type === "magnifier") return magnifierResizeUpdatesFromNode(obj, node);
+  if (obj.type === "rect") return bakedRectResizeUpdatesFromNode(obj, node);
+  if (obj.type === "ellipse") return bakedEllipseResizeUpdatesFromNode(obj, node);
+  if (obj.type === "spotlight") {
+    return spotlightShape(obj.style) === "circle"
+      ? bakedEllipseResizeUpdatesFromNode(obj, node)
+      : bakedRectResizeUpdatesFromNode(obj, node);
+  }
   return { transform: getNodeTransform(obj, node) };
 }
 
@@ -652,14 +749,46 @@ function lineVisualPointToObjectPoint(obj: AnnotationObject, point: Point): Poin
   };
 }
 
+function highlightEndpointPoints(obj: AnnotationObject): { start: Point; end: Point } {
+  const points = obj.points ?? [];
+  return {
+    start: obj.start ?? { x: points[0] ?? 0, y: points[1] ?? 0 },
+    end: obj.end ?? {
+      x: points[points.length - 2] ?? points[0] ?? 0,
+      y: points[points.length - 1] ?? points[1] ?? 0,
+    },
+  };
+}
+
+function straightHighlightHandleObject(
+  obj: AnnotationObject,
+  handle: LineEditHandle,
+  objectPoint: Point,
+): AnnotationObject {
+  const current = highlightEndpointPoints(obj);
+  const start = handle === "start" ? objectPoint : current.start;
+  const end = handle === "end" ? objectPoint : current.end;
+  return {
+    ...obj,
+    start,
+    end,
+    points: [start.x, start.y, end.x, end.y],
+  };
+}
+
 function lineHandleObject(obj: AnnotationObject, handle: LineEditHandle, point: Point): AnnotationObject {
   const objectPoint = lineVisualPointToObjectPoint(obj, point);
+  if (isStraightHighlightObject(obj)) return straightHighlightHandleObject(obj, handle, objectPoint);
   if (handle === "start") return { ...obj, start: objectPoint };
   if (handle === "end") return { ...obj, end: objectPoint };
   return { ...obj, points: [objectPoint.x, objectPoint.y] };
 }
 
 function lineHandlePoint(obj: AnnotationObject, handle: LineEditHandle): Point {
+  if (isStraightHighlightObject(obj)) {
+    const endpoints = highlightEndpointPoints(obj);
+    return linePointWithTransform(obj, handle === "start" ? endpoints.start : endpoints.end);
+  }
   if (handle === "start") return linePointWithTransform(obj, obj.start ?? { x: 0, y: 0 });
   if (handle === "end") return linePointWithTransform(obj, obj.end ?? { x: 0, y: 0 });
   return linePointWithTransform(obj, lineControlPoint(obj));
@@ -702,7 +831,8 @@ function previewLineHandleDrag(
       x: nextObj.start!.x + nextObj.transform.x,
       y: nextObj.start!.y + nextObj.transform.y,
     });
-    if (nextObj.type === "measure") updateMeasureObjectNode(node, nextObj);
+    if (nextObj.type === "highlight") updateHighlightObjectNode(node, nextObj);
+    else if (nextObj.type === "measure") updateMeasureObjectNode(node, nextObj);
     else updateLineObjectNode(node, nextObj);
   }
   moveLineEditHandles(nextObj, handle);
@@ -716,6 +846,11 @@ function persistLineHandleDrag(
 ) {
   const objectPoint = lineVisualPointToObjectPoint(obj, point);
   const { resizeObject } = useAnnotation.getState();
+  if (isStraightHighlightObject(obj)) {
+    const nextObj = straightHighlightHandleObject(obj, handle, objectPoint);
+    resizeObject(obj.id, { start: nextObj.start, end: nextObj.end, points: nextObj.points });
+    return;
+  }
   if (handle === "start") resizeObject(obj.id, { start: objectPoint });
   else if (handle === "end") resizeObject(obj.id, { end: objectPoint });
   else resizeObject(obj.id, { points: [objectPoint.x, objectPoint.y] });
@@ -889,6 +1024,8 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
 
     transformer = new Konva.Transformer({
       rotateEnabled: true,
+      keepRatio: false,
+      shiftBehavior: "none",
       rotateAnchorCursor: cursorForAnnotationInteraction("rotate"),
       ...transformerAccentConfig(),
       anchorFill: "#ffffff",
@@ -915,6 +1052,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
       const { resizeObject } = useAnnotation.getState();
       const obj = useAnnotation.getState().objects.find((o) => o.id === node.id());
       if (!obj) return;
+      bakeLiveResizeIntoNode(obj, node);
       snapNodeRotationIfEnabled(obj, node);
       setStageCursor(cursorForAnnotationInteraction("drag"));
       resizeObject(obj.id, resizeUpdatesForTransformedObject(obj, node));
@@ -927,7 +1065,9 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
       if (!node) return;
       const obj = useAnnotation.getState().objects.find((o) => o.id === node.id());
       if (!obj) return;
+      const didBakeResize = bakeLiveResizeIntoNode(obj, node);
       snapNodeRotationIfEnabled(obj, node);
+      if (didBakeResize) transformer?.forceUpdate();
       refreshLivePositionDependentNode(previewObjectForNodeTransform(obj, node), node);
       layer?.batchDraw();
     });

@@ -11,6 +11,7 @@ import {
   MARKER_DEFAULT_FONT_SIZE,
   markerBadgeFontSize,
   markerBadgeRadius,
+  markerBadgeVisualRadius,
   markerBubbleMetrics,
 } from "@/annotation/markerStyle";
 import { useAnnotation } from "@/annotation/store";
@@ -50,7 +51,8 @@ export function renderMarkerObject(obj: AnnotationObject): Konva.Group {
   const start = obj.start ?? { x: 0, y: 0 };
   const transform = obj.transform;
   const markerNumber = obj.markerNumber ?? 1;
-  const badgeRadius = markerBadgeRadius(obj.style.fontSize);
+  const badgeRadius = markerBadgeVisualRadius(obj.style.fontSize);
+  const badgeLayoutRadius = markerBadgeRadius(obj.style.fontSize);
   const badgeFontSize = markerBadgeFontSize(obj.style.fontSize, markerNumber);
   const bubbleFontSize = obj.style.fontSize ?? MARKER_DEFAULT_FONT_SIZE;
   const group = new Konva.Group({
@@ -75,10 +77,10 @@ export function renderMarkerObject(obj: AnnotationObject): Konva.Group {
 
   group.add(new Konva.Text({
     name: "marker-number",
-    x: -badgeRadius,
-    y: -badgeRadius + 1,
-    width: badgeRadius * 2,
-    height: badgeRadius * 2,
+    x: -badgeLayoutRadius,
+    y: -badgeLayoutRadius,
+    width: badgeLayoutRadius * 2,
+    height: badgeLayoutRadius * 2,
     text: String(markerNumber),
     fontSize: badgeFontSize,
     fontStyle: "700",
@@ -90,7 +92,7 @@ export function renderMarkerObject(obj: AnnotationObject): Konva.Group {
 
   const bubbleText = (obj.text ?? "").trim();
   if (!bubbleText) return group;
-  const metrics = markerBubbleMetrics(bubbleText, bubbleFontSize, badgeRadius);
+  const metrics = markerBubbleMetrics(bubbleText, bubbleFontSize, badgeLayoutRadius);
 
   const textNode = new Konva.Text({
     name: "marker-bubble-text",

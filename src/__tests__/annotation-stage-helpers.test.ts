@@ -127,6 +127,28 @@ describe("annotation stage helpers", () => {
     expect(config.enabledAnchors).toEqual([]);
   });
 
+  it("uses different selection affordances for freehand and straight highlights", () => {
+    const freehand = transformerConfigForObject(object({
+      type: "highlight",
+      points: [10, 10, 30, 20, 50, 12],
+      style: { color: "#ffff00", strokeWidth: 4, highlightMode: "freehand" },
+    }));
+    const straight = transformerConfigForObject(object({
+      type: "highlight",
+      start: { x: 10, y: 10 },
+      end: { x: 70, y: 20 },
+      points: [10, 10, 70, 20],
+      style: { color: "#ffff00", strokeWidth: 4, highlightMode: "straight" },
+    }));
+
+    expect(freehand.useTransformer).toBe(true);
+    expect(freehand.rotateEnabled).toBe(false);
+    expect(freehand.enabledAnchors).toEqual([]);
+    expect(straight.useTransformer).toBe(false);
+    expect(straight.rotateEnabled).toBe(false);
+    expect(straight.enabledAnchors).toEqual([]);
+  });
+
   it("uses interaction cursors instead of the active drawing crosshair", () => {
     expect(cursorForAnnotationInteraction("drag")).toBe("move");
     expect(cursorForAnnotationInteraction("rotate")).toBe("grab");

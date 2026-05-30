@@ -73,30 +73,6 @@ function annotationSpotlightShape(style: AnnotationStyle): SpotlightShape {
   return style.spotlightShape === "circle" ? "circle" : "rect";
 }
 
-function circleEndPoint(start: { x: number; y: number }, end: { x: number; y: number }) {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const size = Math.max(Math.abs(dx), Math.abs(dy));
-  return {
-    x: start.x + (dx < 0 ? -size : size),
-    y: start.y + (dy < 0 ? -size : size),
-  };
-}
-
-function spotlightFocusBounds(
-  start: { x: number; y: number },
-  end: { x: number; y: number },
-  shape: SpotlightShape,
-) {
-  const normalizedEnd = shape === "circle" ? circleEndPoint(start, end) : end;
-  return {
-    x: Math.min(start.x, normalizedEnd.x),
-    y: Math.min(start.y, normalizedEnd.y),
-    width: Math.abs(normalizedEnd.x - start.x),
-    height: Math.abs(normalizedEnd.y - start.y),
-  };
-}
-
 export function focusHoleFromObject(obj: AnnotationObject): FocusHole | null {
   if (!isSpotlightStyle(obj.style)) return null;
   const start = obj.start ?? { x: 0, y: 0 };
@@ -116,12 +92,11 @@ export function focusHoleFromObject(obj: AnnotationObject): FocusHole | null {
 
   if (obj.type === "spotlight") {
     const shape = annotationSpotlightShape(obj.style);
-    const bounds = spotlightFocusBounds(start, end, shape);
     if (shape === "circle") {
-      return ellipseFocusHole(bounds.x, bounds.y, bounds.width, bounds.height, obj.transform);
+      return ellipseFocusHole(x, y, width, height, obj.transform);
     }
 
-    return rectFocusHole(bounds.x, bounds.y, bounds.width, bounds.height, obj.style, obj.transform);
+    return rectFocusHole(x, y, width, height, obj.style, obj.transform);
   }
 
   return null;
