@@ -58,6 +58,8 @@ const UPDATER_PROGRESS_EVENT: &str = "updater:progress";
 const MAX_CORNER_RADIUS: u32 = 60;
 const UTILITY_WINDOW_LIGHT_BACKGROUND: Color = Color(255, 255, 255, 255);
 const UTILITY_WINDOW_DARK_BACKGROUND: Color = Color(11, 17, 30, 255);
+const DEFAULT_SCROLL_OUTLINE_BACKGROUND: Color = Color(245, 158, 11, 255);
+const SCROLL_OUTLINE_THICKNESS: f64 = 2.0;
 const UTILITY_WINDOW_DARK_INIT_SCRIPT: &str = r#"
 (() => {
   try {
@@ -162,6 +164,17 @@ fn utility_window_init_script(theme: Option<TauriTheme>) -> &'static str {
         Some(TauriTheme::Light) => UTILITY_WINDOW_LIGHT_INIT_SCRIPT,
         _ => UTILITY_WINDOW_SYSTEM_INIT_SCRIPT,
     }
+}
+
+fn parse_css_hex_color(value: &str) -> Option<Color> {
+    let hex = value.strip_prefix('#')?;
+    if hex.len() != 6 {
+        return None;
+    }
+    let red = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let green = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let blue = u8::from_str_radix(&hex[4..6], 16).ok()?;
+    Some(Color(red, green, blue, 255))
 }
 
 fn apply_utility_window_appearance(
@@ -1157,14 +1170,17 @@ pub async fn start_scroll_session(
         height: (rect.height as f32 * scale).round() as u32,
     };
 
-    // 2. Spawn the chrome window (status bar + preview) anchored next to the
-    //    selection. The original overlay stays VISIBLE (so the user sees the
-    //    selection outline) but is made mouse-transparent and the whole app
-    //    is deactivated on macOS so scroll-wheel events flow to the underlying
-    //    app instead of being intercepted by our key window.
-    spawn_scroll_chrome(&app, monitor_id, phys_rect)?;
+    // 2. Spawn the chrome window (status bar + preview) anchored outside the
+    //    selection when possible. The full overlay is mouse-transparent; on
+    //    Wayland it is hidden before the live portal stream starts because an
+    //    empty transparent WebKitGTK overlay can composite as black.
+    spawn_scroll_chrome(&app, monitor_id, rect)?;
     if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
         let _ = w.set_ignore_cursor_events(true);
+    }
+    if let Err(e) = prepare_wayland_scroll_overlay(&app, monitor_id, rect) {
+        close_scroll_chrome(&app, monitor_id);
+        return Err(e);
     }
     schedule_app_deactivation_macos(&app);
 
@@ -1187,6 +1203,7 @@ pub async fn start_scroll_session(
         Ok(capture) => capture,
         Err(e) => {
             close_scroll_chrome(&app, monitor_id);
+            restore_wayland_scroll_overlay(&app, monitor_id);
             return Err(format!("scroll capture unavailable: {e}"));
         }
     };
@@ -1223,11 +1240,181 @@ pub async fn start_scroll_session(
     Ok(())
 }
 
+fn prepare_wayland_scroll_overlay(
+    app: &AppHandle,
+    monitor_id: u32,
+    rect: Rect,
+) -> Result<(), String> {
+    if !is_linux_wayland_session() {
+        return Ok(());
+    }
+
+    spawn_scroll_outline(app, monitor_id, rect)?;
+    if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
+        let _ = w.set_ignore_cursor_events(true);
+        w.hide()
+            .map_err(|e| format!("failed to hide wayland scroll overlay: {e}"))?;
+    }
+    Ok(())
+}
+
+fn restore_wayland_scroll_overlay(app: &AppHandle, monitor_id: u32) {
+    if !is_linux_wayland_session() {
+        return;
+    }
+
+    if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
+        let _ = w.set_ignore_cursor_events(false);
+        if let Err(e) = overlay_window::show_capture_overlay(&w) {
+            tracing::warn!("failed to restore wayland scroll overlay: {e}");
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn is_linux_wayland_session() -> bool {
+    std::env::var("XDG_SESSION_TYPE")
+        .map(|session| session.eq_ignore_ascii_case("wayland"))
+        .unwrap_or(false)
+        || std::env::var_os("WAYLAND_DISPLAY").is_some()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_linux_wayland_session() -> bool {
+    false
+}
+
+#[derive(Clone, Copy)]
+struct ScrollWindowGeometry {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+fn scroll_outline_geometries(
+    monitor_rect: Rect,
+    selection: Rect,
+    thickness: f64,
+) -> Vec<(&'static str, ScrollWindowGeometry)> {
+    let mon_left = monitor_rect.x as f64;
+    let mon_top = monitor_rect.y as f64;
+    let mon_right = mon_left + monitor_rect.width as f64;
+    let mon_bottom = mon_top + monitor_rect.height as f64;
+    let sel_left = mon_left + selection.x as f64;
+    let sel_top = mon_top + selection.y as f64;
+    let sel_right = sel_left + selection.width as f64;
+    let sel_bottom = sel_top + selection.height as f64;
+    let mut segments = Vec::with_capacity(4);
+
+    let top_height = (sel_top - mon_top).min(thickness).max(0.0);
+    if top_height >= 1.0 {
+        segments.push((
+            "top",
+            ScrollWindowGeometry {
+                x: sel_left,
+                y: sel_top - top_height,
+                width: selection.width as f64,
+                height: top_height,
+            },
+        ));
+    }
+
+    let bottom_height = (mon_bottom - sel_bottom).min(thickness).max(0.0);
+    if bottom_height >= 1.0 {
+        segments.push((
+            "bottom",
+            ScrollWindowGeometry {
+                x: sel_left,
+                y: sel_bottom,
+                width: selection.width as f64,
+                height: bottom_height,
+            },
+        ));
+    }
+
+    let left_width = (sel_left - mon_left).min(thickness).max(0.0);
+    if left_width >= 1.0 {
+        segments.push((
+            "left",
+            ScrollWindowGeometry {
+                x: sel_left - left_width,
+                y: sel_top,
+                width: left_width,
+                height: selection.height as f64,
+            },
+        ));
+    }
+
+    let right_width = (mon_right - sel_right).min(thickness).max(0.0);
+    if right_width >= 1.0 {
+        segments.push((
+            "right",
+            ScrollWindowGeometry {
+                x: sel_right,
+                y: sel_top,
+                width: right_width,
+                height: selection.height as f64,
+            },
+        ));
+    }
+
+    segments
+}
+
+fn spawn_scroll_outline(app: &AppHandle, monitor_id: u32, rect: Rect) -> Result<(), String> {
+    close_scroll_outline(app, monitor_id);
+
+    let mon = crate::capture::enumerate_monitors()
+        .ok()
+        .and_then(|ms| ms.into_iter().find(|m| m.id == monitor_id))
+        .ok_or("monitor not found for outline window")?;
+    let outline_color = settings_store::load()
+        .ok()
+        .and_then(|settings| parse_css_hex_color(&settings.accent_color))
+        .unwrap_or(DEFAULT_SCROLL_OUTLINE_BACKGROUND);
+
+    for (edge, geo) in scroll_outline_geometries(mon.rect, rect, SCROLL_OUTLINE_THICKNESS) {
+        let label = format!("overlay-outline-{monitor_id}-{edge}");
+        let window = tauri::WebviewWindowBuilder::new(
+            app,
+            &label,
+            tauri::WebviewUrl::App("index.html#/scroll-outline".into()),
+        )
+        .title("Flashot Scroll Outline")
+        .position(geo.x, geo.y)
+        .inner_size(geo.width.max(1.0), geo.height.max(1.0))
+        .decorations(false)
+        .resizable(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .focused(false)
+        .visible_on_all_workspaces(true)
+        .shadow(false)
+        .visible(false)
+        .background_color(outline_color)
+        .build()
+        .map_err(|e| e.to_string())?;
+        let _ = window.set_ignore_cursor_events(true);
+        window.show().map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn close_scroll_outline(app: &AppHandle, monitor_id: u32) {
+    let prefix = format!("overlay-outline-{monitor_id}-");
+    for (_label, w) in app.webview_windows() {
+        if w.label().starts_with(&prefix) {
+            let _ = w.close();
+        }
+    }
+}
+
 /// Spawn the always-on-top chrome window that hosts the status bar and live
-/// preview. The window is anchored to the right of the selection when there
-/// is room; otherwise it falls back to the bottom-left of the monitor so the
-/// user can still reach the Done/Cancel controls.
-fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Result<(), String> {
+/// preview. The window is anchored outside the selection when there is room,
+/// so the live capture source does not see our own controls.
+fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, rect: Rect) -> Result<(), String> {
     let chrome_label = format!("overlay-chrome-{monitor_id}");
     if app.get_webview_window(&chrome_label).is_some() {
         return Ok(());
@@ -1242,28 +1429,42 @@ fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Res
     // ("Stitching · N frames · NNNNpx") plus Done/Cancel buttons, with room
     // above for a live preview thumbnail. All sizes in logical pixels.
     let chrome_w = 320.0_f64;
-    let chrome_h = 220.0_f64;
+    let chrome_h = 180.0_f64;
     let mon_logical_w = mon.rect.width as f64;
     let mon_logical_h = mon.rect.height as f64;
-    let sel_logical_right = (phys_rect.x as f64 + phys_rect.width as f64) / mon.scale_factor as f64;
-    let sel_logical_bottom =
-        (phys_rect.y as f64 + phys_rect.height as f64) / mon.scale_factor as f64;
-    let sel_logical_top = phys_rect.y as f64 / mon.scale_factor as f64;
+    let sel_logical_left = rect.x as f64;
+    let sel_logical_right = rect.x as f64 + rect.width as f64;
+    let sel_logical_bottom = rect.y as f64 + rect.height as f64;
+    let sel_logical_top = rect.y as f64;
     let mon_origin_x = mon.rect.x as f64;
     let mon_origin_y = mon.rect.y as f64;
-
-    // Preference order: right of the selection, then below it, then anchor
-    // to the bottom-right of the monitor as a last resort.
     let gap = 12.0;
+    let min_x = mon_origin_x + gap;
+    let max_x = (mon_origin_x + mon_logical_w - chrome_w - gap).max(min_x);
+    let min_y = mon_origin_y + gap;
+    let max_y = (mon_origin_y + mon_logical_h - chrome_h - gap).max(min_y);
+    let clamp_chrome_x = |x: f64| x.clamp(min_x, max_x);
+    let clamp_chrome_y = |y: f64| y.clamp(min_y, max_y);
+
     let (x, y) = if sel_logical_right + gap + chrome_w <= mon_logical_w {
         (
             mon_origin_x + sel_logical_right + gap,
-            mon_origin_y + sel_logical_top,
+            clamp_chrome_y(mon_origin_y + sel_logical_top),
         )
     } else if sel_logical_bottom + gap + chrome_h <= mon_logical_h {
         (
-            mon_origin_x + (mon_logical_w - chrome_w - gap).max(gap),
+            clamp_chrome_x(mon_origin_x + sel_logical_right - chrome_w),
             mon_origin_y + sel_logical_bottom + gap,
+        )
+    } else if sel_logical_top - gap - chrome_h >= 0.0 {
+        (
+            clamp_chrome_x(mon_origin_x + sel_logical_right - chrome_w),
+            mon_origin_y + sel_logical_top - gap - chrome_h,
+        )
+    } else if sel_logical_left - gap - chrome_w >= 0.0 {
+        (
+            mon_origin_x + sel_logical_left - gap - chrome_w,
+            clamp_chrome_y(mon_origin_y + sel_logical_top),
         )
     } else {
         (
@@ -1296,6 +1497,7 @@ fn close_scroll_chrome(app: &AppHandle, monitor_id: u32) {
     if let Some(w) = app.get_webview_window(&format!("overlay-chrome-{monitor_id}")) {
         let _ = w.close();
     }
+    close_scroll_outline(app, monitor_id);
     if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
         let _ = w.set_ignore_cursor_events(false);
     }
@@ -1643,7 +1845,10 @@ mod tests {
         let body = &source[start..end];
 
         let capture_idx = body.find("start_scroll_capture_session").unwrap();
-        let cleanup_idx = body.find("close_scroll_chrome(&app, monitor_id)").unwrap();
+        let cleanup_idx = body[capture_idx..]
+            .find("close_scroll_chrome(&app, monitor_id)")
+            .map(|idx| capture_idx + idx)
+            .unwrap();
 
         assert!(
             capture_idx < cleanup_idx,
@@ -1652,7 +1857,7 @@ mod tests {
     }
 
     #[test]
-    fn wayland_scroll_start_keeps_overlay_visible_for_selection_outline() {
+    fn scroll_start_makes_full_overlay_mouse_transparent() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let body = function_body(&source, "start_scroll_session");
 
@@ -1662,7 +1867,82 @@ mod tests {
         );
         assert!(
             !body.contains("hide_wayland_scroll_overlay"),
-            "scrolling mode must keep the overlay window visible so SelectionBox can show the capture outline",
+            "scrolling mode should use the wayland overlay handoff helper instead of an unconditional hide",
+        );
+    }
+
+    #[test]
+    fn wayland_scroll_start_hides_full_overlay_before_live_capture() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "start_scroll_session");
+        let prepare_idx = body
+            .find("prepare_wayland_scroll_overlay(&app, monitor_id, rect)")
+            .expect("wayland scroll startup must hand off from the full overlay before capture");
+        let capture_idx = body.find("start_scroll_capture_session").unwrap();
+
+        assert!(
+            prepare_idx < capture_idx,
+            "the full overlay must be hidden before the portal/pipewire initial frame is captured",
+        );
+
+        let prepare_body = function_body(&source, "prepare_wayland_scroll_overlay");
+        assert!(prepare_body.contains("spawn_scroll_outline"));
+        assert!(prepare_body.contains(".hide()"));
+    }
+
+    #[test]
+    fn wayland_scroll_start_restores_full_overlay_if_live_capture_fails() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "start_scroll_session");
+        let capture_idx = body.find("start_scroll_capture_session").unwrap();
+        let restore_idx = body
+            .find("restore_wayland_scroll_overlay(&app, monitor_id)")
+            .expect(
+                "startup failure must show the full overlay again for the frontend error state",
+            );
+
+        assert!(capture_idx < restore_idx);
+    }
+
+    #[test]
+    fn scroll_outline_segments_stay_outside_the_capture_selection() {
+        let segments = scroll_outline_geometries(
+            Rect {
+                x: 10,
+                y: 20,
+                width: 800,
+                height: 600,
+            },
+            Rect {
+                x: 100,
+                y: 120,
+                width: 240,
+                height: 160,
+            },
+            2.0,
+        );
+
+        let segment = |name: &str| {
+            segments
+                .iter()
+                .find(|(edge, _)| *edge == name)
+                .map(|(_, geo)| *geo)
+                .unwrap()
+        };
+        let top = segment("top");
+        let bottom = segment("bottom");
+        let left = segment("left");
+        let right = segment("right");
+
+        assert_eq!((top.x, top.y, top.width, top.height), (110.0, 138.0, 240.0, 2.0));
+        assert_eq!(
+            (bottom.x, bottom.y, bottom.width, bottom.height),
+            (110.0, 300.0, 240.0, 2.0),
+        );
+        assert_eq!((left.x, left.y, left.width, left.height), (108.0, 140.0, 2.0, 160.0));
+        assert_eq!(
+            (right.x, right.y, right.width, right.height),
+            (350.0, 140.0, 2.0, 160.0),
         );
     }
 

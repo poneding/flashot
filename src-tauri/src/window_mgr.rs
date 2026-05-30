@@ -114,10 +114,10 @@ impl WindowMgr {
     fn hide_overlays(&self, app: &AppHandle) {
         for (_label, w) in app.webview_windows() {
             let label = w.label();
-            if label.starts_with("overlay-chrome-") {
-                // Chrome windows must be closed, not hidden — otherwise the next
-                // scroll session reuses a stale hidden window. Their lifecycle
-                // is bound to a single scroll session.
+            if label.starts_with("overlay-chrome-") || label.starts_with("overlay-outline-") {
+                // Scroll auxiliary windows must be closed, not hidden — otherwise
+                // the next scroll session reuses stale hidden windows. Their
+                // lifecycle is bound to a single scroll session.
                 let _ = w.close();
             } else if label.starts_with("overlay-") {
                 #[cfg(target_os = "linux")]
@@ -232,6 +232,17 @@ mod tests {
         mgr.clear_session_state();
         assert!(cancel.load(Ordering::SeqCst), "scroll cancel must be set");
         assert!(mgr.scroll_ref(|_| ()).is_none());
+    }
+
+    #[test]
+    fn scroll_auxiliary_windows_are_closed_during_session_cleanup() {
+        let source = include_str!("window_mgr.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "hide_overlays");
+
+        assert!(
+            body.contains("overlay-chrome-") && body.contains("overlay-outline-"),
+            "scroll chrome and outline windows are session-bound and must be closed, not hidden",
+        );
     }
 
     #[test]
