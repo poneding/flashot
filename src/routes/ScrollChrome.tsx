@@ -125,7 +125,9 @@ export function ScrollChromeRoute() {
         height: "100vh",
         boxSizing: "border-box",
         display: "flex",
-        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
         pointerEvents: "auto",
         background: SCREENSHOT_TOOLBAR_BACKGROUND,
         color: "white",
@@ -136,6 +138,7 @@ export function ScrollChromeRoute() {
         WebkitBackdropFilter: "blur(12px)",
         overflow: "hidden",
         position: "relative",
+        padding: "10px 12px",
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       }}
     >
@@ -159,101 +162,76 @@ export function ScrollChromeRoute() {
         </div>
       )}
 
-      <div
-        style={{
-          flex: 1,
-          position: "relative",
-          background: "rgba(0,0,0,0.35)",
-          overflow: "hidden",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        {progress?.previewDataUrl ? (
-          <img
-            src={progress.previewDataUrl}
-            alt=""
-            draggable={false}
+      {finalized ? (
+        <>
+          <span
             style={{
-              position: "absolute",
-              bottom: 0,
-              left: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              objectPosition: "bottom center",
-              userSelect: "none",
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              opacity: 0.9,
             }}
-          />
-        ) : (
-          <span style={{ color: "rgba(255,255,255,0.55)", fontSize: 12 }}>
-            {finalized ? t("scroll.donePreview") : t("scroll.prompt")}
+          >
+            {finalized.width}×{finalized.height}
           </span>
-        )}
-      </div>
-
-      <div
-        style={{
-          padding: "10px 14px",
-          background: "rgba(0,0,0,0.55)",
-          fontSize: 13,
-          display: "flex",
-          gap: 10,
-          alignItems: "center",
-          justifyContent: "space-between",
-          borderTop: "1px solid rgba(255,255,255,0.08)",
-        }}
-      >
-        {finalized ? (
-          <>
-            <span style={{ opacity: 0.9 }}>
-              {finalized.width}×{finalized.height}
-            </span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                onClick={onCopy}
-                disabled={!!busy}
-                style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
-              >
-                {busy === "copy" ? t("scroll.copying") : t("scroll.copy")}
-              </button>
-              <button
-                type="button"
-                onClick={onSave}
-                disabled={!!busy}
-                style={{ ...BTN_BASE, background: "#4ade80", color: "#0a2a17" }}
-              >
-                {busy === "save" ? t("scroll.saving") : t("scroll.save")}
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <span style={{ opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
-              {statusText}
-            </span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                onClick={onDone}
-                disabled={!!busy}
-                style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
-              >
-                {busy === "done" ? t("scroll.finishing") : t("scroll.done")}
-              </button>
-              <button
-                type="button"
-                onClick={onCancel}
-                style={{ ...BTN_BASE, background: "rgba(255,255,255,0.12)", color: "white" }}
-              >
-                {t("scroll.cancel")}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
+          <div style={{ display: "flex", flexShrink: 0, gap: 8 }}>
+            <button
+              type="button"
+              onClick={onCopy}
+              disabled={!!busy}
+              style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
+            >
+              {busy === "copy" ? t("scroll.copying") : t("scroll.copy")}
+            </button>
+            <button
+              type="button"
+              onClick={onSave}
+              disabled={!!busy}
+              style={{ ...BTN_BASE, background: "#4ade80", color: "#0a2a17" }}
+            >
+              {busy === "save" ? t("scroll.saving") : t("scroll.save")}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <span
+            style={{
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              opacity: 0.85,
+              fontSize: 13,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {statusText}
+          </span>
+          <div style={{ display: "flex", flexShrink: 0, gap: 8 }}>
+            <button
+              type="button"
+              onClick={onDone}
+              disabled={!!busy}
+              style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
+            >
+              {busy === "done" ? t("scroll.finishing") : t("scroll.done")}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              style={{
+                ...BTN_BASE,
+                background: "rgba(255,255,255,0.12)",
+                color: "white",
+              }}
+            >
+              {t("scroll.cancel")}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

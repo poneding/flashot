@@ -58,8 +58,6 @@ const UPDATER_PROGRESS_EVENT: &str = "updater:progress";
 const MAX_CORNER_RADIUS: u32 = 60;
 const UTILITY_WINDOW_LIGHT_BACKGROUND: Color = Color(255, 255, 255, 255);
 const UTILITY_WINDOW_DARK_BACKGROUND: Color = Color(11, 17, 30, 255);
-const DEFAULT_SCROLL_OUTLINE_BACKGROUND: Color = Color(245, 158, 11, 255);
-const SCROLL_OUTLINE_THICKNESS: f64 = 2.0;
 const UTILITY_WINDOW_DARK_INIT_SCRIPT: &str = r#"
 (() => {
   try {
@@ -164,17 +162,6 @@ fn utility_window_init_script(theme: Option<TauriTheme>) -> &'static str {
         Some(TauriTheme::Light) => UTILITY_WINDOW_LIGHT_INIT_SCRIPT,
         _ => UTILITY_WINDOW_SYSTEM_INIT_SCRIPT,
     }
-}
-
-fn parse_css_hex_color(value: &str) -> Option<Color> {
-    let hex = value.strip_prefix('#')?;
-    if hex.len() != 6 {
-        return None;
-    }
-    let red = u8::from_str_radix(&hex[0..2], 16).ok()?;
-    let green = u8::from_str_radix(&hex[2..4], 16).ok()?;
-    let blue = u8::from_str_radix(&hex[4..6], 16).ok()?;
-    Some(Color(red, green, blue, 255))
 }
 
 fn apply_utility_window_appearance(
@@ -1170,18 +1157,13 @@ pub async fn start_scroll_session(
         height: (rect.height as f32 * scale).round() as u32,
     };
 
-    // 2. Spawn the chrome window (status bar + preview) anchored outside the
-    //    selection when possible. The full overlay is mouse-transparent; on
-    //    Wayland it is hidden before the live portal stream starts because an
-    //    empty transparent WebKitGTK overlay can composite as black.
-    spawn_scroll_chrome(&app, monitor_id, rect)?;
+    // 2. Make the full overlay mouse-transparent; on Wayland it is hidden
+    //    before the live portal stream starts because an empty transparent
+    //    WebKitGTK overlay can composite as black.
     if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
         let _ = w.set_ignore_cursor_events(true);
     }
-    if let Err(e) = prepare_wayland_scroll_overlay(&app, monitor_id, rect) {
-        close_scroll_chrome(&app, monitor_id);
-        return Err(e);
-    }
+    prepare_wayland_scroll_overlay(&app, monitor_id)?;
     schedule_app_deactivation_macos(&app);
 
     // 3. Give macOS a moment to actually compose the screen without the
@@ -1213,6 +1195,10 @@ pub async fn start_scroll_session(
         height,
         source,
     } = capture;
+    if let Err(e) = spawn_scroll_chrome(&app, monitor_id, rect) {
+        restore_wayland_scroll_overlay(&app, monitor_id);
+        return Err(e);
+    }
 
     let stitcher = Arc::new(AsyncMutex::new(ScrollStitcher::new(
         width,
@@ -1240,16 +1226,11 @@ pub async fn start_scroll_session(
     Ok(())
 }
 
-fn prepare_wayland_scroll_overlay(
-    app: &AppHandle,
-    monitor_id: u32,
-    rect: Rect,
-) -> Result<(), String> {
+fn prepare_wayland_scroll_overlay(app: &AppHandle, monitor_id: u32) -> Result<(), String> {
     if !is_linux_wayland_session() {
         return Ok(());
     }
 
-    spawn_scroll_outline(app, monitor_id, rect)?;
     if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
         let _ = w.set_ignore_cursor_events(true);
         w.hide()
@@ -1284,136 +1265,9 @@ fn is_linux_wayland_session() -> bool {
     false
 }
 
-#[derive(Clone, Copy)]
-struct ScrollWindowGeometry {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-}
-
-fn scroll_outline_geometries(
-    monitor_rect: Rect,
-    selection: Rect,
-    thickness: f64,
-) -> Vec<(&'static str, ScrollWindowGeometry)> {
-    let mon_left = monitor_rect.x as f64;
-    let mon_top = monitor_rect.y as f64;
-    let mon_right = mon_left + monitor_rect.width as f64;
-    let mon_bottom = mon_top + monitor_rect.height as f64;
-    let sel_left = mon_left + selection.x as f64;
-    let sel_top = mon_top + selection.y as f64;
-    let sel_right = sel_left + selection.width as f64;
-    let sel_bottom = sel_top + selection.height as f64;
-    let mut segments = Vec::with_capacity(4);
-
-    let top_height = (sel_top - mon_top).min(thickness).max(0.0);
-    if top_height >= 1.0 {
-        segments.push((
-            "top",
-            ScrollWindowGeometry {
-                x: sel_left,
-                y: sel_top - top_height,
-                width: selection.width as f64,
-                height: top_height,
-            },
-        ));
-    }
-
-    let bottom_height = (mon_bottom - sel_bottom).min(thickness).max(0.0);
-    if bottom_height >= 1.0 {
-        segments.push((
-            "bottom",
-            ScrollWindowGeometry {
-                x: sel_left,
-                y: sel_bottom,
-                width: selection.width as f64,
-                height: bottom_height,
-            },
-        ));
-    }
-
-    let left_width = (sel_left - mon_left).min(thickness).max(0.0);
-    if left_width >= 1.0 {
-        segments.push((
-            "left",
-            ScrollWindowGeometry {
-                x: sel_left - left_width,
-                y: sel_top,
-                width: left_width,
-                height: selection.height as f64,
-            },
-        ));
-    }
-
-    let right_width = (mon_right - sel_right).min(thickness).max(0.0);
-    if right_width >= 1.0 {
-        segments.push((
-            "right",
-            ScrollWindowGeometry {
-                x: sel_right,
-                y: sel_top,
-                width: right_width,
-                height: selection.height as f64,
-            },
-        ));
-    }
-
-    segments
-}
-
-fn spawn_scroll_outline(app: &AppHandle, monitor_id: u32, rect: Rect) -> Result<(), String> {
-    close_scroll_outline(app, monitor_id);
-
-    let mon = crate::capture::enumerate_monitors()
-        .ok()
-        .and_then(|ms| ms.into_iter().find(|m| m.id == monitor_id))
-        .ok_or("monitor not found for outline window")?;
-    let outline_color = settings_store::load()
-        .ok()
-        .and_then(|settings| parse_css_hex_color(&settings.accent_color))
-        .unwrap_or(DEFAULT_SCROLL_OUTLINE_BACKGROUND);
-
-    for (edge, geo) in scroll_outline_geometries(mon.rect, rect, SCROLL_OUTLINE_THICKNESS) {
-        let label = format!("overlay-outline-{monitor_id}-{edge}");
-        let window = tauri::WebviewWindowBuilder::new(
-            app,
-            &label,
-            tauri::WebviewUrl::App("index.html#/scroll-outline".into()),
-        )
-        .title("Flashot Scroll Outline")
-        .position(geo.x, geo.y)
-        .inner_size(geo.width.max(1.0), geo.height.max(1.0))
-        .decorations(false)
-        .resizable(false)
-        .skip_taskbar(true)
-        .always_on_top(true)
-        .focused(false)
-        .visible_on_all_workspaces(true)
-        .shadow(false)
-        .visible(false)
-        .background_color(outline_color)
-        .build()
-        .map_err(|e| e.to_string())?;
-        window.show().map_err(|e| e.to_string())?;
-        let _ = window.set_ignore_cursor_events(true);
-    }
-
-    Ok(())
-}
-
-fn close_scroll_outline(app: &AppHandle, monitor_id: u32) {
-    let prefix = format!("overlay-outline-{monitor_id}-");
-    for (_label, w) in app.webview_windows() {
-        if w.label().starts_with(&prefix) {
-            let _ = w.close();
-        }
-    }
-}
-
-/// Spawn the always-on-top chrome window that hosts the status bar and live
-/// preview. The window is anchored outside the selection when there is room,
-/// so the live capture source does not see our own controls.
+/// Spawn the always-on-top chrome window that hosts the scroll controls. The
+/// window is anchored outside the selection when there is room, so the live
+/// capture source does not see our own controls.
 fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, rect: Rect) -> Result<(), String> {
     let chrome_label = format!("overlay-chrome-{monitor_id}");
     if app.get_webview_window(&chrome_label).is_some() {
@@ -1425,11 +1279,11 @@ fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, rect: Rect) -> Result<(
         .and_then(|ms| ms.into_iter().find(|m| m.id == monitor_id))
         .ok_or("monitor not found for chrome window")?;
 
-    // Chrome window dimensions chosen to comfortably fit the status text
-    // ("Stitching · N frames · NNNNpx") plus Done/Cancel buttons, with room
-    // above for a live preview thumbnail. All sizes in logical pixels.
+    // Compact chrome is much easier to keep outside the selected capture
+    // region, which is important because portal monitor streams include our
+    // own app windows.
     let chrome_w = 320.0_f64;
-    let chrome_h = 180.0_f64;
+    let chrome_h = 64.0_f64;
     let mon_logical_w = mon.rect.width as f64;
     let mon_logical_h = mon.rect.height as f64;
     let sel_logical_left = rect.x as f64;
@@ -1497,7 +1351,6 @@ fn close_scroll_chrome(app: &AppHandle, monitor_id: u32) {
     if let Some(w) = app.get_webview_window(&format!("overlay-chrome-{monitor_id}")) {
         let _ = w.close();
     }
-    close_scroll_outline(app, monitor_id);
     if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
         let _ = w.set_ignore_cursor_events(false);
     }
@@ -1876,7 +1729,7 @@ mod tests {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let body = function_body(&source, "start_scroll_session");
         let prepare_idx = body
-            .find("prepare_wayland_scroll_overlay(&app, monitor_id, rect)")
+            .find("prepare_wayland_scroll_overlay(&app, monitor_id)")
             .expect("wayland scroll startup must hand off from the full overlay before capture");
         let capture_idx = body.find("start_scroll_capture_session").unwrap();
 
@@ -1884,10 +1737,33 @@ mod tests {
             prepare_idx < capture_idx,
             "the full overlay must be hidden before the portal/pipewire initial frame is captured",
         );
+    }
 
-        let prepare_body = function_body(&source, "prepare_wayland_scroll_overlay");
-        assert!(prepare_body.contains("spawn_scroll_outline"));
-        assert!(prepare_body.contains(".hide()"));
+    #[test]
+    fn wayland_scroll_start_does_not_spawn_outline_windows() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("commands source should contain production section");
+
+        assert!(
+            !production.contains("overlay-outline-") && !production.contains("spawn_scroll_outline"),
+            "wayland scrolling must not create fake outline webview windows; they surface as real yellow windows on Wayland",
+        );
+    }
+
+    #[test]
+    fn scroll_chrome_starts_after_initial_live_frame_capture() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "start_scroll_session");
+        let capture_idx = body.find("start_scroll_capture_session").unwrap();
+        let chrome_idx = body.find("spawn_scroll_chrome(&app, monitor_id, rect)").unwrap();
+
+        assert!(
+            capture_idx < chrome_idx,
+            "scroll chrome must appear after the initial live frame so it cannot contaminate the baseline",
+        );
     }
 
     #[test]
@@ -1902,65 +1778,6 @@ mod tests {
             );
 
         assert!(capture_idx < restore_idx);
-    }
-
-    #[test]
-    fn scroll_outline_segments_stay_outside_the_capture_selection() {
-        let segments = scroll_outline_geometries(
-            Rect {
-                x: 10,
-                y: 20,
-                width: 800,
-                height: 600,
-            },
-            Rect {
-                x: 100,
-                y: 120,
-                width: 240,
-                height: 160,
-            },
-            2.0,
-        );
-
-        let segment = |name: &str| {
-            segments
-                .iter()
-                .find(|(edge, _)| *edge == name)
-                .map(|(_, geo)| *geo)
-                .unwrap()
-        };
-        let top = segment("top");
-        let bottom = segment("bottom");
-        let left = segment("left");
-        let right = segment("right");
-
-        assert_eq!((top.x, top.y, top.width, top.height), (110.0, 138.0, 240.0, 2.0));
-        assert_eq!(
-            (bottom.x, bottom.y, bottom.width, bottom.height),
-            (110.0, 300.0, 240.0, 2.0),
-        );
-        assert_eq!((left.x, left.y, left.width, left.height), (108.0, 140.0, 2.0, 160.0));
-        assert_eq!(
-            (right.x, right.y, right.width, right.height),
-            (350.0, 140.0, 2.0, 160.0),
-        );
-    }
-
-    #[test]
-    fn scroll_outline_sets_cursor_passthrough_after_showing_window() {
-        let source = include_str!("commands.rs").replace("\r\n", "\n");
-        let body = function_body(&source, "spawn_scroll_outline");
-        let show_idx = body
-            .find("window.show()")
-            .expect("outline windows must be shown");
-        let ignore_idx = body
-            .find("set_ignore_cursor_events(true)")
-            .expect("outline windows should be mouse-transparent");
-
-        assert!(
-            show_idx < ignore_idx,
-            "Tao's Linux cursor-ignore request unwraps the GTK GdkWindow, so hidden outline windows must be shown before enabling passthrough",
-        );
     }
 
     #[test]

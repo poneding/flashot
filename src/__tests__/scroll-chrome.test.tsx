@@ -87,4 +87,11 @@ describe("ScrollChromeRoute", () => {
     expect(chrome.style.background).toBe("rgba(30, 30, 30, 0.85)");
     expect(chrome.style.boxShadow).toBe("none");
   });
+
+  it("uses a compact control strip without a live preview surface", () => {
+    render(<ScrollChromeRoute />);
+
+    expect(screen.getByText("0 frames · 0px")).toBeInTheDocument();
+    expect(screen.queryByText("Scroll the window below to capture…")).toBeNull();
+  });
 });
