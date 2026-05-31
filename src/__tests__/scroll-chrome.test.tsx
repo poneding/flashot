@@ -2,12 +2,13 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { stopScrollSession } from "@/lib/ipc";
+import { getSettings, stopScrollSession } from "@/lib/ipc";
 import { ScrollChromeRoute } from "@/routes/ScrollChrome";
-import type { ScrollEndReason } from "@/lib/types";
+import type { ScrollEndReason, ScrollProgress } from "@/lib/types";
 
 const scrollListeners = vi.hoisted(() => ({
   endDetected: undefined as undefined | ((reason: ScrollEndReason) => void),
+  progress: undefined as undefined | ((progress: ScrollProgress) => void),
 }));
 
 vi.mock("@/lib/ipc", () => ({
@@ -17,7 +18,10 @@ vi.mock("@/lib/ipc", () => ({
     accentColor: "#4ED1FF",
   }),
   onSettingsChanged: vi.fn().mockResolvedValue(vi.fn()),
-  onScrollProgress: vi.fn().mockResolvedValue(vi.fn()),
+  onScrollProgress: vi.fn((cb: (progress: ScrollProgress) => void) => {
+    scrollListeners.progress = cb;
+    return Promise.resolve(vi.fn());
+  }),
   onScrollMatchFailed: vi.fn().mockResolvedValue(vi.fn()),
   onScrollEndDetected: vi.fn((cb: (reason: ScrollEndReason) => void) => {
     scrollListeners.endDetected = cb;
@@ -32,7 +36,13 @@ describe("ScrollChromeRoute", () => {
   beforeEach(() => {
     window.location.hash = "#/scroll-chrome/1";
     scrollListeners.endDetected = undefined;
+    scrollListeners.progress = undefined;
     vi.clearAllMocks();
+    vi.mocked(getSettings).mockResolvedValue({
+      language: "en",
+      theme: "system",
+      accentColor: "#4ED1FF",
+    } as any);
   });
 
   afterEach(() => {
@@ -88,10 +98,36 @@ describe("ScrollChromeRoute", () => {
     expect(chrome.style.boxShadow).toBe("none");
   });
 
-  it("uses a compact control strip without a live preview surface", () => {
+  it("renders a live stitched preview from progress events", async () => {
     render(<ScrollChromeRoute />);
 
-    expect(screen.getByText("0 frames · 0px")).toBeInTheDocument();
-    expect(screen.queryByText("Scroll the window below to capture…")).toBeNull();
+    await waitFor(() => {
+      expect(scrollListeners.progress).toBeDefined();
+    });
+
+    await act(async () => {
+      scrollListeners.progress?.({
+        frames: 3,
+        height: 960,
+        previewDataUrl: "data:image/png;base64,preview",
+        lastScore: 0.91,
+      });
+    });
+
+    const preview = screen.getByTestId("scroll-chrome-preview-image") as HTMLImageElement;
+    expect(preview.src).toContain("data:image/png;base64,preview");
+    expect(screen.getByText("3 frames · 960px")).toBeInTheDocument();
+  });
+
+  it("keeps capture actions pinned to the bottom of the preview panel", () => {
+    render(<ScrollChromeRoute />);
+
+    const panel = screen.getByTestId("scroll-chrome-panel");
+    const actions = screen.getByTestId("scroll-chrome-actions");
+
+    expect(panel.style.flexDirection).toBe("column");
+    expect(actions.style.marginTop).toBe("auto");
+    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 });

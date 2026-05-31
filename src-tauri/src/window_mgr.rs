@@ -112,6 +112,7 @@ impl WindowMgr {
     }
 
     fn hide_overlays(&self, app: &AppHandle) {
+        let _ = crate::overlay_window::hide_all_wayland_scroll_region_frames(app);
         for (_label, w) in app.webview_windows() {
             let label = w.label();
             if label.starts_with("overlay-chrome-") {
@@ -242,6 +243,10 @@ mod tests {
         assert!(
             body.contains("overlay-chrome-") && !body.contains("overlay-outline-"),
             "scroll chrome is session-bound; fake outline windows must not exist",
+        );
+        assert!(
+            body.contains("hide_all_wayland_scroll_region_frames"),
+            "native wayland region frames must be destroyed with the capture session",
         );
     }
 

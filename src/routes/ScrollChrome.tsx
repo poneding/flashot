@@ -118,15 +118,19 @@ export function ScrollChromeRoute() {
 
   if (!parsed) return null;
 
+  const previewUrl = progress?.previewDataUrl;
+
   return (
     <div
+      data-testid="scroll-chrome-panel"
       style={{
         width: "100vw",
         height: "100vh",
         boxSizing: "border-box",
         display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
+        flexDirection: "column",
+        alignItems: "stretch",
+        justifyContent: "flex-start",
         gap: 10,
         pointerEvents: "auto",
         background: SCREENSHOT_TOOLBAR_BACKGROUND,
@@ -162,75 +166,116 @@ export function ScrollChromeRoute() {
         </div>
       )}
 
+      <div
+        style={{
+          minHeight: 18,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          opacity: 0.88,
+          fontSize: 13,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {finalized ? `${finalized.width}×${finalized.height}` : statusText}
+      </div>
+
+      <div
+        style={{
+          flex: "1 1 auto",
+          minHeight: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+          borderRadius: 6,
+          border: "1px solid rgba(255,255,255,0.1)",
+          background: "rgba(0,0,0,0.24)",
+        }}
+      >
+        {previewUrl ? (
+          <img
+            data-testid="scroll-chrome-preview-image"
+            src={previewUrl}
+            alt=""
+            style={{
+              display: "block",
+              maxWidth: "100%",
+              maxHeight: "100%",
+              objectFit: "contain",
+            }}
+          />
+        ) : (
+          <div
+            aria-hidden="true"
+            style={{
+              width: "100%",
+              height: "100%",
+              background: "rgba(255,255,255,0.04)",
+            }}
+          />
+        )}
+      </div>
+
       {finalized ? (
-        <>
-          <span
-            style={{
-              minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              opacity: 0.9,
-            }}
+        <div
+          data-testid="scroll-chrome-actions"
+          style={{
+            display: "flex",
+            flexShrink: 0,
+            gap: 8,
+            marginTop: "auto",
+            justifyContent: "flex-end",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onCopy}
+            disabled={!!busy}
+            style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
           >
-            {finalized.width}×{finalized.height}
-          </span>
-          <div style={{ display: "flex", flexShrink: 0, gap: 8 }}>
-            <button
-              type="button"
-              onClick={onCopy}
-              disabled={!!busy}
-              style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
-            >
-              {busy === "copy" ? t("scroll.copying") : t("scroll.copy")}
-            </button>
-            <button
-              type="button"
-              onClick={onSave}
-              disabled={!!busy}
-              style={{ ...BTN_BASE, background: "#4ade80", color: "#0a2a17" }}
-            >
-              {busy === "save" ? t("scroll.saving") : t("scroll.save")}
-            </button>
-          </div>
-        </>
+            {busy === "copy" ? t("scroll.copying") : t("scroll.copy")}
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={!!busy}
+            style={{ ...BTN_BASE, background: "#4ade80", color: "#0a2a17" }}
+          >
+            {busy === "save" ? t("scroll.saving") : t("scroll.save")}
+          </button>
+        </div>
       ) : (
-        <>
-          <span
+        <div
+          data-testid="scroll-chrome-actions"
+          style={{
+            display: "flex",
+            flexShrink: 0,
+            gap: 8,
+            marginTop: "auto",
+            justifyContent: "flex-end",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onDone}
+            disabled={!!busy}
+            style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
+          >
+            {busy === "done" ? t("scroll.finishing") : t("scroll.done")}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
             style={{
-              minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              opacity: 0.85,
-              fontSize: 13,
-              fontVariantNumeric: "tabular-nums",
+              ...BTN_BASE,
+              background: "rgba(255,255,255,0.12)",
+              color: "white",
             }}
           >
-            {statusText}
-          </span>
-          <div style={{ display: "flex", flexShrink: 0, gap: 8 }}>
-            <button
-              type="button"
-              onClick={onDone}
-              disabled={!!busy}
-              style={{ ...BTN_BASE, background: "#60a5fa", color: "white" }}
-            >
-              {busy === "done" ? t("scroll.finishing") : t("scroll.done")}
-            </button>
-            <button
-              type="button"
-              onClick={onCancel}
-              style={{
-                ...BTN_BASE,
-                background: "rgba(255,255,255,0.12)",
-                color: "white",
-              }}
-            >
-              {t("scroll.cancel")}
-            </button>
-          </div>
-        </>
+            {t("scroll.cancel")}
+          </button>
+        </div>
       )}
     </div>
   );

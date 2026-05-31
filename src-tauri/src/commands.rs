@@ -1195,7 +1195,17 @@ pub async fn start_scroll_session(
         height,
         source,
     } = capture;
+    if let Err(e) = overlay_window::show_wayland_scroll_region_frame(
+        &app,
+        monitor_id,
+        monitor.rect,
+        rect,
+        scroll_region_frame_color(),
+    ) {
+        tracing::warn!("failed to show wayland scroll region frame: {e}");
+    }
     if let Err(e) = spawn_scroll_chrome(&app, monitor_id, rect) {
+        close_scroll_chrome(&app, monitor_id);
         restore_wayland_scroll_overlay(&app, monitor_id);
         return Err(e);
     }
@@ -1252,6 +1262,15 @@ fn restore_wayland_scroll_overlay(app: &AppHandle, monitor_id: u32) {
     }
 }
 
+fn scroll_region_frame_color() -> overlay_window::ScrollRegionFrameColor {
+    overlay_window::ScrollRegionFrameColor {
+        red: 245,
+        green: 158,
+        blue: 11,
+        alpha: 242,
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn is_linux_wayland_session() -> bool {
     std::env::var("XDG_SESSION_TYPE")
@@ -1279,11 +1298,8 @@ fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, rect: Rect) -> Result<(
         .and_then(|ms| ms.into_iter().find(|m| m.id == monitor_id))
         .ok_or("monitor not found for chrome window")?;
 
-    // Compact chrome is much easier to keep outside the selected capture
-    // region, which is important because portal monitor streams include our
-    // own app windows.
-    let chrome_w = 320.0_f64;
-    let chrome_h = 64.0_f64;
+    let chrome_w = 360.0_f64;
+    let chrome_h = 300.0_f64;
     let mon_logical_w = mon.rect.width as f64;
     let mon_logical_h = mon.rect.height as f64;
     let sel_logical_left = rect.x as f64;
@@ -1351,6 +1367,7 @@ fn close_scroll_chrome(app: &AppHandle, monitor_id: u32) {
     if let Some(w) = app.get_webview_window(&format!("overlay-chrome-{monitor_id}")) {
         let _ = w.close();
     }
+    let _ = overlay_window::hide_wayland_scroll_region_frame(app, monitor_id);
     if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
         let _ = w.set_ignore_cursor_events(false);
     }
@@ -1767,7 +1784,7 @@ mod tests {
     }
 
     #[test]
-    fn wayland_scroll_start_hides_webview_overlay_without_native_indicator() {
+    fn wayland_scroll_start_shows_native_region_frame_without_frozen_overlay() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let body = function_body(&source, "start_scroll_session");
         let production = source
@@ -1780,21 +1797,39 @@ mod tests {
         let capture_idx = body
             .find("start_scroll_capture_session")
             .expect("wayland scroll must start live capture");
+        let frame_idx = body
+            .find("overlay_window::show_wayland_scroll_region_frame")
+            .expect("wayland scroll should show a native region frame");
 
         assert!(prepare_idx < capture_idx);
+        assert!(capture_idx < frame_idx);
         assert!(
             !production.contains("show_wayland_scroll_indicator"),
-            "route 1 must not create a native frozen overlay because it can black out the capture region and block scrolling"
+            "route 1 must not create the old native frozen overlay because it can black out the capture region and block scrolling"
+        );
+        assert!(
+            !production.contains("ScrollOverlayFrame"),
+            "region frame must not carry or paint a frozen screenshot"
         );
     }
 
     #[test]
-    fn scroll_cleanup_only_closes_scroll_chrome() {
+    fn scroll_cleanup_closes_scroll_chrome_and_region_frame() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let body = function_body(&source, "close_scroll_chrome");
 
         assert!(body.contains("overlay-chrome-"));
+        assert!(body.contains("hide_wayland_scroll_region_frame"));
         assert!(!body.contains("hide_wayland_scroll_indicator"));
+    }
+
+    #[test]
+    fn scroll_chrome_reserves_room_for_preview_and_bottom_actions() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "spawn_scroll_chrome");
+
+        assert!(body.contains("let chrome_w = 360.0_f64"));
+        assert!(body.contains("let chrome_h = 300.0_f64"));
     }
 
     #[test]

@@ -1,7 +1,15 @@
 use crate::types::Rect;
 use anyhow::{anyhow, Result};
 use std::sync::mpsc;
-use tauri::WebviewWindow;
+use tauri::{AppHandle, WebviewWindow};
+
+#[derive(Clone, Copy)]
+pub struct ScrollRegionFrameColor {
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+    pub alpha: u8,
+}
 
 pub fn configure_capture_overlay(
     window: &WebviewWindow,
@@ -23,6 +31,24 @@ pub fn show_capture_overlay(window: &WebviewWindow) -> Result<()> {
     run_on_window_main_thread(window, "show capture overlay", |window| {
         show_platform_overlay(window)
     })
+}
+
+pub fn show_wayland_scroll_region_frame(
+    app: &AppHandle,
+    monitor_id: u32,
+    monitor_rect: Rect,
+    selection: Rect,
+    color: ScrollRegionFrameColor,
+) -> Result<()> {
+    show_platform_wayland_scroll_region_frame(app, monitor_id, monitor_rect, selection, color)
+}
+
+pub fn hide_wayland_scroll_region_frame(app: &AppHandle, monitor_id: u32) -> Result<()> {
+    hide_platform_wayland_scroll_region_frame(app, monitor_id)
+}
+
+pub fn hide_all_wayland_scroll_region_frames(app: &AppHandle) -> Result<()> {
+    hide_all_platform_wayland_scroll_region_frames(app)
 }
 
 pub fn prepare_overlay_text_input(window: &WebviewWindow) -> Result<()> {
@@ -91,6 +117,22 @@ where
 
     window.run_on_main_thread(move || {
         let result = task(&task_window);
+        let _ = tx.send(result);
+    })?;
+
+    rx.recv()
+        .map_err(|_| anyhow!("{task_name} did not return from the main thread"))?
+}
+
+#[cfg(target_os = "linux")]
+fn run_on_app_main_thread<F>(app: &AppHandle, task_name: &'static str, task: F) -> Result<()>
+where
+    F: FnOnce() -> Result<()> + Send + 'static,
+{
+    let (tx, rx) = mpsc::sync_channel(1);
+
+    app.run_on_main_thread(move || {
+        let result = task();
         let _ = tx.send(result);
     })?;
 
@@ -338,6 +380,68 @@ fn configure_platform_overlay(
 }
 
 #[cfg(target_os = "linux")]
+fn show_platform_wayland_scroll_region_frame(
+    app: &AppHandle,
+    monitor_id: u32,
+    monitor_rect: Rect,
+    selection: Rect,
+    color: ScrollRegionFrameColor,
+) -> Result<()> {
+    if !is_linux_wayland_session() {
+        return Ok(());
+    }
+
+    run_on_app_main_thread(app, "show wayland scroll region frame", move || {
+        show_wayland_scroll_region_frame_on_main(monitor_id, monitor_rect, selection, color)
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn show_platform_wayland_scroll_region_frame(
+    _app: &AppHandle,
+    _monitor_id: u32,
+    _monitor_rect: Rect,
+    _selection: Rect,
+    _color: ScrollRegionFrameColor,
+) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn hide_platform_wayland_scroll_region_frame(app: &AppHandle, monitor_id: u32) -> Result<()> {
+    if !is_linux_wayland_session() {
+        return Ok(());
+    }
+
+    run_on_app_main_thread(app, "hide wayland scroll region frame", move || {
+        hide_wayland_scroll_region_frame_on_main(monitor_id);
+        Ok(())
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn hide_platform_wayland_scroll_region_frame(_app: &AppHandle, _monitor_id: u32) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn hide_all_platform_wayland_scroll_region_frames(app: &AppHandle) -> Result<()> {
+    if !is_linux_wayland_session() {
+        return Ok(());
+    }
+
+    run_on_app_main_thread(app, "hide all wayland scroll region frames", move || {
+        hide_all_wayland_scroll_region_frames_on_main();
+        Ok(())
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn hide_all_platform_wayland_scroll_region_frames(_app: &AppHandle) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
 fn configure_linux_layer_shell(
     window: &WebviewWindow,
     monitor_id: u32,
@@ -381,6 +485,225 @@ fn configure_linux_layer_shell(
     }
 
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+thread_local! {
+    static WAYLAND_SCROLL_REGION_FRAMES: std::cell::RefCell<std::collections::HashMap<u32, gtk::Window>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+#[cfg(target_os = "linux")]
+fn show_wayland_scroll_region_frame_on_main(
+    monitor_id: u32,
+    monitor_rect: Rect,
+    selection: Rect,
+    color: ScrollRegionFrameColor,
+) -> Result<()> {
+    use gtk::prelude::*;
+
+    hide_wayland_scroll_region_frame_on_main(monitor_id);
+
+    let Some(layer_shell) = linux_layer_shell() else {
+        tracing::warn!(
+            "Wayland scroll region frame skipped because gtk-layer-shell is unavailable"
+        );
+        return Ok(());
+    };
+
+    let segments = scroll_region_frame_segments(monitor_rect, selection, 2);
+    let window = gtk::Window::new(gtk::WindowType::Popup);
+    window.set_title("Flashot Scroll Region Frame");
+    window.set_decorated(false);
+    window.set_resizable(false);
+    window.set_accept_focus(false);
+    window.set_skip_taskbar_hint(true);
+    window.set_skip_pager_hint(true);
+    window.set_type_hint(gdk::WindowTypeHint::Notification);
+    window.set_keep_above(true);
+    window.set_app_paintable(true);
+    window.set_default_size(monitor_rect.width as i32, monitor_rect.height as i32);
+
+    if let Some(screen) = gtk::prelude::GtkWindowExt::screen(&window) {
+        if let Some(visual) = screen.rgba_visual() {
+            window.set_visual(Some(&visual));
+        }
+    }
+
+    let area = gtk::DrawingArea::new();
+    area.set_size_request(monitor_rect.width as i32, monitor_rect.height as i32);
+    area.set_app_paintable(true);
+    area.connect_draw(move |_, cr| {
+        cr.set_operator(gtk::cairo::Operator::Source);
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.0);
+        let _ = cr.paint();
+        cr.set_source_rgba(
+            color.red as f64 / 255.0,
+            color.green as f64 / 255.0,
+            color.blue as f64 / 255.0,
+            color.alpha as f64 / 255.0,
+        );
+        for segment in &segments {
+            cr.rectangle(
+                segment.x as f64,
+                segment.y as f64,
+                segment.width as f64,
+                segment.height as f64,
+            );
+            let _ = cr.fill();
+        }
+        gtk::glib::Propagation::Stop
+    });
+
+    window.add(&area);
+    configure_wayland_scroll_region_frame_window(&window, monitor_id, monitor_rect, layer_shell)?;
+    window.connect_realize(|window| {
+        if let Some(gdk_window) = window.window() {
+            gdk_window.set_pass_through(true);
+            gdk_window.set_accept_focus(false);
+            gdk_window.set_skip_taskbar_hint(true);
+            gdk_window.set_skip_pager_hint(true);
+        }
+    });
+    window.show_all();
+
+    WAYLAND_SCROLL_REGION_FRAMES.with(|frames| {
+        frames.borrow_mut().insert(monitor_id, window);
+    });
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn configure_wayland_scroll_region_frame_window(
+    window: &gtk::Window,
+    monitor_id: u32,
+    monitor_rect: Rect,
+    layer_shell: &GtkLayerShell,
+) -> Result<()> {
+    use gtk::glib::object::ObjectType;
+    use gtk::prelude::*;
+    use std::ffi::CString;
+
+    let gtk_ptr = window.as_ptr();
+    if !layer_shell.is_layer_window(gtk_ptr) {
+        layer_shell.init_for_window(gtk_ptr);
+    }
+
+    let namespace = CString::new(format!("flashot-scroll-region-frame-{monitor_id}"))?;
+    layer_shell.set_namespace(gtk_ptr, namespace.as_ptr());
+    layer_shell.set_layer(gtk_ptr, GTK_LAYER_SHELL_LAYER_OVERLAY);
+    layer_shell.set_exclusive_zone(gtk_ptr, 0);
+    layer_shell.set_keyboard_mode(gtk_ptr, GTK_LAYER_SHELL_KEYBOARD_MODE_NONE);
+    for edge in [
+        GTK_LAYER_SHELL_EDGE_LEFT,
+        GTK_LAYER_SHELL_EDGE_RIGHT,
+        GTK_LAYER_SHELL_EDGE_TOP,
+        GTK_LAYER_SHELL_EDGE_BOTTOM,
+    ] {
+        layer_shell.set_anchor(gtk_ptr, edge, true);
+        layer_shell.set_margin(gtk_ptr, edge, 0);
+    }
+
+    let display = window.display();
+    if let Some((monitor, _index)) = gdk_monitor_for_display_rect(&display, monitor_rect) {
+        layer_shell.set_monitor(gtk_ptr, monitor.as_ptr());
+    } else {
+        tracing::warn!("failed to map scroll region frame monitor {monitor_id} to a GDK monitor");
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn hide_wayland_scroll_region_frame_on_main(monitor_id: u32) {
+    use gtk::prelude::*;
+
+    WAYLAND_SCROLL_REGION_FRAMES.with(|frames| {
+        if let Some(window) = frames.borrow_mut().remove(&monitor_id) {
+            window.close();
+        }
+    });
+}
+
+#[cfg(target_os = "linux")]
+fn hide_all_wayland_scroll_region_frames_on_main() {
+    use gtk::prelude::*;
+
+    WAYLAND_SCROLL_REGION_FRAMES.with(|frames| {
+        for (_monitor_id, window) in frames.borrow_mut().drain() {
+            window.close();
+        }
+    });
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn scroll_region_frame_segments(monitor_rect: Rect, selection: Rect, thickness: u32) -> Vec<Rect> {
+    let mon_width = monitor_rect.width as i32;
+    let mon_height = monitor_rect.height as i32;
+    let left = selection.x.clamp(0, mon_width);
+    let top = selection.y.clamp(0, mon_height);
+    let right = (selection.x + selection.width as i32).clamp(0, mon_width);
+    let bottom = (selection.y + selection.height as i32).clamp(0, mon_height);
+    if right <= left || bottom <= top || thickness == 0 {
+        return Vec::new();
+    }
+
+    let thickness = thickness as i32;
+    let mut segments = Vec::with_capacity(4);
+
+    let top_y = (top - thickness).max(0);
+    push_positive_rect(
+        &mut segments,
+        Rect {
+            x: left,
+            y: top_y,
+            width: (right - left) as u32,
+            height: (top - top_y) as u32,
+        },
+    );
+
+    let bottom_edge = (bottom + thickness).min(mon_height);
+    push_positive_rect(
+        &mut segments,
+        Rect {
+            x: left,
+            y: bottom,
+            width: (right - left) as u32,
+            height: (bottom_edge - bottom) as u32,
+        },
+    );
+
+    let left_x = (left - thickness).max(0);
+    push_positive_rect(
+        &mut segments,
+        Rect {
+            x: left_x,
+            y: top,
+            width: (left - left_x) as u32,
+            height: (bottom - top) as u32,
+        },
+    );
+
+    let right_edge = (right + thickness).min(mon_width);
+    push_positive_rect(
+        &mut segments,
+        Rect {
+            x: right,
+            y: top,
+            width: (right_edge - right) as u32,
+            height: (bottom - top) as u32,
+        },
+    );
+
+    segments
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn push_positive_rect(rects: &mut Vec<Rect>, rect: Rect) {
+    if rect.width > 0 && rect.height > 0 {
+        rects.push(rect);
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -481,6 +804,9 @@ const GTK_LAYER_SHELL_EDGE_RIGHT: GtkLayerShellEdge = 1;
 const GTK_LAYER_SHELL_EDGE_TOP: GtkLayerShellEdge = 2;
 #[cfg(target_os = "linux")]
 const GTK_LAYER_SHELL_EDGE_BOTTOM: GtkLayerShellEdge = 3;
+#[cfg(target_os = "linux")]
+const GTK_LAYER_SHELL_KEYBOARD_MODE_NONE: GtkLayerShellKeyboardMode = 0;
+#[cfg(target_os = "linux")]
 const GTK_LAYER_SHELL_KEYBOARD_MODE_EXCLUSIVE: GtkLayerShellKeyboardMode = 1;
 #[cfg(target_os = "linux")]
 const GTK_LAYER_SHELL_LAYER_OVERLAY: GtkLayerShellLayer = 3;
@@ -656,6 +982,8 @@ fn restore_platform_after_text_input(_window: &WebviewWindow) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use crate::types::Rect;
+
     #[test]
     fn capture_overlay_accepts_first_mouse_clicks() {
         assert!(super::capture_overlay_accepts_first_mouse());
@@ -716,6 +1044,64 @@ mod tests {
                 && body.contains("set_anchor(gtk_ptr, edge, true)"),
             "Wayland overlays should use layer-shell before falling back to native fullscreen"
         );
+    }
+
+    #[test]
+    fn wayland_scroll_region_frame_segments_stay_outside_selection() {
+        let segments = super::scroll_region_frame_segments(
+            Rect {
+                x: 10,
+                y: 20,
+                width: 800,
+                height: 600,
+            },
+            Rect {
+                x: 100,
+                y: 120,
+                width: 240,
+                height: 160,
+            },
+            2,
+        );
+
+        let tuples = segments
+            .into_iter()
+            .map(|r| (r.x, r.y, r.width, r.height))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            tuples,
+            vec![
+                (100, 118, 240, 2),
+                (100, 280, 240, 2),
+                (98, 120, 2, 160),
+                (340, 120, 2, 160),
+            ],
+        );
+    }
+
+    #[test]
+    fn wayland_scroll_region_frame_uses_one_click_through_surface_per_monitor() {
+        let source = include_str!("overlay_window.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("overlay source should contain production section");
+
+        assert!(production.contains("show_wayland_scroll_region_frame"));
+        assert!(production.contains("gtk::WindowType::Popup"));
+        assert!(production.contains("let Some(layer_shell) = linux_layer_shell() else"));
+        assert!(production.contains("std::collections::HashMap<u32, gtk::Window>"));
+        assert!(production.contains("set_default_size(monitor_rect.width as i32"));
+        assert!(production.contains("scroll_region_frame_segments"));
+        assert!(production.contains("set_pass_through(true)"));
+        assert!(!production.contains("HashMap<u32, Vec<gtk::Window>>"));
+        assert!(!production.contains("window.move_(monitor_rect.x, monitor_rect.y)"));
+        assert!(!production.contains("set_margin(gtk_ptr, GTK_LAYER_SHELL_EDGE_LEFT, segment.x)"));
+        assert!(!production.contains("set_margin(gtk_ptr, GTK_LAYER_SHELL_EDGE_TOP, segment.y)"));
+        assert!(!production.contains("input_shape_combine_region"));
+        assert!(!production.contains("ScrollOverlayFrame"));
+        assert!(!production.contains("outside_selection_tiles"));
     }
 
     #[test]
