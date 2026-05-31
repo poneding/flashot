@@ -546,10 +546,12 @@ mod tests {
     #[test]
     fn capture_menu_uses_configured_hotkey_as_accelerator() {
         assert_eq!(super::capture_menu_accelerator("F1"), Some("F1"));
-        assert_eq!(
-            super::capture_menu_accelerator("Cmd+Shift+X"),
-            Some("Cmd+Shift+X")
-        );
+        let explicit_super_accelerator = super::capture_menu_accelerator("Cmd+Shift+X");
+        if super::menu_supports_super_accelerator() {
+            assert_eq!(explicit_super_accelerator, Some("Cmd+Shift+X"));
+        } else {
+            assert_eq!(explicit_super_accelerator, None);
+        }
     }
 
     #[test]
