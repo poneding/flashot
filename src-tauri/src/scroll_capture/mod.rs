@@ -8,6 +8,8 @@ pub(crate) mod mapping;
 pub(crate) mod pipewire_source;
 #[cfg(target_os = "linux")]
 pub(crate) mod portal;
+#[cfg(target_os = "linux")]
+mod wayshot_source;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScrollCaptureBackend {
@@ -63,6 +65,29 @@ mod xcap_source;
 
 #[cfg(target_os = "linux")]
 async fn start_wayland_scroll_capture_session(
+    monitor: &MonitorInfo,
+    logical_rect: Rect,
+) -> Result<ScrollCaptureSession> {
+    match start_wayland_screencopy_scroll_capture_session(monitor, logical_rect) {
+        Ok(session) => return Ok(session),
+        Err(e) => tracing::warn!(
+            "Wayland screencopy scroll capture failed, falling back to portal stream: {e:#}"
+        ),
+    }
+
+    start_wayland_portal_scroll_capture_session(monitor, logical_rect).await
+}
+
+#[cfg(target_os = "linux")]
+fn start_wayland_screencopy_scroll_capture_session(
+    monitor: &MonitorInfo,
+    logical_rect: Rect,
+) -> Result<ScrollCaptureSession> {
+    wayshot_source::WaylandScreencopyScrollCapture::new(monitor.rect, logical_rect)?.into_session()
+}
+
+#[cfg(target_os = "linux")]
+async fn start_wayland_portal_scroll_capture_session(
     monitor: &MonitorInfo,
     logical_rect: Rect,
 ) -> Result<ScrollCaptureSession> {
@@ -159,5 +184,44 @@ mod tests {
         assert!(factory.contains("start_monitor_screencast"));
         assert!(factory.contains("WaylandPipeWireSource"));
         assert!(factory.contains("restore_token"));
+    }
+
+    #[test]
+    fn linux_wayland_prefers_direct_screencopy_before_portal_streaming() {
+        let source = include_str!("mod.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "start_wayland_scroll_capture_session");
+        let screencopy_idx = body
+            .find("start_wayland_screencopy_scroll_capture_session")
+            .expect("wayland scroll should first try compositor screencopy");
+        let portal_idx = body
+            .find("start_wayland_portal_scroll_capture_session")
+            .expect("portal should remain as fallback");
+
+        assert!(
+            screencopy_idx < portal_idx,
+            "direct screencopy avoids portal stream/source mismatch when the compositor supports it",
+        );
+    }
+
+    fn function_body<'a>(source: &'a str, name: &str) -> &'a str {
+        let needle = format!("fn {name}");
+        let start = source
+            .find(&needle)
+            .unwrap_or_else(|| panic!("{name} not found"));
+        let body_start = source[start..].find('{').map(|idx| start + idx).unwrap();
+        let mut depth = 0usize;
+        for (idx, ch) in source[body_start..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &source[body_start..body_start + idx + 1];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("{name} body did not close");
     }
 }
