@@ -112,7 +112,6 @@ impl WindowMgr {
     }
 
     fn hide_overlays(&self, app: &AppHandle) {
-        let _ = crate::overlay_window::hide_all_wayland_scroll_indicators(app);
         for (_label, w) in app.webview_windows() {
             let label = w.label();
             if label.starts_with("overlay-chrome-") {
@@ -243,17 +242,6 @@ mod tests {
         assert!(
             body.contains("overlay-chrome-") && !body.contains("overlay-outline-"),
             "scroll chrome is session-bound; fake outline windows must not exist",
-        );
-    }
-
-    #[test]
-    fn session_cleanup_hides_native_wayland_scroll_indicators() {
-        let source = include_str!("window_mgr.rs").replace("\r\n", "\n");
-        let body = function_body(&source, "hide_overlays");
-
-        assert!(
-            body.contains("hide_all_wayland_scroll_indicators"),
-            "native wayland scroll indicators must be destroyed with the capture session",
         );
     }
 

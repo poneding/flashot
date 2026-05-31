@@ -58,13 +58,6 @@ const UPDATER_PROGRESS_EVENT: &str = "updater:progress";
 const MAX_CORNER_RADIUS: u32 = 60;
 const UTILITY_WINDOW_LIGHT_BACKGROUND: Color = Color(255, 255, 255, 255);
 const UTILITY_WINDOW_DARK_BACKGROUND: Color = Color(11, 17, 30, 255);
-const DEFAULT_SCROLL_INDICATOR_COLOR: overlay_window::ScrollIndicatorColor =
-    overlay_window::ScrollIndicatorColor {
-        red: 245,
-        green: 158,
-        blue: 11,
-        alpha: 242,
-    };
 const UTILITY_WINDOW_DARK_INIT_SCRIPT: &str = r#"
 (() => {
   try {
@@ -169,29 +162,6 @@ fn utility_window_init_script(theme: Option<TauriTheme>) -> &'static str {
         Some(TauriTheme::Light) => UTILITY_WINDOW_LIGHT_INIT_SCRIPT,
         _ => UTILITY_WINDOW_SYSTEM_INIT_SCRIPT,
     }
-}
-
-fn parse_scroll_indicator_color(value: &str) -> Option<overlay_window::ScrollIndicatorColor> {
-    let hex = value.strip_prefix('#')?;
-    if hex.len() != 6 {
-        return None;
-    }
-    let red = u8::from_str_radix(&hex[0..2], 16).ok()?;
-    let green = u8::from_str_radix(&hex[2..4], 16).ok()?;
-    let blue = u8::from_str_radix(&hex[4..6], 16).ok()?;
-    Some(overlay_window::ScrollIndicatorColor {
-        red,
-        green,
-        blue,
-        alpha: 242,
-    })
-}
-
-fn scroll_indicator_color() -> overlay_window::ScrollIndicatorColor {
-    settings_store::load()
-        .ok()
-        .and_then(|settings| parse_scroll_indicator_color(&settings.accent_color))
-        .unwrap_or(DEFAULT_SCROLL_INDICATOR_COLOR)
 }
 
 fn apply_utility_window_appearance(
@@ -1180,11 +1150,6 @@ pub async fn start_scroll_session(
     // 1. Derive scale and physical rect from the frozen frame we already have.
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
     let scale = frame.scale_factor.max(1.0);
-    let frozen_overlay_frame = overlay_window::ScrollOverlayFrame {
-        rgba: frame.rgba,
-        width: frame.width,
-        height: frame.height,
-    };
     let phys_rect = Rect {
         x: (rect.x as f32 * scale).round() as i32,
         y: (rect.y as f32 * scale).round() as i32,
@@ -1230,19 +1195,7 @@ pub async fn start_scroll_session(
         height,
         source,
     } = capture;
-    if let Err(e) = overlay_window::show_wayland_scroll_indicator(
-        &app,
-        monitor_id,
-        monitor.rect,
-        rect,
-        frozen_overlay_frame,
-        scroll_indicator_color(),
-    ) {
-        restore_wayland_scroll_overlay(&app, monitor_id);
-        return Err(format!("failed to show wayland scroll indicator: {e}"));
-    }
     if let Err(e) = spawn_scroll_chrome(&app, monitor_id, rect) {
-        let _ = overlay_window::hide_wayland_scroll_indicator(&app, monitor_id);
         restore_wayland_scroll_overlay(&app, monitor_id);
         return Err(e);
     }
@@ -1395,7 +1348,6 @@ fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, rect: Rect) -> Result<(
 /// Tear down the chrome window for `monitor_id` (if any) and restore mouse
 /// events on the underlying overlay so the next capture session works.
 fn close_scroll_chrome(app: &AppHandle, monitor_id: u32) {
-    let _ = overlay_window::hide_wayland_scroll_indicator(app, monitor_id);
     if let Some(w) = app.get_webview_window(&format!("overlay-chrome-{monitor_id}")) {
         let _ = w.close();
     }
@@ -1815,25 +1767,34 @@ mod tests {
     }
 
     #[test]
-    fn wayland_scroll_start_shows_native_indicator_after_hiding_webview_overlay() {
+    fn wayland_scroll_start_hides_webview_overlay_without_native_indicator() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let body = function_body(&source, "start_scroll_session");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("commands source should contain production section");
         let prepare_idx = body
             .find("prepare_wayland_scroll_overlay(&app, monitor_id)")
             .expect("wayland scroll must hide the webview overlay");
-        let indicator_idx = body
-            .find("overlay_window::show_wayland_scroll_indicator")
-            .expect("wayland scroll must show a native non-webview region indicator");
+        let capture_idx = body
+            .find("start_scroll_capture_session")
+            .expect("wayland scroll must start live capture");
 
-        assert!(prepare_idx < indicator_idx);
+        assert!(prepare_idx < capture_idx);
+        assert!(
+            !production.contains("show_wayland_scroll_indicator"),
+            "route 1 must not create a native frozen overlay because it can black out the capture region and block scrolling"
+        );
     }
 
     #[test]
-    fn scroll_cleanup_hides_native_wayland_indicator() {
+    fn scroll_cleanup_only_closes_scroll_chrome() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let body = function_body(&source, "close_scroll_chrome");
 
-        assert!(body.contains("overlay_window::hide_wayland_scroll_indicator"));
+        assert!(body.contains("overlay-chrome-"));
+        assert!(!body.contains("hide_wayland_scroll_indicator"));
     }
 
     #[test]
