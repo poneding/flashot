@@ -157,4 +157,5 @@ export const zhTW = {
   "scroll.finishing": "正在完成...",
   "scroll.done": "完成",
   "scroll.cancel": "取消",
+  "scroll.finishPin": "完成捲動截圖",
 } as const;

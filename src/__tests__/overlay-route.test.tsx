@@ -7,12 +7,14 @@ import {
   cropAndCopy,
   cropAndSave,
   getSettings,
+  onScrollProgress,
   pinImage,
   requestColorCopy,
   requestColorFormatToggle,
+  scrollPin,
   startScrollSession,
 } from "@/lib/ipc";
-import type { CaptureStartPayload } from "@/lib/types";
+import type { CaptureStartPayload, ScrollProgress } from "@/lib/types";
 import { DEFAULT_IMAGE_ADJUSTMENTS } from "@/overlay/imageAdjustments";
 import { useOverlay } from "@/overlay/state";
 import { OverlayRoute } from "@/routes/Overlay";
@@ -23,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const ipcListeners = vi.hoisted(() => ({
   colorFormatToggleRequested: undefined as undefined | (() => void),
   colorCopyRequested: undefined as undefined | (() => void),
+  scrollProgress: undefined as undefined | ((p: ScrollProgress) => void),
 }));
 
 const annotationStageMock = vi.hoisted(() => vi.fn((_props: Record<string, unknown>) => null));
@@ -69,10 +72,15 @@ vi.mock("@/lib/ipc", () => ({
   }),
   onSelectionClaimed: vi.fn().mockResolvedValue(vi.fn()),
   onSelectionReleased: vi.fn().mockResolvedValue(vi.fn()),
+  onScrollProgress: vi.fn((cb: (p: ScrollProgress) => void) => {
+    ipcListeners.scrollProgress = cb;
+    return Promise.resolve(vi.fn());
+  }),
   pinImage: vi.fn().mockResolvedValue("pin-1"),
   requestColorCopy: vi.fn().mockResolvedValue(undefined),
   requestColorFormatToggle: vi.fn().mockResolvedValue(undefined),
   releaseSelection: vi.fn().mockResolvedValue(undefined),
+  scrollPin: vi.fn().mockResolvedValue("pin-1"),
   startScrollSession: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -113,6 +121,7 @@ describe("OverlayRoute", () => {
     mockConvertFileSrc("macos");
     ipcListeners.colorFormatToggleRequested = undefined;
     ipcListeners.colorCopyRequested = undefined;
+    ipcListeners.scrollProgress = undefined;
     annotationStageMock.mockClear();
     webviewWindowMock.setFocus.mockClear();
     webviewWindowMock.setCursorIcon.mockClear();
@@ -292,7 +301,7 @@ describe("OverlayRoute", () => {
     expect(cancelCapture).not.toHaveBeenCalled();
   });
 
-  it("shows a startup state before the backend captures the initial scroll frame", async () => {
+  it("shows the scroll hint inside the selection while the scroll session is starting", async () => {
     const selection = { x: 100, y: 120, width: 240, height: 160 };
     vi.mocked(startScrollSession).mockReturnValueOnce(new Promise<void>(() => { }));
     useOverlay.getState().commit(selection);
@@ -301,13 +310,15 @@ describe("OverlayRoute", () => {
     fireEvent.click(screen.getByRole("button", { name: "Scrolling screenshot" }));
 
     expect(useOverlay.getState().mode).toBe("scrollStarting");
-    expect(screen.getByText("Starting...")).toBeTruthy();
+    const hint = screen.getByText("Scroll the window below to capture…");
+    expect(hint).toBeTruthy();
+    expect((hint as HTMLElement).style.top).toBe("132px");
     await waitFor(() => {
       expect(startScrollSession).toHaveBeenCalledWith(1, selection);
     });
   });
 
-  it("localizes the scroll startup state in Traditional Chinese", async () => {
+  it("localizes the scroll hint in Traditional Chinese", async () => {
     vi.mocked(getSettings).mockResolvedValue({ accentColor: "#0EA5E9", language: "zh-TW", theme: "system" } as any);
     const selection = { x: 100, y: 120, width: 240, height: 160 };
     vi.mocked(startScrollSession).mockReturnValueOnce(new Promise<void>(() => { }));
@@ -317,7 +328,7 @@ describe("OverlayRoute", () => {
     fireEvent.click(await screen.findByRole("button", { name: "捲動截圖" }));
 
     expect(useOverlay.getState().mode).toBe("scrollStarting");
-    expect(screen.getByText("正在開始...")).toBeTruthy();
+    expect(screen.getByText("捲動下方視窗以繼續擷取…")).toBeTruthy();
   });
 
   it("enters scrolling mode after the backend starts the scroll session", async () => {
@@ -330,6 +341,63 @@ describe("OverlayRoute", () => {
 
     await waitFor(() => {
       expect(useOverlay.getState().mode).toBe("scrolling");
+    });
+  });
+
+  it("hides the scroll check before accepted scroll progress and shows it after frames increase", async () => {
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    useOverlay.getState().commit(selection);
+
+    render(<OverlayRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Scrolling screenshot" }));
+
+    await waitFor(() => {
+      expect(ipcListeners.scrollProgress).toBeDefined();
+    });
+    act(() => {
+      ipcListeners.scrollProgress?.({
+        frames: 0,
+        height: 160,
+        previewDataUrl: "data:image/png;base64,initial",
+        lastScore: 1,
+      });
+    });
+    expect(screen.queryByRole("button", { name: "Finish scrolling screenshot" })).toBeNull();
+
+    act(() => {
+      ipcListeners.scrollProgress?.({
+        frames: 1,
+        height: 260,
+        previewDataUrl: "data:image/png;base64,next",
+        lastScore: 0.95,
+      });
+    });
+
+    expect(screen.getByRole("button", { name: "Finish scrolling screenshot" })).toBeTruthy();
+  });
+
+  it("pins the scroll result when the in-selection check is clicked", async () => {
+    const selection = { x: 100, y: 120, width: 240, height: 160 };
+    useOverlay.getState().commit(selection);
+
+    render(<OverlayRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Scrolling screenshot" }));
+
+    await waitFor(() => {
+      expect(ipcListeners.scrollProgress).toBeDefined();
+    });
+    act(() => {
+      ipcListeners.scrollProgress?.({
+        frames: 2,
+        height: 320,
+        previewDataUrl: "data:image/png;base64,next",
+        lastScore: 0.95,
+      });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Finish scrolling screenshot" }));
+
+    await waitFor(() => {
+      expect(scrollPin).toHaveBeenCalledTimes(1);
     });
   });
 

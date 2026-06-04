@@ -17,13 +17,15 @@ import {
   onQuickShotFlash,
   onSelectionClaimed,
   onSelectionReleased,
+  onScrollProgress,
   pinImage,
   releaseSelection,
   requestColorCopy,
   requestColorFormatToggle,
+  scrollPin,
   startScrollSession,
 } from "@/lib/ipc";
-import type { Rect } from "@/lib/types";
+import type { Rect, ScrollProgress } from "@/lib/types";
 import { ColorPicker, formatColorText } from "@/overlay/ColorPicker";
 import { DetectHighlight } from "@/overlay/DetectHighlight";
 import { DimMask } from "@/overlay/DimMask";
@@ -35,7 +37,8 @@ import { useStoredAccentColor, useStoredLanguage } from "@/settings/useStoredAcc
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { CursorIcon } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { useEffect, useRef, useState } from "react";
+import { CheckIcon } from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 const ORIGIN_CURSOR_EPSILON = 1;
 
@@ -124,6 +127,7 @@ export function OverlayRoute() {
   const cornerRadius = useOverlay((s) => s.cornerRadius);
   const monitorRect = useOverlay((s) => s.monitorRect);
   const [flashRect, setFlashRect] = useState<Rect | null>(null);
+  const [scrollFrames, setScrollFrames] = useState(0);
   const flashTimerRef = useRef<number | null>(null);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -339,6 +343,23 @@ export function OverlayRoute() {
     };
   }, [mode, frameUrl]);
 
+  useEffect(() => {
+    if (mode !== "scrolling") {
+      setScrollFrames(0);
+      return;
+    }
+
+    const sub = onScrollProgress((progress: ScrollProgress) => {
+      setScrollFrames(progress.frames);
+    });
+
+    return () => {
+      sub.then((unlisten) => unlisten()).catch(() => {
+        /* best effort */
+      });
+    };
+  }, [mode]);
+
   const handleCopy = async () => {
     if (monitorId == null || !selection) return;
     const annotationPng = await exportAnnotationLayer(scaleFactor);
@@ -373,6 +394,14 @@ export function OverlayRoute() {
       cornerRadius,
       useOverlay.getState().imageAdjustments,
     );
+  };
+
+  const handleScrollFinish = async () => {
+    try {
+      await scrollPin();
+    } catch (error) {
+      console.warn("Failed to pin scrolling screenshot", error);
+    }
   };
 
   const handleScroll = async () => {
@@ -522,11 +551,13 @@ export function OverlayRoute() {
       <DetectHighlight />
       <SelectionBox />
       <ColorPicker locale={locale} />
-      {mode === "scrollStarting" && selection && monitorRect && (
-        <ScrollStartupStatus
+      {(mode === "scrollStarting" || mode === "scrolling") && selection && monitorRect && (
+        <ScrollCaptureAffordance
           selection={selection}
           monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
           locale={locale}
+          showCheck={mode === "scrolling" && scrollFrames > 0}
+          onFinish={handleScrollFinish}
         />
       )}
       {mode === "committed" && selection && monitorRect && monitorId != null && (
@@ -580,62 +611,123 @@ function waitForOverlayPaint(): Promise<void> {
   });
 }
 
-function ScrollStartupStatus({ selection, monitorRect, locale }: { selection: Rect; monitorRect: Rect; locale: Locale }) {
+const scrollHintStyle: CSSProperties = {
+  position: "fixed",
+  height: 28,
+  boxSizing: "border-box",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: 7,
+  background: "rgba(255,255,255,0.16)",
+  border: "1px solid rgba(255,255,255,0.18)",
+  color: "var(--flashot-accent)",
+  fontSize: 12,
+  fontWeight: 700,
+  lineHeight: 1,
+  pointerEvents: "none",
+  whiteSpace: "nowrap",
+  backdropFilter: "blur(12px)",
+  WebkitBackdropFilter: "blur(12px)",
+  boxShadow: "0 10px 28px rgba(0,0,0,0.16)",
+  zIndex: 10000,
+};
+
+const scrollCheckStyle: CSSProperties = {
+  position: "fixed",
+  width: 44,
+  height: 44,
+  boxSizing: "border-box",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid rgba(255,255,255,0.28)",
+  borderRadius: 22,
+  background: "rgba(34,197,94,0.34)",
+  color: "rgba(255,255,255,0.98)",
+  cursor: "pointer",
+  backdropFilter: "blur(16px)",
+  WebkitBackdropFilter: "blur(16px)",
+  boxShadow: "0 12px 34px rgba(16,185,129,0.28), inset 0 1px 0 rgba(255,255,255,0.24)",
+  zIndex: 10001,
+};
+
+function ScrollCaptureAffordance({
+  selection,
+  monitorRect,
+  locale,
+  showCheck,
+  onFinish,
+}: {
+  selection: Rect;
+  monitorRect: Rect;
+  locale: Locale;
+  showCheck: boolean;
+  onFinish: () => void | Promise<void>;
+}) {
   const t = createTranslator(locale);
-  const width = 132;
-  const height = 30;
-  const gap = 10;
-  const horizontalLeft = Math.min(
-    Math.max(selection.x, 8),
-    Math.max(8, monitorRect.width - width - 8),
-  );
-  const above = selection.y - height - gap;
-  const below = selection.y + selection.height + gap;
-  const right = selection.x + selection.width + gap;
-  const left = selection.x - width - gap;
-  const verticalTop = Math.min(
-    Math.max(selection.y, 8),
-    Math.max(8, monitorRect.height - height - 8),
-  );
+  const [hintVisible, setHintVisible] = useState(true);
 
-  const pos =
-    above >= 8
-      ? { left: horizontalLeft, top: above }
-      : below + height <= monitorRect.height - 8
-        ? { left: horizontalLeft, top: below }
-        : right + width <= monitorRect.width - 8
-          ? { left: right, top: verticalTop }
-          : left >= 8
-            ? { left, top: verticalTop }
-            : null;
+  useEffect(() => {
+    setHintVisible(true);
+    const timer = window.setTimeout(() => setHintVisible(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, [selection.x, selection.y, selection.width, selection.height]);
 
-  if (!pos) return null;
+  const centerX = selection.x + selection.width / 2;
+  const hintWidth = Math.min(300, Math.max(224, selection.width - 24));
+  const hintLeft = Math.min(
+    Math.max(centerX - hintWidth / 2, 8),
+    Math.max(8, monitorRect.width - hintWidth - 8),
+  );
+  const hintTop = Math.min(
+    Math.max(selection.y + 12, 8),
+    Math.max(8, monitorRect.height - 28 - 8),
+  );
+  const checkSize = 44;
+  const checkLeft = Math.min(
+    Math.max(centerX - checkSize / 2, 8),
+    Math.max(8, monitorRect.width - checkSize - 8),
+  );
+  const checkTop = Math.min(
+    Math.max(selection.y + selection.height - checkSize - 14, 8),
+    Math.max(8, monitorRect.height - checkSize - 8),
+  );
 
   return (
-    <div
-      role="status"
-      style={{
-        position: "fixed",
-        left: pos.left,
-        top: pos.top,
-        width,
-        height,
-        boxSizing: "border-box",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        borderRadius: 6,
-        background: "rgba(20,20,20,0.88)",
-        border: "1px solid rgba(255,255,255,0.12)",
-        color: "rgba(255,255,255,0.88)",
-        fontSize: 12,
-        fontWeight: 500,
-        pointerEvents: "none",
-        zIndex: 10000,
-      }}
-    >
-      {t("scroll.starting")}
-    </div>
+    <>
+      {hintVisible && (
+        <div
+          role="status"
+          style={{
+            ...scrollHintStyle,
+            left: hintLeft,
+            top: hintTop,
+            width: hintWidth,
+          }}
+        >
+          {t("scroll.prompt")}
+        </div>
+      )}
+      {showCheck && (
+        <button
+          type="button"
+          aria-label={t("scroll.finishPin")}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={() => void onFinish()}
+          style={{
+            ...scrollCheckStyle,
+            left: checkLeft,
+            top: checkTop,
+          }}
+        >
+          <CheckIcon size={24} strokeWidth={3} aria-hidden="true" />
+        </button>
+      )}
+    </>
   );
 }
 

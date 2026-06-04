@@ -157,4 +157,5 @@ export const en = {
   "scroll.finishing": "Finishing...",
   "scroll.done": "Done",
   "scroll.cancel": "Cancel",
+  "scroll.finishPin": "Finish scrolling screenshot",
 } as const;
