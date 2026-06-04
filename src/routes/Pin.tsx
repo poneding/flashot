@@ -832,7 +832,7 @@ function pinControlsStyleForSide(side: PinControlsSide): CSSProperties {
 
 const pinControlsBaseStyle: CSSProperties = {
   position: "absolute",
-  top: PIN_SHADOW_PADDING + TOOLBAR_GAP,
+  top: PIN_SHADOW_PADDING,
   width: PIN_CONTROLS_WIDTH,
   boxSizing: "border-box",
   display: "flex",

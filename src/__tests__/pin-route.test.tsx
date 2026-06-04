@@ -234,6 +234,17 @@ describe("PinRoute", () => {
     });
   });
 
+  it("aligns the pin controls top edge with the content edge", async () => {
+    window.location.hash = "#/pin/test-id";
+
+    render(<PinRoute />);
+
+    fireEvent.mouseEnter(await screen.findByTestId("pin-root"));
+
+    const controls = screen.getByTestId("pin-controls");
+    expect(controls.style.top).toBe("24px");
+  });
+
   it("renders pin controls in Traditional Chinese", async () => {
     vi.mocked(getSettings).mockResolvedValue({ accentColor: "#0EA5E9", language: "zh-TW", theme: "system" } as any);
     window.location.hash = "#/pin/test-id";
@@ -507,7 +518,7 @@ describe("PinRoute", () => {
     const controls = screen.getByTestId("pin-controls");
     expect(controls.getAttribute("data-pin-controls-side")).toBe("right");
     expect(controls.style.right).toBe("28px");
-    expect(controls.style.top).toBe("28px");
+    expect(controls.style.top).toBe("24px");
     expect(root.style.paddingLeft).toBe("24px");
     expect(root.style.paddingRight).toBe("72px");
     expect(root.style.paddingBottom).toBe("72px");
