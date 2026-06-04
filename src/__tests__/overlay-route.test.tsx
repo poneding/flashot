@@ -7,7 +7,6 @@ import {
   cropAndCopy,
   cropAndSave,
   getSettings,
-  onScrollProgress,
   pinImage,
   requestColorCopy,
   requestColorFormatToggle,
