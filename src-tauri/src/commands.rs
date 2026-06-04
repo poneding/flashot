@@ -1208,6 +1208,11 @@ pub async fn start_scroll_session(
     )));
     let cancel = Arc::new(AtomicBool::new(false));
 
+    {
+        let s = stitcher.lock().await;
+        crate::scroll_session::emit_initial_progress(&app, &s);
+    }
+
     crate::scroll_session::spawn_loop(
         app.clone(),
         monitor_id,
@@ -1226,10 +1231,70 @@ pub async fn start_scroll_session(
     Ok(())
 }
 
-/// Spawn the always-on-top chrome window that hosts the status bar and live
-/// preview. The window is anchored to the right of the selection when there
-/// is room; otherwise it falls back to the bottom-left of the monitor so the
-/// user can still reach the Done/Cancel controls.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct LogicalChromePosition {
+    x: f64,
+    y: f64,
+}
+
+fn clamp_f64(value: f64, min: f64, max: f64) -> f64 {
+    if max < min {
+        return min;
+    }
+    value.max(min).min(max)
+}
+
+fn scroll_chrome_position(
+    selection: Rect,
+    monitor: Rect,
+    chrome_size: (f64, f64),
+    gap: f64,
+) -> LogicalChromePosition {
+    let chrome_w = chrome_size.0;
+    let chrome_h = chrome_size.1;
+    let monitor_left = monitor.x as f64;
+    let monitor_top = monitor.y as f64;
+    let monitor_right = monitor_left + monitor.width as f64;
+    let monitor_bottom = monitor_top + monitor.height as f64;
+    let selection_left = monitor_left + selection.x as f64;
+    let selection_top = monitor_top + selection.y as f64;
+    let selection_right = selection_left + selection.width as f64;
+    let selection_bottom = selection_top + selection.height as f64;
+    let lower_top = clamp_f64(
+        selection_bottom - chrome_h,
+        monitor_top + gap,
+        monitor_bottom - chrome_h - gap,
+    );
+
+    let right_x = selection_right + gap;
+    if right_x + chrome_w <= monitor_right - gap {
+        return LogicalChromePosition {
+            x: right_x,
+            y: lower_top,
+        };
+    }
+
+    let left_x = selection_left - chrome_w - gap;
+    if left_x >= monitor_left + gap {
+        return LogicalChromePosition {
+            x: left_x,
+            y: lower_top,
+        };
+    }
+
+    LogicalChromePosition {
+        x: clamp_f64(
+            selection_right + gap,
+            monitor_left + gap,
+            monitor_right - chrome_w - gap,
+        ),
+        y: lower_top,
+    }
+}
+
+/// Spawn the always-on-top chrome window that hosts the live scroll preview.
+/// The window prefers the lower-right side of the selection, flips to the
+/// lower-left side near screen edges, then clamps inside the monitor.
 fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Result<(), String> {
     let chrome_label = format!("overlay-chrome-{monitor_id}");
     if app.get_webview_window(&chrome_label).is_some() {
@@ -1241,39 +1306,19 @@ fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Res
         .and_then(|ms| ms.into_iter().find(|m| m.id == monitor_id))
         .ok_or("monitor not found for chrome window")?;
 
-    // Chrome window dimensions chosen to comfortably fit the status text
-    // ("Stitching · N frames · NNNNpx") plus Done/Cancel buttons, with room
-    // above for a live preview thumbnail. All sizes in logical pixels.
+    // Chrome window dimensions chosen for a compact live preview panel. All
+    // sizes in logical pixels.
     let chrome_w = 320.0_f64;
     let chrome_h = 220.0_f64;
-    let mon_logical_w = mon.rect.width as f64;
-    let mon_logical_h = mon.rect.height as f64;
-    let sel_logical_right = (phys_rect.x as f64 + phys_rect.width as f64) / mon.scale_factor as f64;
-    let sel_logical_bottom =
-        (phys_rect.y as f64 + phys_rect.height as f64) / mon.scale_factor as f64;
-    let sel_logical_top = phys_rect.y as f64 / mon.scale_factor as f64;
-    let mon_origin_x = mon.rect.x as f64;
-    let mon_origin_y = mon.rect.y as f64;
-
-    // Preference order: right of the selection, then below it, then anchor
-    // to the bottom-right of the monitor as a last resort.
     let gap = 12.0;
-    let (x, y) = if sel_logical_right + gap + chrome_w <= mon_logical_w {
-        (
-            mon_origin_x + sel_logical_right + gap,
-            mon_origin_y + sel_logical_top,
-        )
-    } else if sel_logical_bottom + gap + chrome_h <= mon_logical_h {
-        (
-            mon_origin_x + (mon_logical_w - chrome_w - gap).max(gap),
-            mon_origin_y + sel_logical_bottom + gap,
-        )
-    } else {
-        (
-            mon_origin_x + (mon_logical_w - chrome_w - gap).max(gap),
-            mon_origin_y + (mon_logical_h - chrome_h - gap).max(gap),
-        )
+    let scale = (mon.scale_factor as f64).max(1.0);
+    let logical_selection = Rect {
+        x: (phys_rect.x as f64 / scale).round() as i32,
+        y: (phys_rect.y as f64 / scale).round() as i32,
+        width: (phys_rect.width as f64 / scale).round().max(1.0) as u32,
+        height: (phys_rect.height as f64 / scale).round().max(1.0) as u32,
     };
+    let pos = scroll_chrome_position(logical_selection, mon.rect, (chrome_w, chrome_h), gap);
 
     tauri::WebviewWindowBuilder::new(
         app,
@@ -1286,7 +1331,7 @@ fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Res
     .skip_taskbar(true)
     .resizable(false)
     .inner_size(chrome_w, chrome_h)
-    .position(x, y)
+    .position(pos.x, pos.y)
     .build()
     .map_err(|e| e.to_string())?;
 
@@ -1695,6 +1740,98 @@ mod tests {
             capture_idx < cleanup_idx,
             "initial capture failure must restore chrome/mouse state before returning Err",
         );
+    }
+
+    #[test]
+    fn start_scroll_session_emits_initial_progress_before_capture_loop() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "start_scroll_session");
+        let stitcher_idx = body.find("ScrollStitcher::new").unwrap();
+        let initial_progress_idx = body.find("emit_initial_progress").unwrap();
+        let loop_idx = body.find("spawn_loop").unwrap();
+
+        assert!(
+            stitcher_idx < initial_progress_idx && initial_progress_idx < loop_idx,
+            "scroll mode must send the initial selected preview before the capture loop emits append progress",
+        );
+    }
+
+    #[test]
+    fn scroll_chrome_position_prefers_right_lower_side() {
+        let pos = scroll_chrome_position(
+            Rect {
+                x: 100,
+                y: 120,
+                width: 300,
+                height: 240,
+            },
+            Rect {
+                x: 0,
+                y: 0,
+                width: 1200,
+                height: 800,
+            },
+            (320.0, 180.0),
+            12.0,
+        );
+
+        assert_eq!(pos.x, 412.0);
+        assert_eq!(pos.y, 180.0);
+    }
+
+    #[test]
+    fn scroll_chrome_position_flips_left_when_right_overflows() {
+        let pos = scroll_chrome_position(
+            Rect {
+                x: 840,
+                y: 120,
+                width: 300,
+                height: 240,
+            },
+            Rect {
+                x: 0,
+                y: 0,
+                width: 1200,
+                height: 800,
+            },
+            (320.0, 180.0),
+            12.0,
+        );
+
+        assert_eq!(pos.x, 508.0);
+        assert_eq!(pos.y, 180.0);
+    }
+
+    #[test]
+    fn scroll_chrome_position_clamps_inside_monitor_when_neither_side_fits() {
+        let pos = scroll_chrome_position(
+            Rect {
+                x: 40,
+                y: 720,
+                width: 1140,
+                height: 60,
+            },
+            Rect {
+                x: 0,
+                y: 0,
+                width: 1200,
+                height: 800,
+            },
+            (320.0, 180.0),
+            12.0,
+        );
+
+        assert_eq!(pos.x, 868.0);
+        assert_eq!(pos.y, 600.0);
+    }
+
+    #[test]
+    fn spawn_scroll_chrome_uses_right_lower_position_helper() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "spawn_scroll_chrome");
+
+        assert!(body.contains("scroll_chrome_position("));
+        assert!(!body.contains("sel_logical_bottom + gap + chrome_h"));
     }
 
     #[test]

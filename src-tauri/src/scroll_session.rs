@@ -23,6 +23,34 @@ struct ProgressPayload {
     last_score: f32,
 }
 
+pub(crate) fn emit_scroll_progress(
+    app: &AppHandle,
+    frames: u32,
+    height: u32,
+    preview_png: Vec<u8>,
+    last_score: f32,
+) {
+    let _ = app.emit(
+        "scroll:progress",
+        ProgressPayload {
+            frames,
+            height,
+            preview_png_base64: base64_encode(&preview_png),
+            last_score,
+        },
+    );
+}
+
+pub(crate) fn emit_initial_progress(app: &AppHandle, stitcher: &ScrollStitcher) {
+    emit_scroll_progress(
+        app,
+        0,
+        stitcher.height(),
+        stitcher.preview_thumbnail(PREVIEW_TARGET_WIDTH, PREVIEW_TARGET_HEIGHT),
+        1.0,
+    );
+}
+
 pub fn spawn_loop(
     app: AppHandle,
     monitor_id: u32,
@@ -81,15 +109,7 @@ pub fn spawn_loop(
                             let s = stitcher.lock().await;
                             s.preview_thumbnail(PREVIEW_TARGET_WIDTH, PREVIEW_TARGET_HEIGHT)
                         };
-                        let _ = app.emit(
-                            "scroll:progress",
-                            ProgressPayload {
-                                frames: frames_accepted,
-                                height: new_height,
-                                preview_png_base64: base64_encode(&thumb),
-                                last_score: score,
-                            },
-                        );
+                        emit_scroll_progress(&app, frames_accepted, new_height, thumb, score);
                     }
                 }
                 IngestResult::NoChange => {
