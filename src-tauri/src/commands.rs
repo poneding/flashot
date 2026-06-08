@@ -1252,7 +1252,8 @@ fn scroll_chrome_size(selection: Rect, monitor: Rect, gap: f64) -> (f64, f64) {
     let max_h = (monitor.height as f64 - gap * 2.0).max(1.0);
     let min_h = SCROLL_CHROME_MIN_HEIGHT.min(max_h);
     let width = SCROLL_CHROME_WIDTH.min(max_w);
-    let height = clamp_f64(selection.height as f64, min_h, max_h);
+    let aspect_height = (selection.height as f64 * width / selection.width.max(1) as f64).round();
+    let height = clamp_f64(aspect_height, min_h, max_h);
 
     (width, height)
 }
@@ -1841,7 +1842,7 @@ mod tests {
     }
 
     #[test]
-    fn scroll_chrome_size_tracks_selection_height_with_compact_width() {
+    fn scroll_chrome_size_preserves_selection_aspect_ratio_at_compact_width() {
         let (width, height) = scroll_chrome_size(
             Rect {
                 x: 100,
@@ -1859,7 +1860,7 @@ mod tests {
         );
 
         assert_eq!(width, 280.0);
-        assert_eq!(height, 240.0);
+        assert_eq!(height, 224.0);
     }
 
     #[test]
@@ -1912,10 +1913,11 @@ mod tests {
 
         assert!(
             body.contains("scroll_chrome_size(logical_selection, mon.rect, gap)"),
-            "scroll preview chrome should derive its height from the selected region",
+            "scroll preview chrome should derive its aspect-fitted height from the selected region",
         );
         assert!(
-            !body.contains("let chrome_w = 320.0_f64") && !body.contains("let chrome_h = 220.0_f64"),
+            !body.contains("let chrome_w = 320.0_f64")
+                && !body.contains("let chrome_h = 220.0_f64"),
             "scroll preview chrome should not use the old fixed 320x220 size",
         );
     }
