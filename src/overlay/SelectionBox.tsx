@@ -97,6 +97,8 @@ export function SelectionBox() {
 }
 
 function ScrollSelectionOutline({ rect }: { rect: { x: number; y: number; width: number; height: number } }) {
+  const joinedWidth = rect.width + STROKE_WIDTH * 2;
+  const joinedHeight = rect.height + STROKE_WIDTH * 2;
   const edgeStyle: React.CSSProperties = {
     position: "absolute",
     background: COLOR,
@@ -110,9 +112,9 @@ function ScrollSelectionOutline({ rect }: { rect: { x: number; y: number; width:
         data-edge="top"
         style={{
           ...edgeStyle,
-          left: rect.x,
+          left: rect.x - STROKE_WIDTH,
           top: rect.y - STROKE_WIDTH,
-          width: rect.width,
+          width: joinedWidth,
           height: STROKE_WIDTH,
         }}
       />
@@ -122,9 +124,9 @@ function ScrollSelectionOutline({ rect }: { rect: { x: number; y: number; width:
         style={{
           ...edgeStyle,
           left: rect.x + rect.width,
-          top: rect.y,
+          top: rect.y - STROKE_WIDTH,
           width: STROKE_WIDTH,
-          height: rect.height,
+          height: joinedHeight,
         }}
       />
       <div
@@ -132,9 +134,9 @@ function ScrollSelectionOutline({ rect }: { rect: { x: number; y: number; width:
         data-edge="bottom"
         style={{
           ...edgeStyle,
-          left: rect.x,
+          left: rect.x - STROKE_WIDTH,
           top: rect.y + rect.height,
-          width: rect.width,
+          width: joinedWidth,
           height: STROKE_WIDTH,
         }}
       />
@@ -144,9 +146,9 @@ function ScrollSelectionOutline({ rect }: { rect: { x: number; y: number; width:
         style={{
           ...edgeStyle,
           left: rect.x - STROKE_WIDTH,
-          top: rect.y,
+          top: rect.y - STROKE_WIDTH,
           width: STROKE_WIDTH,
-          height: rect.height,
+          height: joinedHeight,
         }}
       />
     </>

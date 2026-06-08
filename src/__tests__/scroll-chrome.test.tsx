@@ -89,6 +89,7 @@ describe("ScrollChromeRoute", () => {
     const button = screen.getByRole("button", { name: "Finish scrolling screenshot" });
     expect(button.style.width).toBe("30px");
     expect(button.style.height).toBe("30px");
+    expect(button.style.color).not.toContain("rgba");
 
     fireEvent.click(button);
 

@@ -1237,11 +1237,24 @@ struct LogicalChromePosition {
     y: f64,
 }
 
+const SCROLL_CHROME_WIDTH: f64 = 280.0;
+const SCROLL_CHROME_MIN_HEIGHT: f64 = 160.0;
+
 fn clamp_f64(value: f64, min: f64, max: f64) -> f64 {
     if max < min {
         return min;
     }
     value.max(min).min(max)
+}
+
+fn scroll_chrome_size(selection: Rect, monitor: Rect, gap: f64) -> (f64, f64) {
+    let max_w = (monitor.width as f64 - gap * 2.0).max(1.0);
+    let max_h = (monitor.height as f64 - gap * 2.0).max(1.0);
+    let min_h = SCROLL_CHROME_MIN_HEIGHT.min(max_h);
+    let width = SCROLL_CHROME_WIDTH.min(max_w);
+    let height = clamp_f64(selection.height as f64, min_h, max_h);
+
+    (width, height)
 }
 
 fn scroll_chrome_position(
@@ -1316,12 +1329,9 @@ fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Res
         .and_then(|ms| ms.into_iter().find(|m| m.id == monitor_id))
         .ok_or("monitor not found for chrome window")?;
 
-    // Chrome window dimensions chosen for a compact live preview panel. All
-    // sizes in logical pixels.
-    let chrome_w = 320.0_f64;
-    let chrome_h = 220.0_f64;
     let gap = 12.0;
     let logical_selection = logical_selection_for_monitor(phys_rect, mon.scale_factor as f64);
+    let (chrome_w, chrome_h) = scroll_chrome_size(logical_selection, mon.rect, gap);
     let pos = scroll_chrome_position(logical_selection, mon.rect, (chrome_w, chrome_h), gap);
 
     tauri::WebviewWindowBuilder::new(
@@ -1334,6 +1344,7 @@ fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Res
     .always_on_top(true)
     .skip_taskbar(true)
     .resizable(false)
+    .accept_first_mouse(true)
     .inner_size(chrome_w, chrome_h)
     .position(pos.x, pos.y)
     .build()
@@ -1830,12 +1841,94 @@ mod tests {
     }
 
     #[test]
+    fn scroll_chrome_size_tracks_selection_height_with_compact_width() {
+        let (width, height) = scroll_chrome_size(
+            Rect {
+                x: 100,
+                y: 120,
+                width: 300,
+                height: 240,
+            },
+            Rect {
+                x: 0,
+                y: 0,
+                width: 1200,
+                height: 800,
+            },
+            12.0,
+        );
+
+        assert_eq!(width, 280.0);
+        assert_eq!(height, 240.0);
+    }
+
+    #[test]
+    fn scroll_chrome_size_clamps_tiny_and_tall_selection_heights() {
+        let monitor = Rect {
+            x: 0,
+            y: 0,
+            width: 1200,
+            height: 800,
+        };
+
+        let (_, tiny_height) = scroll_chrome_size(
+            Rect {
+                x: 100,
+                y: 120,
+                width: 300,
+                height: 80,
+            },
+            monitor,
+            12.0,
+        );
+        let (_, tall_height) = scroll_chrome_size(
+            Rect {
+                x: 100,
+                y: 120,
+                width: 300,
+                height: 1200,
+            },
+            monitor,
+            12.0,
+        );
+
+        assert_eq!(tiny_height, 160.0);
+        assert_eq!(tall_height, 776.0);
+    }
+
+    #[test]
     fn spawn_scroll_chrome_uses_right_lower_position_helper() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let body = function_body(&source, "spawn_scroll_chrome");
 
         assert!(body.contains("scroll_chrome_position("));
         assert!(!body.contains("sel_logical_bottom + gap + chrome_h"));
+    }
+
+    #[test]
+    fn spawn_scroll_chrome_sizes_panel_from_selection() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "spawn_scroll_chrome");
+
+        assert!(
+            body.contains("scroll_chrome_size(logical_selection, mon.rect, gap)"),
+            "scroll preview chrome should derive its height from the selected region",
+        );
+        assert!(
+            !body.contains("let chrome_w = 320.0_f64") && !body.contains("let chrome_h = 220.0_f64"),
+            "scroll preview chrome should not use the old fixed 320x220 size",
+        );
+    }
+
+    #[test]
+    fn spawn_scroll_chrome_accepts_first_mouse_for_finish_button() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "spawn_scroll_chrome");
+
+        assert!(
+            body.contains(".accept_first_mouse(true)"),
+            "first click on the inactive preview chrome should reach the Check button",
+        );
     }
 
     #[test]

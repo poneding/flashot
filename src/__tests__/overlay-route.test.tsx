@@ -322,6 +322,8 @@ describe("OverlayRoute", () => {
     expect(hint.style.left).toBe("108px");
     expect(hint.style.top).toBe("130px");
     expect(hint.style.width).toBe("144px");
+    expect(hint.style.opacity).toBe("1");
+    expect(hint.style.color).toBe("var(--flashot-accent)");
 
     act(() => {
       vi.advanceTimersByTime(700);
@@ -343,9 +345,13 @@ describe("OverlayRoute", () => {
     expect(outline).toHaveLength(4);
     expect(outline.map((el) => el.getAttribute("data-edge"))).toEqual(["top", "right", "bottom", "left"]);
     expect(outline[0].style.top).toBe("118.5px");
-    expect(outline[0].style.left).toBe("100px");
+    expect(outline[0].style.left).toBe("98.5px");
+    expect(outline[0].style.width).toBe("243px");
+    expect(outline[1].style.top).toBe("118.5px");
+    expect(outline[1].style.height).toBe("163px");
     expect(outline[2].style.top).toBe("280px");
-    expect(outline[2].style.left).toBe("100px");
+    expect(outline[2].style.left).toBe("98.5px");
+    expect(outline[2].style.width).toBe("243px");
     expect(container.querySelector("svg")).toBeNull();
   });
 

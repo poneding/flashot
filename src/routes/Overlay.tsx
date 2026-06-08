@@ -595,6 +595,7 @@ const scrollHintStyle: CSSProperties = {
   background: "rgba(255,255,255,0.16)",
   border: "1px solid rgba(255,255,255,0.18)",
   color: "var(--flashot-accent)",
+  opacity: 1,
   fontSize: 12,
   fontWeight: 700,
   lineHeight: 1,
