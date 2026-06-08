@@ -5,6 +5,11 @@ import {
   onScrollProgress,
   scrollPin,
 } from "@/lib/ipc";
+import {
+  SCREENSHOT_TOOLBAR_BACKGROUND,
+  SCREENSHOT_TOOLBAR_BORDER,
+  SCREENSHOT_TOOLBAR_RADIUS,
+} from "@/overlay/Toolbar";
 import { useStoredAccentColor, useStoredLanguage } from "@/settings/useStoredAccentColor";
 import { CheckIcon } from "lucide-react";
 
@@ -58,9 +63,9 @@ const statusPillStyle: CSSProperties = {
   bottom: 12,
   transform: "translateX(-50%)",
   padding: "5px 10px",
-  borderRadius: 999,
-  background: "rgba(0,0,0,0.42)",
-  border: "1px solid rgba(255,255,255,0.16)",
+  borderRadius: SCREENSHOT_TOOLBAR_RADIUS,
+  background: SCREENSHOT_TOOLBAR_BACKGROUND,
+  border: SCREENSHOT_TOOLBAR_BORDER,
   color: "rgba(255,255,255,0.92)",
   fontSize: 12,
   fontWeight: 600,
@@ -83,10 +88,10 @@ const finishButtonStyle: CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   padding: 0,
-  border: "1px solid rgba(255,255,255,0.32)",
-  borderRadius: 15,
-  background: "rgba(34,197,94,0.38)",
-  color: "#fff",
+  border: SCREENSHOT_TOOLBAR_BORDER,
+  borderRadius: SCREENSHOT_TOOLBAR_RADIUS,
+  background: SCREENSHOT_TOOLBAR_BACKGROUND,
+  color: "#4ade80",
   opacity: 1,
   cursor: "pointer",
   pointerEvents: "auto",

@@ -112,6 +112,17 @@ describe("Annotation property panel", () => {
     expect(screen.queryByLabelText("Arrowhead: Open")).toBeNull();
   });
 
+  it("uses single lucide icons for free and axis measurement modes", () => {
+    render(<PropertyPanel tool="measure" />);
+
+    const freeButton = screen.getByRole("button", { name: "Free angle" });
+    const axisButton = screen.getByRole("button", { name: "Horizontal / vertical" });
+
+    expect(freeButton.querySelectorAll("svg")).toHaveLength(1);
+    expect(axisButton.querySelectorAll("svg")).toHaveLength(1);
+    expect(axisButton.querySelector("span[aria-hidden='true']")).toBeNull();
+  });
+
   it("updates the active measurement mode from the property panel", () => {
     useAnnotation.getState().setActiveTool("measure");
     render(<PropertyPanel tool="measure" />);

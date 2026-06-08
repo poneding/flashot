@@ -15,6 +15,11 @@ import {
 import type { CaptureStartPayload } from "@/lib/types";
 import { DEFAULT_IMAGE_ADJUSTMENTS } from "@/overlay/imageAdjustments";
 import { useOverlay } from "@/overlay/state";
+import {
+  SCREENSHOT_TOOLBAR_BACKGROUND,
+  SCREENSHOT_TOOLBAR_BORDER,
+  SCREENSHOT_TOOLBAR_RADIUS,
+} from "@/overlay/Toolbar";
 import { OverlayRoute } from "@/routes/Overlay";
 import { clearMocks, mockConvertFileSrc } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -322,6 +327,11 @@ describe("OverlayRoute", () => {
     expect(hint.style.left).toBe("108px");
     expect(hint.style.top).toBe("130px");
     expect(hint.style.width).toBe("144px");
+    const toolbarBorder = document.createElement("div");
+    toolbarBorder.style.border = SCREENSHOT_TOOLBAR_BORDER;
+    expect(hint.style.background).toBe(SCREENSHOT_TOOLBAR_BACKGROUND);
+    expect(hint.style.border).toBe(toolbarBorder.style.border);
+    expect(hint.style.borderRadius).toBe(`${SCREENSHOT_TOOLBAR_RADIUS}px`);
     expect(hint.style.opacity).toBe("1");
     expect(hint.style.color).toBe("var(--flashot-accent)");
 

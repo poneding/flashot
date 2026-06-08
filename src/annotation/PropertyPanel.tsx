@@ -26,9 +26,8 @@ import {
   ChevronDown,
   Circle,
   Minus,
+  Move,
   MoveDiagonal,
-  MoveHorizontal,
-  MoveVertical,
   PencilLine,
   Square,
   type LucideIcon,
@@ -957,25 +956,6 @@ function FilledArrowIcon() {
   );
 }
 
-function AxisMeasureIcon() {
-  return (
-    <span
-      aria-hidden="true"
-      style={{
-        position: "relative",
-        width: 18,
-        height: 16,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <MoveHorizontal size={15} strokeWidth={2} style={{ position: "absolute" }} />
-      <MoveVertical size={15} strokeWidth={2} style={{ position: "absolute" }} />
-    </span>
-  );
-}
-
 function FilledSquareIcon() {
   return (
     <svg
@@ -1394,7 +1374,7 @@ function MeasureSection({
       <ToggleGroup<MeasureMode>
         options={[
           { value: "free", label: PanelIcon(MoveDiagonal), title: t("annotation.freeMeasure") },
-          { value: "axis", label: <AxisMeasureIcon />, title: t("annotation.axisMeasure") },
+          { value: "axis", label: PanelIcon(Move), title: t("annotation.axisMeasure") },
         ]}
         value={style.measureMode ?? "free"}
         onChange={(measureMode) => set({ measureMode })}

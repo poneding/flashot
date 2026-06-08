@@ -4,6 +4,11 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScrollProgress } from "@/lib/types";
 import { getSettings, onScrollProgress, scrollPin, stopScrollSession } from "@/lib/ipc";
+import {
+  SCREENSHOT_TOOLBAR_BACKGROUND,
+  SCREENSHOT_TOOLBAR_BORDER,
+  SCREENSHOT_TOOLBAR_RADIUS,
+} from "@/overlay/Toolbar";
 import { ScrollChromeRoute } from "@/routes/ScrollChrome";
 
 const scrollProgressListener = vi.hoisted(() => ({
@@ -57,6 +62,33 @@ describe("ScrollChromeRoute", () => {
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
     expect(scrollPin).not.toHaveBeenCalled();
     expect(stopScrollSession).not.toHaveBeenCalled();
+  });
+
+  it("uses screenshot toolbar styling for scroll labels and buttons", async () => {
+    render(<ScrollChromeRoute />);
+
+    await waitFor(() => {
+      expect(onScrollProgress).toHaveBeenCalledTimes(1);
+      expect(scrollProgressListener.current).toBeDefined();
+    });
+    act(() => {
+      scrollProgressListener.current?.({
+        frames: 1,
+        height: 280,
+        previewDataUrl: "data:image/png;base64,next",
+        lastScore: 0.96,
+      });
+    });
+
+    const status = screen.getByText("1 frames · 280px");
+    const button = screen.getByRole("button", { name: "Finish scrolling screenshot" });
+    const toolbarBorder = document.createElement("div");
+    toolbarBorder.style.border = SCREENSHOT_TOOLBAR_BORDER;
+    for (const element of [status, button]) {
+      expect(element.style.background).toBe(SCREENSHOT_TOOLBAR_BACKGROUND);
+      expect(element.style.border).toBe(toolbarBorder.style.border);
+      expect(element.style.borderRadius).toBe(`${SCREENSHOT_TOOLBAR_RADIUS}px`);
+    }
   });
 
   it("shows a compact finish check in the preview panel only after scrolling is accepted", async () => {

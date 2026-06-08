@@ -30,7 +30,12 @@ import { DimMask } from "@/overlay/DimMask";
 import { FrozenLayer } from "@/overlay/FrozenLayer";
 import { SelectionBox } from "@/overlay/SelectionBox";
 import { useOverlay } from "@/overlay/state";
-import { Toolbar as ScreenshotToolbar } from "@/overlay/Toolbar";
+import {
+  SCREENSHOT_TOOLBAR_BACKGROUND,
+  SCREENSHOT_TOOLBAR_BORDER,
+  SCREENSHOT_TOOLBAR_RADIUS,
+  Toolbar as ScreenshotToolbar,
+} from "@/overlay/Toolbar";
 import { useStoredAccentColor, useStoredLanguage } from "@/settings/useStoredAccentColor";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { CursorIcon } from "@tauri-apps/api/window";
@@ -591,9 +596,9 @@ const scrollHintStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  borderRadius: 6,
-  background: "rgba(255,255,255,0.16)",
-  border: "1px solid rgba(255,255,255,0.18)",
+  borderRadius: SCREENSHOT_TOOLBAR_RADIUS,
+  background: SCREENSHOT_TOOLBAR_BACKGROUND,
+  border: SCREENSHOT_TOOLBAR_BORDER,
   color: "var(--flashot-accent)",
   opacity: 1,
   fontSize: 12,
