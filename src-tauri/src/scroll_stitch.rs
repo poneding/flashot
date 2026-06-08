@@ -295,6 +295,34 @@ impl ScrollStitcher {
             .expect("PNG encode");
         buf
     }
+
+    pub fn preview_stitched(&self, target_width_px: u32, max_height_px: u32) -> Vec<u8> {
+        use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder};
+
+        let target_w = target_width_px.max(1);
+        let max_h = max_height_px.max(1);
+        let natural_h = ((self.height as u64 * target_w as u64).div_ceil(self.width as u64))
+            .clamp(1, u32::MAX as u64) as u32;
+        let target_h = natural_h.min(max_h).max(1);
+        let mut scaled = Vec::with_capacity((target_w * target_h * 4) as usize);
+
+        for y in 0..target_h {
+            let src_y = ((y as u64 * self.height as u64) / target_h as u64)
+                .min(self.height.saturating_sub(1) as u64) as u32;
+            for x in 0..target_w {
+                let src_x = ((x as u64 * self.width as u64) / target_w as u64)
+                    .min(self.width.saturating_sub(1) as u64) as u32;
+                let idx = ((src_y * self.width + src_x) as usize) * 4;
+                scaled.extend_from_slice(&self.canvas[idx..idx + 4]);
+            }
+        }
+
+        let mut buf = Vec::new();
+        PngEncoder::new(&mut buf)
+            .write_image(&scaled, target_w, target_h, ExtendedColorType::Rgba8)
+            .expect("PNG encode");
+        buf
+    }
 }
 
 /// Compute the best vertical shift (in rows) such that the top ROI of `prev`
@@ -903,6 +931,24 @@ mod tests {
         let decoded = image::load_from_memory(&thumb).unwrap().to_rgba8();
         assert_eq!(decoded.width(), 640);
         assert_eq!(decoded.height(), 360);
+    }
+
+    #[test]
+    fn preview_stitched_preserves_full_canvas_height_ratio() {
+        let width = 80;
+        let frame_h = 800;
+        let stitcher = ScrollStitcher::new(
+            width,
+            frame_h,
+            gradient_frame(width, frame_h, 0),
+            StitchConfig::default(),
+        );
+
+        let preview = stitcher.preview_stitched(40, 1000);
+        assert!(preview.starts_with(b"\x89PNG\r\n\x1a\n"));
+        let decoded = image::load_from_memory(&preview).unwrap().to_rgba8();
+        assert_eq!(decoded.width(), 40);
+        assert_eq!(decoded.height(), 400);
     }
 
     #[test]

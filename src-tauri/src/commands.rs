@@ -1292,6 +1292,16 @@ fn scroll_chrome_position(
     }
 }
 
+fn logical_selection_for_monitor(phys_rect: Rect, scale_factor: f64) -> Rect {
+    let scale = scale_factor.max(1.0);
+    Rect {
+        x: (phys_rect.x as f64 / scale).round() as i32,
+        y: (phys_rect.y as f64 / scale).round() as i32,
+        width: (phys_rect.width as f64 / scale).round().max(1.0) as u32,
+        height: (phys_rect.height as f64 / scale).round().max(1.0) as u32,
+    }
+}
+
 /// Spawn the always-on-top chrome window that hosts the live scroll preview.
 /// The window prefers the lower-right side of the selection, flips to the
 /// lower-left side near screen edges, then clamps inside the monitor.
@@ -1311,13 +1321,7 @@ fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Res
     let chrome_w = 320.0_f64;
     let chrome_h = 220.0_f64;
     let gap = 12.0;
-    let scale = (mon.scale_factor as f64).max(1.0);
-    let logical_selection = Rect {
-        x: (phys_rect.x as f64 / scale).round() as i32,
-        y: (phys_rect.y as f64 / scale).round() as i32,
-        width: (phys_rect.width as f64 / scale).round().max(1.0) as u32,
-        height: (phys_rect.height as f64 / scale).round().max(1.0) as u32,
-    };
+    let logical_selection = logical_selection_for_monitor(phys_rect, mon.scale_factor as f64);
     let pos = scroll_chrome_position(logical_selection, mon.rect, (chrome_w, chrome_h), gap);
 
     tauri::WebviewWindowBuilder::new(
@@ -1832,6 +1836,28 @@ mod tests {
 
         assert!(body.contains("scroll_chrome_position("));
         assert!(!body.contains("sel_logical_bottom + gap + chrome_h"));
+    }
+
+    #[test]
+    fn start_scroll_session_keeps_finish_control_in_preview_chrome() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "start_scroll_session");
+
+        assert!(
+            !body.contains("spawn_scroll_finish"),
+            "finish UI must live in the preview chrome, not in a separate window inside the captured rect",
+        );
+    }
+
+    #[test]
+    fn close_scroll_chrome_only_closes_preview_chrome() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "close_scroll_chrome");
+
+        assert!(
+            !body.contains("overlay-scroll-finish-"),
+            "there should be no independent finish window that can survive scroll teardown",
+        );
     }
 
     #[test]

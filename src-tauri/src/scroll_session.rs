@@ -13,7 +13,7 @@ use tokio::time::{interval, MissedTickBehavior};
 const TICK_MS: u64 = 60;
 const PROGRESS_THROTTLE_MS: u64 = 100;
 const PREVIEW_TARGET_WIDTH: u32 = 640;
-const PREVIEW_TARGET_HEIGHT: u32 = 360;
+const PREVIEW_MAX_HEIGHT: u32 = 8192;
 
 #[derive(serde::Serialize, Clone)]
 struct ProgressPayload {
@@ -46,7 +46,7 @@ pub(crate) fn emit_initial_progress(app: &AppHandle, stitcher: &ScrollStitcher) 
         app,
         0,
         stitcher.height(),
-        stitcher.preview_thumbnail(PREVIEW_TARGET_WIDTH, PREVIEW_TARGET_HEIGHT),
+        stitcher.preview_stitched(PREVIEW_TARGET_WIDTH, PREVIEW_MAX_HEIGHT),
         1.0,
     );
 }
@@ -107,7 +107,7 @@ pub fn spawn_loop(
                         last_emit = Instant::now();
                         let thumb = {
                             let s = stitcher.lock().await;
-                            s.preview_thumbnail(PREVIEW_TARGET_WIDTH, PREVIEW_TARGET_HEIGHT)
+                            s.preview_stitched(PREVIEW_TARGET_WIDTH, PREVIEW_MAX_HEIGHT)
                         };
                         emit_scroll_progress(&app, frames_accepted, new_height, thumb, score);
                     }
@@ -171,6 +171,32 @@ mod tests {
         assert!(
             !source.contains(&event_name) && !source.contains(&payload_name),
             "scroll capture should wait for the user to click Done instead of guessing the bottom",
+        );
+    }
+
+    #[test]
+    fn scroll_progress_uses_full_stitched_preview() {
+        let source = include_str!("scroll_session.rs").replace("\r\n", "\n");
+
+        assert!(
+            source.contains("preview_stitched("),
+            "scroll progress should send a full stitched preview, not a fixed-height bottom thumbnail",
+        );
+    }
+
+    #[test]
+    fn capture_loop_does_not_toggle_finish_window_visibility() {
+        let source = include_str!("scroll_session.rs").replace("\r\n", "\n");
+        let body_start = source.find("pub fn spawn_loop").unwrap();
+        let body_end = source[body_start..]
+            .find("fn base64_encode")
+            .map(|idx| body_start + idx)
+            .unwrap();
+        let body = &source[body_start..body_end];
+
+        assert!(
+            !body.contains("set_scroll_finish_visible"),
+            "scroll capture must not show/hide a finish window around each screen capture",
         );
     }
 }

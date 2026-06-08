@@ -22,8 +22,9 @@ export function SelectionBox() {
   const cornerRadius = useOverlay((s) => s.cornerRadius);
   const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
   if (!r) return null;
+  if (mode === "scrolling") return <ScrollSelectionOutline rect={r} />;
 
-  const effectiveRadius = mode === "scrollStarting" || mode === "scrolling" ? 0 : cornerRadius;
+  const effectiveRadius = mode === "scrollStarting" ? 0 : cornerRadius;
   const halfStroke = STROKE_WIDTH / 2;
   const hx = (x: number) => x - 4;
   const hy = (y: number) => y - 4;
@@ -61,7 +62,7 @@ export function SelectionBox() {
           shapeRendering="geometricPrecision"
         />
       </svg>
-      {mode !== "scrollStarting" && mode !== "scrolling" && (
+      {mode !== "scrollStarting" && (
         <div
           style={{
             position: "absolute",
@@ -91,6 +92,63 @@ export function SelectionBox() {
           {handle("w", hx(r.x), hy(r.y + r.height / 2))}
         </>
       )}
+    </>
+  );
+}
+
+function ScrollSelectionOutline({ rect }: { rect: { x: number; y: number; width: number; height: number } }) {
+  const edgeStyle: React.CSSProperties = {
+    position: "absolute",
+    background: COLOR,
+    pointerEvents: "none",
+  };
+
+  return (
+    <>
+      <div
+        data-scroll-selection-outline
+        data-edge="top"
+        style={{
+          ...edgeStyle,
+          left: rect.x,
+          top: rect.y - STROKE_WIDTH,
+          width: rect.width,
+          height: STROKE_WIDTH,
+        }}
+      />
+      <div
+        data-scroll-selection-outline
+        data-edge="right"
+        style={{
+          ...edgeStyle,
+          left: rect.x + rect.width,
+          top: rect.y,
+          width: STROKE_WIDTH,
+          height: rect.height,
+        }}
+      />
+      <div
+        data-scroll-selection-outline
+        data-edge="bottom"
+        style={{
+          ...edgeStyle,
+          left: rect.x,
+          top: rect.y + rect.height,
+          width: rect.width,
+          height: STROKE_WIDTH,
+        }}
+      />
+      <div
+        data-scroll-selection-outline
+        data-edge="left"
+        style={{
+          ...edgeStyle,
+          left: rect.x - STROKE_WIDTH,
+          top: rect.y,
+          width: STROKE_WIDTH,
+          height: rect.height,
+        }}
+      />
     </>
   );
 }

@@ -29,17 +29,20 @@ describe("SelectionBox rounded outline", () => {
     expect(rect?.getAttribute("stroke")).toBe("var(--flashot-accent)");
   });
 
-  it("forces rx=0 during scrolling regardless of store cornerRadius", () => {
+  it("renders an outside-only square outline during scrolling regardless of store cornerRadius", () => {
     useOverlay.setState({ cornerRadius: 20, mode: "scrolling" });
     const { container } = render(<SelectionBox />);
-    const rect = container.querySelector("svg rect");
-    expect(rect?.getAttribute("rx")).toBe("0");
-    expect(rect?.getAttribute("ry")).toBe("0");
-    expect(rect?.getAttribute("x")).toBe("-0.75");
-    expect(rect?.getAttribute("y")).toBe("-0.75");
-    expect(rect?.getAttribute("width")).toBe("101.5");
-    expect(rect?.getAttribute("height")).toBe("81.5");
-    expect(rect?.getAttribute("fill")).toBe("none");
-    expect(rect?.getAttribute("stroke-width")).toBe("1.5");
+    const outline = Array.from(container.querySelectorAll("[data-scroll-selection-outline]")) as HTMLElement[];
+    expect(container.querySelector("svg rect")).toBeNull();
+    expect(outline).toHaveLength(4);
+    expect(outline.map((el) => el.getAttribute("data-edge"))).toEqual(["top", "right", "bottom", "left"]);
+    expect(outline[0].style.left).toBe("10px");
+    expect(outline[0].style.top).toBe("8.5px");
+    expect(outline[1].style.left).toBe("110px");
+    expect(outline[1].style.top).toBe("10px");
+    expect(outline[2].style.left).toBe("10px");
+    expect(outline[2].style.top).toBe("90px");
+    expect(outline[3].style.left).toBe("8.5px");
+    expect(outline[3].style.top).toBe("10px");
   });
 });

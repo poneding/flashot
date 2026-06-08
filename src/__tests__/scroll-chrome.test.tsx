@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScrollProgress } from "@/lib/types";
@@ -43,12 +43,13 @@ describe("ScrollChromeRoute", () => {
     cleanup();
   });
 
-  it("renders a translucent preview panel without action buttons", () => {
+  it("renders a square translucent preview panel with an accent border and no action buttons", () => {
     const { container } = render(<ScrollChromeRoute />);
     const chrome = container.firstElementChild as HTMLElement;
 
-    expect(chrome.style.borderRadius).toBe("10px");
+    expect(chrome.style.borderRadius).toBe("0px");
     expect(chrome.style.background).toBe("rgba(24, 24, 24, 0.62)");
+    expect(chrome.style.border).toContain("var(--flashot-accent-rgb)");
     expect(chrome.style.boxShadow).toBe("0 12px 36px rgba(0,0,0,0.34)");
     expect(screen.queryByRole("button", { name: "Done" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
@@ -56,6 +57,44 @@ describe("ScrollChromeRoute", () => {
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
     expect(scrollPin).not.toHaveBeenCalled();
     expect(stopScrollSession).not.toHaveBeenCalled();
+  });
+
+  it("shows a compact finish check in the preview panel only after scrolling is accepted", async () => {
+    render(<ScrollChromeRoute />);
+
+    await waitFor(() => {
+      expect(onScrollProgress).toHaveBeenCalledTimes(1);
+      expect(scrollProgressListener.current).toBeDefined();
+    });
+    act(() => {
+      scrollProgressListener.current?.({
+        frames: 0,
+        height: 160,
+        previewDataUrl: "data:image/png;base64,initial",
+        lastScore: 1,
+      });
+    });
+
+    expect(screen.queryByRole("button", { name: "Finish scrolling screenshot" })).toBeNull();
+
+    act(() => {
+      scrollProgressListener.current?.({
+        frames: 1,
+        height: 280,
+        previewDataUrl: "data:image/png;base64,next",
+        lastScore: 0.96,
+      });
+    });
+
+    const button = screen.getByRole("button", { name: "Finish scrolling screenshot" });
+    expect(button.style.width).toBe("30px");
+    expect(button.style.height).toBe("30px");
+
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(scrollPin).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("renders localized scroll status in Traditional Chinese", async () => {
@@ -94,6 +133,10 @@ describe("ScrollChromeRoute", () => {
     expect(status.style.position).toBe("absolute");
     expect(status.style.left).toBe("50%");
     expect(status.style.bottom).toBe("12px");
-    expect(screen.getByAltText("")).toHaveAttribute("src", "data:image/png;base64,abc");
+    const preview = screen.getByAltText("");
+    expect(preview).toHaveAttribute("src", "data:image/png;base64,abc");
+    expect(preview).toHaveAttribute("data-scroll-preview-height", "1280");
+    expect(preview.style.bottom).toBe("0px");
+    expect(preview.style.height).toBe("auto");
   });
 });
