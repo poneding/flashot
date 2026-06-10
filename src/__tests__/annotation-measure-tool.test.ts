@@ -43,7 +43,7 @@ describe("measure annotation tool", () => {
 
   it("computes logical pixel distance labels", () => {
     expect(measureLength({ x: 0, y: 0 }, { x: 3, y: 4 })).toBe(5);
-    expect(measureLabel({ x: 10, y: 20 }, { x: 110, y: 20 })).toBe("100 px");
+    expect(measureLabel({ x: 10, y: 20 }, { x: 110, y: 20 })).toBe("100px");
   });
 
   it("constrains axis measurements to the dominant horizontal or vertical direction", () => {
@@ -86,7 +86,7 @@ describe("measure annotation tool", () => {
     expect(group.x()).toBe(10);
     expect(group.y()).toBe(20);
     expect(mainLine.points()).toEqual([0, 0, 3, 4]);
-    expect(label.text()).toBe("5 px");
+    expect(label.text()).toBe("5px");
   });
 
   it("creates an axis-constrained measure object when axis mode is active", () => {
@@ -128,7 +128,7 @@ describe("measure annotation tool", () => {
     expect(node.draggable()).toBe(true);
     expect(node.x()).toBe(15);
     expect(node.y()).toBe(27);
-    expect(label.text()).toBe("100 px");
+    expect(label.text()).toBe("100px");
     expect(label.fill()).toBe("#ffffff");
     expect(label.fontStyle()).not.toBe("bold");
     expect(labelBg.fill()).toBe("#111827");

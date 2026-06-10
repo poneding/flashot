@@ -586,7 +586,7 @@ describe("annotation object rendering", () => {
     expect(node.draggable()).toBe(true);
     expect(node.x()).toBe(5);
     expect(node.y()).toBe(6);
-    expect(label.text()).toBe("50 px");
+    expect(label.text()).toBe("50px");
     expect(label.fill()).toBe("#ffffff");
     expect(label.fontStyle()).not.toBe("bold");
     expect(background.fill()).toBe("#111827");
@@ -606,7 +606,7 @@ describe("annotation object rendering", () => {
     const node = renderObject(measure) as Konva.Group;
     const label = node.findOne(".measure-label") as Konva.Text;
 
-    expect(label.text()).toBe("50 px");
+    expect(label.text()).toBe("50px");
   });
 
   it("keeps wavy lines wavy after center control-point edits", () => {

@@ -22,7 +22,7 @@ export function measureLength(start: Point, end: Point): number {
 }
 
 export function measureLabel(start: Point, end: Point): string {
-  return `${measureLength(start, end)} px`;
+  return `${measureLength(start, end)}px`;
 }
 
 function measureMode(style: AnnotationStyle): MeasureMode {
@@ -37,6 +37,27 @@ export function constrainMeasureEndpoint(start: Point, end: Point, mode: Measure
   return Math.abs(dx) >= Math.abs(dy)
     ? { x: end.x, y: start.y }
     : { x: start.x, y: end.y };
+}
+
+export function constrainMeasureHandlePoint(
+  obj: AnnotationObject,
+  handle: "start" | "end",
+  point: Point,
+): AnnotationObject {
+  const start = obj.start ?? { x: 0, y: 0 };
+  const end = obj.end ?? start;
+
+  if (obj.style.measureMode !== "axis") {
+    return handle === "start"
+      ? { ...obj, start: point }
+      : { ...obj, end: point };
+  }
+
+  if (handle === "start") {
+    return { ...obj, start: constrainMeasureEndpoint(end, point, "axis") };
+  }
+
+  return { ...obj, end: constrainMeasureEndpoint(start, point, "axis") };
 }
 
 export function constrainMeasureObjectToAxisAroundMidpoint(obj: AnnotationObject): AnnotationObject {

@@ -47,6 +47,7 @@ import {
 } from "@/annotation/tools/magnifier";
 import { onMarkerEnd, onMarkerMove, onMarkerStart } from "@/annotation/tools/marker";
 import {
+  constrainMeasureHandlePoint,
   onMeasureEnd,
   onMeasureMove,
   onMeasureStart,
@@ -779,6 +780,9 @@ function straightHighlightHandleObject(
 function lineHandleObject(obj: AnnotationObject, handle: LineEditHandle, point: Point): AnnotationObject {
   const objectPoint = lineVisualPointToObjectPoint(obj, point);
   if (isStraightHighlightObject(obj)) return straightHighlightHandleObject(obj, handle, objectPoint);
+  if (obj.type === "measure" && (handle === "start" || handle === "end")) {
+    return constrainMeasureHandlePoint(obj, handle, objectPoint);
+  }
   if (handle === "start") return { ...obj, start: objectPoint };
   if (handle === "end") return { ...obj, end: objectPoint };
   return { ...obj, points: [objectPoint.x, objectPoint.y] };
@@ -823,7 +827,7 @@ function previewLineHandleDrag(
   obj: AnnotationObject,
   handle: LineEditHandle,
   point: Point,
-) {
+): AnnotationObject {
   const nextObj = lineHandleObject(obj, handle, point);
   const node = findRenderedObjectNode(obj.id);
   if (node instanceof Konva.Group) {
@@ -836,7 +840,7 @@ function previewLineHandleDrag(
     else updateLineObjectNode(node, nextObj);
   }
   moveLineEditHandles(nextObj, handle);
-  layer?.batchDraw();
+  return nextObj;
 }
 
 function persistLineHandleDrag(
@@ -844,16 +848,19 @@ function persistLineHandleDrag(
   handle: LineEditHandle,
   point: Point,
 ) {
-  const objectPoint = lineVisualPointToObjectPoint(obj, point);
+  const nextObj = lineHandleObject(obj, handle, point);
   const { resizeObject } = useAnnotation.getState();
   if (isStraightHighlightObject(obj)) {
-    const nextObj = straightHighlightHandleObject(obj, handle, objectPoint);
     resizeObject(obj.id, { start: nextObj.start, end: nextObj.end, points: nextObj.points });
     return;
   }
-  if (handle === "start") resizeObject(obj.id, { start: objectPoint });
-  else if (handle === "end") resizeObject(obj.id, { end: objectPoint });
-  else resizeObject(obj.id, { points: [objectPoint.x, objectPoint.y] });
+  if (obj.type === "measure" && (handle === "start" || handle === "end")) {
+    resizeObject(obj.id, { start: nextObj.start, end: nextObj.end });
+    return;
+  }
+  if (handle === "start") resizeObject(obj.id, { start: nextObj.start });
+  else if (handle === "end") resizeObject(obj.id, { end: nextObj.end });
+  else resizeObject(obj.id, { points: nextObj.points });
 }
 
 function createLineEditHandle(obj: AnnotationObject, handle: LineEditHandle): Konva.Circle {
@@ -874,7 +881,9 @@ function createLineEditHandle(obj: AnnotationObject, handle: LineEditHandle): Ko
   circle.on("mouseleave", () => setStageCursor(toolCursor()));
   circle.on("dragstart", () => setStageCursor("grabbing"));
   circle.on("dragmove", () => {
-    previewLineHandleDrag(obj, handle, { x: circle.x(), y: circle.y() });
+    const nextObj = previewLineHandleDrag(obj, handle, { x: circle.x(), y: circle.y() });
+    circle.position(lineHandlePoint(nextObj, handle));
+    layer?.batchDraw();
   });
   circle.on("dragend", () => {
     setStageCursor(cursorForAnnotationInteraction("point"));

@@ -560,6 +560,85 @@ describe("AnnotationStage selection movement", () => {
     expect(resized?.points).toEqual([32, 36, 120, 64]);
   });
 
+  it("keeps axis measure end handles constrained while dragging", () => {
+    const measure: AnnotationObject = {
+      id: "axis-measure-end-1",
+      type: "measure",
+      start: { x: 20, y: 24 },
+      end: { x: 120, y: 24 },
+      style: { color: "#ff0000", strokeWidth: 4, measureMode: "axis" },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(measure);
+      useAnnotation.getState().setSelectedObject(measure.id);
+    });
+
+    const endHandle = getLayer()?.findOne(".line-edit-end") as Konva.Circle | undefined;
+    expect(endHandle).toBeInstanceOf(Konva.Circle);
+
+    act(() => {
+      endHandle!.position({ x: 86, y: 72 });
+      endHandle!.fire("dragmove");
+    });
+
+    const node = getLayer()?.findOne("#axis-measure-end-1") as Konva.Group | undefined;
+    const mainLine = node?.findOne(".measure-main-line") as Konva.Line | undefined;
+    expect(mainLine?.points()).toEqual([0, 0, 66, 0]);
+    expect(endHandle?.position()).toEqual({ x: 86, y: 24 });
+
+    act(() => {
+      endHandle!.fire("dragend");
+    });
+
+    const resized = useAnnotation.getState().objects.find((obj) => obj.id === measure.id);
+    expect(resized?.start).toEqual({ x: 20, y: 24 });
+    expect(resized?.end).toEqual({ x: 86, y: 24 });
+  });
+
+  it("keeps axis measure start handles constrained while dragging", () => {
+    const measure: AnnotationObject = {
+      id: "axis-measure-start-1",
+      type: "measure",
+      start: { x: 20, y: 24 },
+      end: { x: 120, y: 24 },
+      style: { color: "#ff0000", strokeWidth: 4, measureMode: "axis" },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(measure);
+      useAnnotation.getState().setSelectedObject(measure.id);
+    });
+
+    const startHandle = getLayer()?.findOne(".line-edit-start") as Konva.Circle | undefined;
+    expect(startHandle).toBeInstanceOf(Konva.Circle);
+
+    act(() => {
+      startHandle!.position({ x: 60, y: 70 });
+      startHandle!.fire("dragmove");
+    });
+
+    const node = getLayer()?.findOne("#axis-measure-start-1") as Konva.Group | undefined;
+    const mainLine = node?.findOne(".measure-main-line") as Konva.Line | undefined;
+    expect(node?.position()).toEqual({ x: 60, y: 24 });
+    expect(mainLine?.points()).toEqual([0, 0, 60, 0]);
+    expect(startHandle?.position()).toEqual({ x: 60, y: 24 });
+
+    act(() => {
+      startHandle!.fire("dragend");
+    });
+
+    const resized = useAnnotation.getState().objects.find((obj) => obj.id === measure.id);
+    expect(resized?.start).toEqual({ x: 60, y: 24 });
+    expect(resized?.end).toEqual({ x: 120, y: 24 });
+  });
+
   it("uses a move-only transformer for freehand highlights", () => {
     const highlight: AnnotationObject = {
       id: "freehand-highlight-1",
