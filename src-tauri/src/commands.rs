@@ -582,11 +582,22 @@ pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn begin_text_input_session(window: WebviewWindow) -> Result<(), String> {
+    // Release the session-scoped X/C hotkeys so they can be typed into the
+    // annotation text field (macOS-only; no-op elsewhere).
+    crate::set_color_picker_hotkeys(window.app_handle(), false);
     overlay_window::prepare_overlay_text_input(&window).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn end_text_input_session(window: WebviewWindow) -> Result<(), String> {
+pub fn end_text_input_session(
+    window: WebviewWindow,
+    mgr: State<'_, Arc<WindowMgr>>,
+) -> Result<(), String> {
+    // Re-arm the color picker hotkeys only while a capture session is still
+    // active; otherwise leave them unregistered.
+    if mgr.in_session() {
+        crate::set_color_picker_hotkeys(window.app_handle(), true);
+    }
     overlay_window::restore_overlay_after_text_input(&window).map_err(|e| e.to_string())
 }
 

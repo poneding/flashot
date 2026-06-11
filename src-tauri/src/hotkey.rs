@@ -19,6 +19,7 @@ pub struct HotkeyService {
     mgr: GlobalHotKeyManager,
     current: Mutex<Vec<HotKey>>,
     capture_cancel: Mutex<Option<HotKey>>,
+    color_picker: Mutex<Option<(HotKey, HotKey)>>,
 }
 
 impl HotkeyService {
@@ -27,6 +28,7 @@ impl HotkeyService {
             mgr: GlobalHotKeyManager::new()?,
             current: Mutex::new(Vec::new()),
             capture_cancel: Mutex::new(None),
+            color_picker: Mutex::new(None),
         })
     }
 
@@ -107,6 +109,31 @@ impl HotkeyService {
         Ok(())
     }
 
+    pub fn set_color_picker_enabled(&self, enabled: bool) -> Result<()> {
+        let mut cur = self.color_picker.lock();
+        if enabled {
+            if cur.is_some() {
+                return Ok(());
+            }
+
+            let toggle = color_format_toggle_hotkey();
+            let copy = color_copy_hotkey();
+            self.mgr.register(toggle)?;
+            if let Err(e) = self.mgr.register(copy) {
+                let _ = self.mgr.unregister(toggle);
+                return Err(e.into());
+            }
+            *cur = Some((toggle, copy));
+            return Ok(());
+        }
+
+        if let Some((toggle, copy)) = cur.take() {
+            let _ = self.mgr.unregister(toggle);
+            let _ = self.mgr.unregister(copy);
+        }
+        Ok(())
+    }
+
     /// Returns the global event receiver. Subscribe once at startup;
     /// match incoming `event.id` against `current_ids()`.
     pub fn receiver(&self) -> &'static crossbeam_channel::Receiver<GlobalHotKeyEvent> {
@@ -158,6 +185,16 @@ pub fn set_capture_cancel_enabled(enabled: bool) -> Result<()> {
     })
 }
 
+pub fn set_color_picker_enabled(enabled: bool) -> Result<()> {
+    HOTKEY_SERVICE.with(|slot| {
+        let service = slot.borrow();
+        let service = service
+            .as_ref()
+            .ok_or_else(|| anyhow!("hotkey service has not been initialized"))?;
+        service.set_color_picker_enabled(enabled)
+    })
+}
+
 pub fn receiver() -> &'static crossbeam_channel::Receiver<GlobalHotKeyEvent> {
     GlobalHotKeyEvent::receiver()
 }
@@ -187,10 +224,20 @@ pub enum HotkeyAction {
     CopyActiveDisplay,
     CopyActiveWindow,
     CancelCapture,
+    ColorFormatToggle,
+    ColorCopy,
 }
 
 pub fn capture_cancel_id() -> u32 {
     capture_cancel_hotkey().id()
+}
+
+pub fn color_format_toggle_id() -> u32 {
+    color_format_toggle_hotkey().id()
+}
+
+pub fn color_copy_id() -> u32 {
+    color_copy_hotkey().id()
 }
 
 pub fn action_for_event(
@@ -200,6 +247,12 @@ pub fn action_for_event(
 ) -> Option<HotkeyAction> {
     if in_capture_session && event_id == capture_cancel_id() {
         return Some(HotkeyAction::CancelCapture);
+    }
+    if in_capture_session && event_id == color_format_toggle_id() {
+        return Some(HotkeyAction::ColorFormatToggle);
+    }
+    if in_capture_session && event_id == color_copy_id() {
+        return Some(HotkeyAction::ColorCopy);
     }
 
     if event_id == ids.capture {
@@ -226,6 +279,14 @@ fn store_current_ids(ids: RegisteredHotkeyIds) {
 
 fn capture_cancel_hotkey() -> HotKey {
     HotKey::new(None, Code::Escape)
+}
+
+fn color_format_toggle_hotkey() -> HotKey {
+    HotKey::new(None, Code::KeyX)
+}
+
+fn color_copy_hotkey() -> HotKey {
+    HotKey::new(None, Code::KeyC)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -412,6 +473,35 @@ mod tests {
             Some(HotkeyAction::CancelCapture)
         );
         assert_eq!(action_for_event(cancel_id, ids, false), None);
+    }
+
+    #[test]
+    fn color_picker_hotkeys_map_to_actions_only_in_session() {
+        let ids = RegisteredHotkeyIds {
+            capture: 1,
+            fullscreen: 2,
+            active_window: 3,
+        };
+        assert_eq!(
+            action_for_event(color_format_toggle_id(), ids, true),
+            Some(HotkeyAction::ColorFormatToggle)
+        );
+        assert_eq!(
+            action_for_event(color_copy_id(), ids, true),
+            Some(HotkeyAction::ColorCopy)
+        );
+        assert_eq!(action_for_event(color_format_toggle_id(), ids, false), None);
+        assert_eq!(action_for_event(color_copy_id(), ids, false), None);
+    }
+
+    #[test]
+    fn color_picker_hotkeys_are_plain_x_and_c() {
+        use global_hotkey::hotkey::{Code, HotKey};
+        assert_eq!(
+            color_format_toggle_hotkey().id(),
+            HotKey::new(None, Code::KeyX).id()
+        );
+        assert_eq!(color_copy_hotkey().id(), HotKey::new(None, Code::KeyC).id());
     }
 
     #[test]

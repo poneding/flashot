@@ -168,6 +168,20 @@ pub fn run() {
                         Some(hotkey::HotkeyAction::CancelCapture) => {
                             mgr_for_hotkey.end_session_deactivating_app(&app_handle);
                         }
+                        // Unlike the actions above, the color picker arms must
+                        // ignore key-release events: macOS delivers both Pressed
+                        // and Released, and the format toggle is not idempotent.
+                        Some(hotkey::HotkeyAction::ColorFormatToggle) => {
+                            if event.state() == global_hotkey::HotKeyState::Pressed {
+                                let _ =
+                                    app_handle.emit("capture:color-format-toggle-requested", ());
+                            }
+                        }
+                        Some(hotkey::HotkeyAction::ColorCopy) => {
+                            if event.state() == global_hotkey::HotKeyState::Pressed {
+                                let _ = app_handle.emit("capture:color-copy-requested", ());
+                            }
+                        }
                         None => {}
                     }
                 }
@@ -205,6 +219,7 @@ pub fn run() {
             let app_for_capture_end = app.handle().clone();
             app.listen("capture:end", move |_| {
                 set_capture_cancel_hotkey(&app_for_capture_end, false);
+                set_color_picker_hotkeys(&app_for_capture_end, false);
             });
 
             // Register capture trigger handler
@@ -456,6 +471,26 @@ fn set_capture_cancel_hotkey(app: &AppHandle, enabled: bool) {
     }
 }
 
+/// Session-scoped X/C hotkeys for the color picker. macOS-only: capture
+/// overlays are shown without activating the app there, so webview keydown
+/// handlers never fire and the keys would leak into the previous app. On
+/// Windows/Linux the overlay owns keyboard focus and the webview path
+/// already handles X/C; a global hotkey would double-fire the toggle.
+fn set_color_picker_hotkeys(app: &AppHandle, enabled: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        if let Err(e) = app.run_on_main_thread(move || {
+            if let Err(e) = hotkey::set_color_picker_enabled(enabled) {
+                tracing::warn!("color picker hotkey update failed: {e}");
+            }
+        }) {
+            tracing::warn!("color picker hotkey dispatch failed: {e}");
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, enabled);
+}
+
 #[cfg(test)]
 fn register_startup_hotkey<F>(accelerator: &str, register: F) -> bool
 where
@@ -568,6 +603,7 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     tracing::info!("run_capture: beginning session");
     let guard = mgr.begin(app.clone());
     set_capture_cancel_hotkey(&app, true);
+    set_color_picker_hotkeys(&app, true);
 
     let current_monitors =
         capture::enumerate_monitors().context("Failed to enumerate monitors before capture")?;
