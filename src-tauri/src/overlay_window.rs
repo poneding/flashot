@@ -41,6 +41,13 @@ pub fn capture_overlay_accepts_first_mouse() -> bool {
     true
 }
 
+/// Re-assert the capture cursor after all overlays are visible. macOS only;
+/// no-op elsewhere (other platforms honor the webview CSS cursor).
+pub fn push_capture_cursor() {
+    #[cfg(target_os = "macos")]
+    push_crosshair_cursor();
+}
+
 #[cfg(target_os = "macos")]
 pub fn capture_overlay_should_take_focus() -> bool {
     // Activating the app so the overlay can become key also lets macOS
@@ -138,7 +145,9 @@ fn configure_platform_overlay(
 
 #[cfg(target_os = "macos")]
 fn show_platform_overlay(window: &WebviewWindow) -> Result<()> {
-    bring_platform_overlay_to_front(window)
+    bring_platform_overlay_to_front(window)?;
+    push_crosshair_cursor();
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -158,6 +167,42 @@ fn bring_platform_overlay_to_front(window: &WebviewWindow) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Force the crosshair cursor at the AppKit level when a capture overlay is
+/// shown. Overlays are deliberately shown without activating Flashot (see
+/// `capture_overlay_should_take_focus`), so the overlay never becomes key and
+/// macOS/WebKit does not honor its CSS/webview cursor while another app stays
+/// active. `[NSCursor set]` is process-global and works without activation,
+/// bridging the gap until the user interacts with the overlay. NSCursor is
+/// main-thread-only; callers reach this via `run_on_window_main_thread` or
+/// `run_on_main_thread`, which satisfies that requirement.
+#[cfg(target_os = "macos")]
+fn push_crosshair_cursor() {
+    use objc::{
+        runtime::{Class, Object, Sel},
+        Message,
+    };
+
+    unsafe {
+        let Some(cursor_class) = Class::get("NSCursor") else {
+            return;
+        };
+        let cursor: *mut Object =
+            match cursor_class.send_message(Sel::register("crosshairCursor"), ()) {
+                Ok(cursor) => cursor,
+                Err(e) => {
+                    tracing::warn!("NSCursor crosshairCursor failed: {e}");
+                    return;
+                }
+            };
+        if cursor.is_null() {
+            return;
+        }
+        if let Err(e) = (*cursor).send_message::<_, ()>(Sel::register("set"), ()) {
+            tracing::warn!("NSCursor set failed: {e}");
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -709,6 +754,16 @@ mod tests {
         assert!(
             !body.contains("makeKeyAndOrderFront:") && !body.contains("makeMainWindow"),
             "capture overlay fronting must not make the app key/main because that can reorder utility windows",
+        );
+    }
+
+    #[test]
+    fn macos_overlay_show_pushes_crosshair_cursor() {
+        let source = include_str!("overlay_window.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "show_platform_overlay");
+        assert!(
+            body.contains("push_crosshair_cursor();"),
+            "showing a capture overlay must push the crosshair cursor without requiring app activation",
         );
     }
 

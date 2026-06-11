@@ -725,6 +725,14 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         }
     }
 
+    // Each overlay show pushes the crosshair cursor, but monitors are shown
+    // sequentially and the monitor under the pointer may not be the last one
+    // shown. NSCursor is process-global, so one final push after the loop
+    // guarantees the crosshair regardless of show order (no-op off macOS).
+    if let Err(e) = app.run_on_main_thread(overlay_window::push_capture_cursor) {
+        tracing::warn!("run_capture: failed to schedule capture cursor push: {e}");
+    }
+
     // Leak the guard - it will be cleaned up when commands complete
     tracing::info!("run_capture: leaking guard, capture setup complete");
     std::mem::forget(guard);
