@@ -125,10 +125,13 @@ mod tests {
             .expect("combined helper missing");
         let body = &implementation[start..];
         let deactivate_pos = body
-            .find("deactivate_app_macos_on_main_thread")
+            .find("deactivate_app_macos_on_main_thread();")
             .expect("must deactivate");
+        // Match the exact CALL text — a bare `hide_overlay_windows` needle would
+        // also match the function definition below the helper, letting a
+        // "deleted hide call" mutant pass.
         let hide_pos = body
-            .find("hide_overlay_windows")
+            .find("hide_overlay_windows(app);")
             .expect("must hide overlays");
         assert!(
             deactivate_pos < hide_pos,

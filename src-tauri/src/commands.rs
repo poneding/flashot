@@ -1508,8 +1508,7 @@ pub async fn scroll_save(
     if let Some(mid) = monitor_id {
         close_scroll_chrome(&app, mid);
     }
-    mgr.end_session(&app);
-    schedule_app_deactivation_macos(&app);
+    mgr.end_session_deactivating_app(&app);
     saver::save_image_to_path(img.rgba, img.width, img.height, &path).map_err(|e| e.to_string())?;
     saver::remember_last_save_dir(&mut settings, &path);
     settings_store::save(&settings).map_err(|e| e.to_string())?;
@@ -1669,14 +1668,18 @@ mod tests {
         );
 
         let scroll_body = function_body(&source, "scroll_save");
-        let scroll_end_idx = scroll_body.find("mgr.end_session(&app);").unwrap();
-        let scroll_deactivate_idx = scroll_body
-            .find("schedule_app_deactivation_macos(&app);")
-            .expect("scroll_save must deactivate after hiding overlays");
-        let save_idx = scroll_body.find("saver::save_image_to_path").unwrap();
+        let scroll_dialog_idx = scroll_body.find("saver::choose_save_path").unwrap();
+        let scroll_end_idx = scroll_body
+            .find("mgr.end_session_deactivating_app(&app);")
+            .expect(
+                "scroll_save must deactivate and hide overlays in one main-thread task; \
+                 unlike crop_and_save, its path dialog completes BEFORE the session ends, \
+                 so nothing after the end needs the app to stay active",
+            );
         assert!(
-            scroll_end_idx < scroll_deactivate_idx && scroll_deactivate_idx < save_idx,
-            "scroll_save must deactivate immediately after hiding overlays because its path dialog already returned",
+            scroll_dialog_idx < scroll_end_idx,
+            "scroll_save's path dialog must complete before capture ends; if a dialog ever \
+             moves after the end, that path must keep the app active like crop_and_save does",
         );
     }
 
