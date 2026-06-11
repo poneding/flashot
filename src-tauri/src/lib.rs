@@ -725,10 +725,11 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         }
     }
 
-    // Each overlay show pushes the crosshair cursor, but monitors are shown
-    // sequentially and the monitor under the pointer may not be the last one
-    // shown. NSCursor is process-global, so one final push after the loop
-    // guarantees the crosshair regardless of show order (no-op off macOS).
+    // Final cursor push after the loop: (a) backstop for monitors whose
+    // overlay window was not found above (that branch skips the per-show
+    // push), and (b) a last word after the loop's intervening work (PNG
+    // saves, event emits, window ordering) that can churn AppKit cursor
+    // state. No-op off macOS.
     if let Err(e) = app.run_on_main_thread(overlay_window::push_capture_cursor) {
         tracing::warn!("run_capture: failed to schedule capture cursor push: {e}");
     }
@@ -1566,6 +1567,17 @@ mod tests {
         assert!(
             !body.contains("window.show().context(\"Failed to show overlay window\")"),
             "Tauri show can activate the app and bring utility windows forward on macOS",
+        );
+    }
+
+    #[test]
+    fn capture_setup_ends_with_capture_cursor_push() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "run_capture");
+
+        assert!(
+            body.contains("overlay_window::push_capture_cursor"),
+            "run_capture must re-push the capture cursor after the overlay loop as the backstop for monitors whose per-show push was skipped",
         );
     }
 

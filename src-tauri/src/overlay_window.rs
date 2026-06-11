@@ -43,6 +43,7 @@ pub fn capture_overlay_accepts_first_mouse() -> bool {
 
 /// Re-assert the capture cursor after all overlays are visible. macOS only;
 /// no-op elsewhere (other platforms honor the webview CSS cursor).
+/// Must run on the main thread; dispatch via `run_on_main_thread`.
 pub fn push_capture_cursor() {
     #[cfg(target_os = "macos")]
     push_crosshair_cursor();
