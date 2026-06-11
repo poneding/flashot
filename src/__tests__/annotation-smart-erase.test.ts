@@ -88,19 +88,41 @@ describe("smartErase", () => {
     expect(rightB).toBeGreaterThan(rightR);
   });
 
+  it("lets the nearer axis dominate: top-adjacent pixels follow the vertical rings", () => {
+    // Green top/bottom rings, red left ring, blue right ring. A pixel touching
+    // the top edge must be dominated by the vertical estimate (green), not the
+    // horizontal red/blue lerp — pins the cross-axis weighting direction.
+    const sample = makeSample(24, 24, { left: 4, top: 4, right: 4, bottom: 4 }, [0, 255, 0], [0, 0, 0]);
+    paintColumn(sample.imageData, 3, [255, 0, 0]);
+    paintColumn(sample.imageData, 20, [0, 0, 255]);
+
+    const result = smartErase(sample);
+
+    const [r, g, b] = pixelAt(result, 12, 4);
+    expect(g).toBeGreaterThan(200);
+    expect(r).toBeLessThan(50);
+    expect(b).toBeLessThan(50);
+  });
+
   it("fills from the remaining sides when one pad is fully clamped", () => {
     const sample = makeSample(20, 24, { left: 0, top: 4, right: 4, bottom: 4 }, [200, 100, 50], [0, 255, 0]);
 
     const result = smartErase(sample);
 
     const [r, g, b, a] = pixelAt(result, 8, 12);
-    expect(Number.isFinite(r)).toBe(true);
-    expect(Number.isFinite(g)).toBe(true);
-    expect(Number.isFinite(b)).toBe(true);
     expect(a).toBe(255);
     expect(Math.abs(r - 200)).toBeLessThanOrEqual(2);
     expect(Math.abs(g - 100)).toBeLessThanOrEqual(2);
     expect(Math.abs(b - 50)).toBeLessThanOrEqual(2);
+  });
+
+  it("returns the region unchanged when every pad is clamped to zero", () => {
+    const sample = makeSample(16, 16, { left: 0, top: 0, right: 0, bottom: 0 }, [255, 255, 255], [10, 20, 30]);
+
+    const result = smartErase(sample);
+
+    expect(result).not.toBe(sample.imageData);
+    expect(Array.from(result.data)).toEqual(Array.from(sample.imageData.data));
   });
 
   it("returns a new ImageData without mutating the input", () => {

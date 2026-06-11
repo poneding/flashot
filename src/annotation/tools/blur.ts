@@ -183,26 +183,26 @@ export function smartErase(sample: PaddedSample): ImageData {
       const wh = Math.min(tx, 1 - tx);
       const i = (y * width + x) * 4;
       for (let c = 0; c < 3; c++) {
-        let h = 0;
+        let horiz = 0;
         if (hasHorizontal) {
           // A side with 0 pad falls back to the opposite ring color as a constant.
           const left = data[(y * width + (hasLeft ? leftX : rightX)) * 4 + c];
           const right = data[(y * width + (hasRight ? rightX : leftX)) * 4 + c];
-          h = left + (right - left) * tx;
+          horiz = left + (right - left) * tx;
         }
-        let v = 0;
+        let vert = 0;
         if (hasVertical) {
           const top = data[((hasTop ? topY : bottomY) * width + x) * 4 + c];
           const bottom = data[((hasBottom ? bottomY : topY) * width + x) * 4 + c];
-          v = top + (bottom - top) * ty;
+          vert = top + (bottom - top) * ty;
         }
         let value: number;
         if (hasHorizontal && hasVertical) {
-          // The axis whose edges are nearer dominates: h weighted by vertical
-          // nearness, v weighted by horizontal nearness.
-          value = (h * wv + v * wh) / Math.max(wv + wh, 1e-6);
+          // The axis whose edges are nearer dominates: horiz weighted by
+          // vertical nearness, vert weighted by horizontal nearness.
+          value = (horiz * wv + vert * wh) / Math.max(wv + wh, 1e-6);
         } else {
-          value = hasHorizontal ? h : v;
+          value = hasHorizontal ? horiz : vert;
         }
         out.data[i + c] = Math.round(value);
       }
@@ -225,6 +225,7 @@ function applyBlur(
   const ry = Math.round(y);
   const rw = Math.round(w);
   const rh = Math.round(h);
+  if (rw < 1 || rh < 1) return null;
 
   // For solid mode, use Konva.Rect for better performance
   if (mode === "solid") {
