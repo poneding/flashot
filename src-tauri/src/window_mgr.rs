@@ -1,10 +1,9 @@
-use crate::app_activation::schedule_app_deactivation_macos;
 use crate::scroll_stitch::ScrollStitcher;
 use crate::types::FrozenFrame;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 /// Active capture session. While `Some(_)`, the overlay is showing.
 /// Drop guarantees `end_capture` runs (RAII invariant from spec §6.4).
@@ -88,13 +87,19 @@ impl WindowMgr {
 
     pub fn end_session(&self, app: &AppHandle) {
         self.clear_session_state();
-        self.hide_overlays(app);
+        crate::app_activation::hide_overlay_windows(app);
         let _ = app.emit("capture:end", ());
     }
 
     pub fn end_session_deactivating_app(&self, app: &AppHandle) {
-        self.end_session(app);
-        schedule_app_deactivation_macos(app);
+        self.clear_session_state();
+        // Deactivate BEFORE hiding overlays, in one main-thread task. Hiding
+        // the key overlay while the app is still active makes AppKit raise the
+        // next visible Flashot window (Settings/About/Updater).
+        if !crate::app_activation::deactivate_then_hide_overlays_macos(app) {
+            crate::app_activation::hide_overlay_windows(app);
+        }
+        let _ = app.emit("capture:end", ());
     }
 
     fn clear_session_state(&self) {
@@ -108,24 +113,6 @@ impl WindowMgr {
 
     fn end(&self, app: &AppHandle) {
         self.end_session_deactivating_app(app);
-    }
-
-    fn hide_overlays(&self, app: &AppHandle) {
-        for (_label, w) in app.webview_windows() {
-            let label = w.label();
-            if label.starts_with("overlay-chrome-") {
-                // Chrome windows must be closed, not hidden — otherwise the next
-                // scroll session reuses a stale hidden window. Their lifecycle
-                // is bound to a single scroll session.
-                let _ = w.close();
-            } else if label.starts_with("overlay-") {
-                #[cfg(target_os = "linux")]
-                let _ = w.set_fullscreen(false);
-                #[cfg(not(target_os = "linux"))]
-                let _ = w.set_ignore_cursor_events(true);
-                let _ = w.hide();
-            }
-        }
     }
 }
 
@@ -239,6 +226,16 @@ mod tests {
         assert!(
             !end_body.contains("order_inactive_utility_windows_back_macos"),
             "capture end must not reorder utility windows; their original z-order should be left untouched",
+        );
+    }
+
+    #[test]
+    fn capture_end_deactivates_app_before_hiding_overlays_on_macos() {
+        let source = include_str!("window_mgr.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "end_session_deactivating_app");
+        assert!(
+            body.contains("deactivate_then_hide_overlays_macos"),
+            "macOS capture end must deactivate the app and hide overlays in one main-thread task, deactivate first",
         );
     }
 
