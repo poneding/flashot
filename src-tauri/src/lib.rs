@@ -1591,6 +1591,36 @@ mod tests {
     }
 
     #[test]
+    fn color_picker_hotkey_arms_only_fire_on_key_press() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let toggle_start = source
+            .find("Some(hotkey::HotkeyAction::ColorFormatToggle)")
+            .unwrap();
+        let copy_start = source[toggle_start..]
+            .find("Some(hotkey::HotkeyAction::ColorCopy)")
+            .map(|idx| toggle_start + idx)
+            .unwrap();
+        let end = source[copy_start..]
+            .find("None => {}")
+            .map(|idx| copy_start + idx)
+            .unwrap();
+        let toggle_arm = &source[toggle_start..copy_start];
+        let copy_arm = &source[copy_start..end];
+
+        assert!(
+            toggle_arm.contains("HotKeyState::Pressed"),
+            "macOS fires Pressed and Released per keystroke; an unfiltered format \
+             toggle double-fires and visually no-ops, so the arm must keep the \
+             Pressed filter",
+        );
+        assert!(
+            copy_arm.contains("HotKeyState::Pressed"),
+            "macOS fires Pressed and Released per keystroke; the copy arm must \
+             keep the Pressed filter so each tap copies once",
+        );
+    }
+
+    #[test]
     fn capture_start_payload_includes_corner_radius() {
         let source = include_str!("lib.rs").replace("\r\n", "\n");
         let start = source.find("struct CaptureStartPayload").unwrap();

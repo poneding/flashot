@@ -581,11 +581,22 @@ pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn begin_text_input_session(window: WebviewWindow) -> Result<(), String> {
+pub fn begin_text_input_session(
+    window: WebviewWindow,
+    mgr: State<'_, Arc<WindowMgr>>,
+) -> Result<(), String> {
     // Release the session-scoped X/C hotkeys so they can be typed into the
     // annotation text field (macOS-only; no-op elsewhere).
     crate::set_color_picker_hotkeys(window.app_handle(), false);
-    overlay_window::prepare_overlay_text_input(&window).map_err(|e| e.to_string())
+    if let Err(e) = overlay_window::prepare_overlay_text_input(&window) {
+        // The editor never opened, so end_text_input_session will not run;
+        // re-arm the hotkeys or X/C would stay dead for the rest of the session.
+        if mgr.in_session() {
+            crate::set_color_picker_hotkeys(window.app_handle(), true);
+        }
+        return Err(e.to_string());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1628,6 +1639,18 @@ mod tests {
         assert!(
             stop_body.contains("mgr.end_session_deactivating_app(&app);"),
             "canceling a scroll session must also deactivate after hiding overlays",
+        );
+    }
+
+    #[test]
+    fn end_text_input_session_rearms_color_picker_only_during_capture() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "end_text_input_session");
+
+        assert!(
+            body.contains("mgr.in_session()"),
+            "re-enabling without the session guard would leak X/C as permanent \
+             global hotkeys after capture ends",
         );
     }
 
