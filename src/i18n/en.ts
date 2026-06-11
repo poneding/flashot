@@ -137,6 +137,7 @@ export const en = {
   "annotation.mosaic": "Mosaic",
   "annotation.gaussianBlur": "Gaussian Blur",
   "annotation.solidColor": "Solid Color",
+  "annotation.smartErase": "Smart erase",
   "annotation.strength": "Strength",
   "annotation.blurIntensity": "Blur intensity",
   "annotation.freehandHighlight": "Freehand highlight",

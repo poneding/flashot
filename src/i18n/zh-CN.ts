@@ -137,6 +137,7 @@ export const zhCN = {
   "annotation.mosaic": "马赛克",
   "annotation.gaussianBlur": "高斯模糊",
   "annotation.solidColor": "纯色",
+  "annotation.smartErase": "智能擦除",
   "annotation.strength": "强度",
   "annotation.blurIntensity": "模糊强度",
   "annotation.freehandHighlight": "自由高亮",

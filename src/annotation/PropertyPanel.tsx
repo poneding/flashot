@@ -25,6 +25,7 @@ import { useDismissOnOutsideMouseDown } from "@/lib/useDismissOnOutsideMouseDown
 import {
   ChevronDown,
   Circle,
+  Eraser,
   Minus,
   Move,
   MoveDiagonal,
@@ -1792,6 +1793,7 @@ function BlurSection({
           { value: "mosaic", label: <MosaicIcon />, title: t("annotation.mosaic") },
           { value: "gaussian", label: <GaussianIcon />, title: t("annotation.gaussianBlur") },
           { value: "solid", label: <SolidIcon />, title: t("annotation.solidColor") },
+          { value: "smart", label: PanelIcon(Eraser), title: t("annotation.smartErase") },
         ]}
         value={mode}
         onChange={(blurMode) => set({ blurMode })}

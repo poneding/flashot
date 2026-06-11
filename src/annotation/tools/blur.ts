@@ -1,8 +1,11 @@
 import Konva from "konva";
 import { getLayer } from "@/annotation/Stage";
 import { useAnnotation } from "@/annotation/store";
-import type { AnnotationObject } from "@/annotation/types";
+import type { AnnotationObject, BlurMode } from "@/annotation/types";
 import { canvasRGBA } from "stackblur-canvas";
+
+const SMART_ERASE_PAD = 12;
+const SMART_ERASE_SOFTEN_RADIUS = 4;
 
 let startX = 0;
 let startY = 0;
@@ -67,15 +70,17 @@ function pixelate(imageData: ImageData, blockSize: number): ImageData {
   return out;
 }
 
-function getBackgroundImageData(x: number, y: number, w: number, h: number): ImageData | null {
+type FrozenLayerGeometry = {
+  bgImg: HTMLImageElement;
+  scaleX: number;
+  scaleY: number;
+  offsetX: number;
+  offsetY: number;
+};
+
+function getFrozenLayerGeometry(): FrozenLayerGeometry | null {
   const bgImg = document.querySelector("[data-frozen-layer]") as HTMLImageElement | null;
   if (!bgImg || !bgImg.naturalWidth) return null;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(w);
-  canvas.height = Math.round(h);
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return null;
 
   // The frozen layer image covers the full monitor. The annotation stage
   // coordinates are relative to the selection rect. We need to map stage-local
@@ -88,17 +93,123 @@ function getBackgroundImageData(x: number, y: number, w: number, h: number): Ima
   const offsetX = stageEl ? parseFloat(stageEl.style.left || "0") : 0;
   const offsetY = stageEl ? parseFloat(stageEl.style.top || "0") : 0;
 
-  const sx = (x + offsetX) * scaleX;
-  const sy = (y + offsetY) * scaleY;
-  const sw = w * scaleX;
-  const sh = h * scaleY;
+  return { bgImg, scaleX, scaleY, offsetX, offsetY };
+}
+
+function readBackgroundRegion(geom: FrozenLayerGeometry, x: number, y: number, w: number, h: number): ImageData | null {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(w);
+  canvas.height = Math.round(h);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+
+  const sx = (x + geom.offsetX) * geom.scaleX;
+  const sy = (y + geom.offsetY) * geom.scaleY;
+  const sw = w * geom.scaleX;
+  const sh = h * geom.scaleY;
 
   try {
-    ctx.drawImage(bgImg, sx, sy, sw, sh, 0, 0, Math.round(w), Math.round(h));
+    ctx.drawImage(geom.bgImg, sx, sy, sw, sh, 0, 0, Math.round(w), Math.round(h));
     return ctx.getImageData(0, 0, Math.round(w), Math.round(h));
   } catch {
     return null;
   }
+}
+
+function getBackgroundImageData(x: number, y: number, w: number, h: number): ImageData | null {
+  const geom = getFrozenLayerGeometry();
+  if (!geom) return null;
+  return readBackgroundRegion(geom, x, y, w, h);
+}
+
+export type PaddedSample = {
+  imageData: ImageData;
+  padLeft: number;
+  padTop: number;
+  padRight: number;
+  padBottom: number;
+};
+
+function getPaddedBackgroundSample(x: number, y: number, w: number, h: number, pad: number): PaddedSample | null {
+  const geom = getFrozenLayerGeometry();
+  if (!geom) return null;
+
+  // Clamp each side's padding to the frozen layer's stage-space box; a region
+  // flush against an edge gets 0 pad on that side.
+  const minX = -geom.offsetX;
+  const minY = -geom.offsetY;
+  const maxX = geom.bgImg.clientWidth - geom.offsetX;
+  const maxY = geom.bgImg.clientHeight - geom.offsetY;
+  const padLeft = Math.max(0, Math.min(pad, Math.floor(x - minX)));
+  const padTop = Math.max(0, Math.min(pad, Math.floor(y - minY)));
+  const padRight = Math.max(0, Math.min(pad, Math.floor(maxX - (x + w))));
+  const padBottom = Math.max(0, Math.min(pad, Math.floor(maxY - (y + h))));
+
+  const imageData = readBackgroundRegion(geom, x - padLeft, y - padTop, w + padLeft + padRight, h + padTop + padBottom);
+  if (!imageData) return null;
+  return { imageData, padLeft, padTop, padRight, padBottom };
+}
+
+export function smartErase(sample: PaddedSample): ImageData {
+  const { imageData, padLeft, padTop, padRight, padBottom } = sample;
+  const { width, height, data } = imageData;
+  const out = new ImageData(width, height);
+  out.data.set(data);
+
+  const innerW = width - padLeft - padRight;
+  const innerH = height - padTop - padBottom;
+  if (innerW <= 0 || innerH <= 0) return out;
+
+  const hasLeft = padLeft > 0;
+  const hasRight = padRight > 0;
+  const hasTop = padTop > 0;
+  const hasBottom = padBottom > 0;
+  const hasHorizontal = hasLeft || hasRight;
+  const hasVertical = hasTop || hasBottom;
+  // Fully clamped on all sides — nothing to sample, leave pixels unchanged.
+  if (!hasHorizontal && !hasVertical) return out;
+
+  // Ring pixel columns/rows just outside the interior.
+  const leftX = padLeft - 1;
+  const rightX = padLeft + innerW;
+  const topY = padTop - 1;
+  const bottomY = padTop + innerH;
+
+  for (let y = padTop; y < padTop + innerH; y++) {
+    const ty = (y - padTop + 0.5) / innerH;
+    const wv = Math.min(ty, 1 - ty);
+    for (let x = padLeft; x < padLeft + innerW; x++) {
+      const tx = (x - padLeft + 0.5) / innerW;
+      const wh = Math.min(tx, 1 - tx);
+      const i = (y * width + x) * 4;
+      for (let c = 0; c < 3; c++) {
+        let h = 0;
+        if (hasHorizontal) {
+          // A side with 0 pad falls back to the opposite ring color as a constant.
+          const left = data[(y * width + (hasLeft ? leftX : rightX)) * 4 + c];
+          const right = data[(y * width + (hasRight ? rightX : leftX)) * 4 + c];
+          h = left + (right - left) * tx;
+        }
+        let v = 0;
+        if (hasVertical) {
+          const top = data[((hasTop ? topY : bottomY) * width + x) * 4 + c];
+          const bottom = data[((hasBottom ? bottomY : topY) * width + x) * 4 + c];
+          v = top + (bottom - top) * ty;
+        }
+        let value: number;
+        if (hasHorizontal && hasVertical) {
+          // The axis whose edges are nearer dominates: h weighted by vertical
+          // nearness, v weighted by horizontal nearness.
+          value = (h * wv + v * wh) / Math.max(wv + wh, 1e-6);
+        } else {
+          value = hasHorizontal ? h : v;
+        }
+        out.data[i + c] = Math.round(value);
+      }
+      out.data[i + 3] = 255;
+    }
+  }
+  return out;
 }
 
 function applyBlur(
@@ -106,7 +217,7 @@ function applyBlur(
   y: number,
   w: number,
   h: number,
-  mode: "mosaic" | "gaussian" | "solid",
+  mode: BlurMode,
   intensity: number,
   solidColor?: string
 ): Konva.Image | Konva.Rect | null {
@@ -122,6 +233,22 @@ function applyBlur(
       x: rx, y: ry, width: rw, height: rh,
       fill: color,
     });
+  }
+
+  // Smart erase: fill the region from the ring of pixels just outside it.
+  if (mode === "smart") {
+    const sample = getPaddedBackgroundSample(rx, ry, rw, rh, SMART_ERASE_PAD);
+    if (!sample) return null;
+    const erased = smartErase(sample);
+    const canvas = document.createElement("canvas");
+    canvas.width = rw;
+    canvas.height = rh;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    // Offset so the interior of the padded sample lands at (0, 0).
+    ctx.putImageData(erased, -sample.padLeft, -sample.padTop);
+    canvasRGBA(canvas, 0, 0, rw, rh, SMART_ERASE_SOFTEN_RADIUS);
+    return new Konva.Image({ x: rx, y: ry, width: rw, height: rh, image: canvas });
   }
 
   // For mosaic and gaussian, process the image

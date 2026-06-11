@@ -137,6 +137,7 @@ export const zhTW = {
   "annotation.mosaic": "馬賽克",
   "annotation.gaussianBlur": "高斯模糊",
   "annotation.solidColor": "純色",
+  "annotation.smartErase": "智慧擦除",
   "annotation.strength": "強度",
   "annotation.blurIntensity": "模糊強度",
   "annotation.freehandHighlight": "自由標示",
