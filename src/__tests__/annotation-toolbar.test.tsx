@@ -76,7 +76,7 @@ describe("Annotation toolbar", () => {
 
     const object = useAnnotation.getState().objects.find((o) => o.id === selectedRect.id);
     expect(object?.style.color).toBe("#33cc33");
-    expect(useAnnotation.getState().activeStyle.color).not.toBe("#33cc33");
+    expect(useAnnotation.getState().activeStyle.color).toBe("#33cc33");
   });
 
   it("removes the visible select tool and uses a dedicated drag handle", () => {

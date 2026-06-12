@@ -398,4 +398,109 @@ describe("useAnnotation store", () => {
     expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(10);
     expect(useAnnotation.getState().activeStyle.cornerRadius).toBe(20);
   });
+
+  it("updateSelectedStyle updates selected object and remembers style for next annotation", () => {
+    const obj = {
+      id: "1",
+      type: "line" as const,
+      start: { x: 0, y: 0 },
+      end: { x: 100, y: 100 },
+      style: { color: "#ff0000", strokeWidth: 4, lineStyle: "solid" as const },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    useAnnotation.getState().setActiveTool("line");
+    useAnnotation.getState().addObject(obj);
+    useAnnotation.getState().setSelectedObject("1");
+
+    useAnnotation.getState().updateSelectedStyle({ strokeWidth: 10, color: "#00ff00" });
+
+    const updatedObj = useAnnotation.getState().objects.find(o => o.id === "1");
+    expect(updatedObj?.style.strokeWidth).toBe(10);
+    expect(updatedObj?.style.color).toBe("#00ff00");
+
+    expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(10);
+    expect(useAnnotation.getState().activeStyle.color).toBe("#00ff00");
+
+    const newObj = {
+      id: "2",
+      type: "line" as const,
+      start: { x: 200, y: 200 },
+      end: { x: 300, y: 300 },
+      style: { ...useAnnotation.getState().activeStyle },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    useAnnotation.getState().addObject(newObj);
+
+    expect(useAnnotation.getState().objects[1].style.strokeWidth).toBe(10);
+    expect(useAnnotation.getState().objects[1].style.color).toBe("#00ff00");
+  });
+
+  it("updateSelectedStyle applies to blur mode changes", () => {
+    const obj = {
+      id: "1",
+      type: "blur" as const,
+      start: { x: 0, y: 0 },
+      end: { x: 100, y: 100 },
+      style: { color: "#ff0000", strokeWidth: 4, blurMode: "mosaic" as const, blurIntensity: 10 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    useAnnotation.getState().setActiveTool("blur");
+    useAnnotation.getState().addObject(obj);
+    useAnnotation.getState().setSelectedObject("1");
+
+    useAnnotation.getState().updateSelectedStyle({ blurMode: "gaussian", blurIntensity: 20 });
+
+    const updatedObj = useAnnotation.getState().objects.find(o => o.id === "1");
+    expect(updatedObj?.style.blurMode).toBe("gaussian");
+    expect(updatedObj?.style.blurIntensity).toBe(20);
+
+    expect(useAnnotation.getState().activeStyle.blurMode).toBe("gaussian");
+    expect(useAnnotation.getState().activeStyle.blurIntensity).toBe(20);
+  });
+
+  it("updateSelectedStyle applies to marker fill changes", () => {
+    const obj = {
+      id: "1",
+      type: "marker" as const,
+      start: { x: 100, y: 100 },
+      markerNumber: 1,
+      style: { color: "#ff0000", strokeWidth: 4, markerFill: "#ff0000", fontSize: 14 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    useAnnotation.getState().setActiveTool("marker");
+    useAnnotation.getState().addObject(obj);
+    useAnnotation.getState().setSelectedObject("1");
+
+    useAnnotation.getState().updateSelectedStyle({ markerFill: "#00ff00", fontSize: 18 });
+
+    const updatedObj = useAnnotation.getState().objects.find(o => o.id === "1");
+    expect(updatedObj?.style.markerFill).toBe("#00ff00");
+    expect(updatedObj?.style.fontSize).toBe(18);
+
+    expect(useAnnotation.getState().activeStyle.markerFill).toBe("#00ff00");
+    expect(useAnnotation.getState().activeStyle.fontSize).toBe(18);
+  });
+
+  it("updateSelectedStyle applies to highlight intensity changes", () => {
+    const obj = {
+      id: "1",
+      type: "highlight" as const,
+      start: { x: 0, y: 0 },
+      end: { x: 100, y: 100 },
+      style: { color: "#ffff00", strokeWidth: 12, cornerRadius: 8 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    useAnnotation.getState().setActiveTool("highlight");
+    useAnnotation.getState().addObject(obj);
+    useAnnotation.getState().setSelectedObject("1");
+
+    useAnnotation.getState().updateSelectedStyle({ strokeWidth: 20, cornerRadius: 16 });
+
+    const updatedObj = useAnnotation.getState().objects.find(o => o.id === "1");
+    expect(updatedObj?.style.strokeWidth).toBe(20);
+    expect(updatedObj?.style.cornerRadius).toBe(16);
+
+    expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(20);
+    expect(useAnnotation.getState().activeStyle.cornerRadius).toBe(16);
+  });
 });

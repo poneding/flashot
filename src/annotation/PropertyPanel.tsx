@@ -1034,21 +1034,6 @@ function GaussianIcon() {
   );
 }
 
-function SolidIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="none"
-      aria-hidden="true"
-    >
-      <rect x="3" y="3" width="18" height="18" fill="currentColor" />
-    </svg>
-  );
-}
-
 // ─── DropdownSelect ──────────────────────────────────────────────────────────
 
 type DropdownOption<T extends string> = { value: T; label: string; icon: ReactNode };
@@ -1794,7 +1779,6 @@ function BlurSection({
   const t = usePanelT();
   const mode = style.blurMode ?? "mosaic";
   const showIntensity = mode === "mosaic" || mode === "gaussian";
-  const showColorPicker = mode === "solid";
 
   return (
     <>
@@ -1802,18 +1786,11 @@ function BlurSection({
         options={[
           { value: "mosaic", label: <MosaicIcon />, title: t("annotation.mosaic") },
           { value: "gaussian", label: <GaussianIcon />, title: t("annotation.gaussianBlur") },
-          { value: "solid", label: <SolidIcon />, title: t("annotation.solidColor") },
           { value: "smart", label: PanelIcon(Eraser), title: t("annotation.smartErase") },
         ]}
         value={mode}
         onChange={(blurMode) => set({ blurMode })}
       />
-      {showColorPicker && (
-        <>
-          <Separator />
-          <ColorPicker value={style.blurSolidColor ?? "#000000"} onChange={(blurSolidColor) => set({ blurSolidColor })} />
-        </>
-      )}
       {showIntensity && (
         <>
           <Separator />
@@ -1868,23 +1845,18 @@ type Props = {
 export function PropertyPanel({ tool, style: containerStyle, object, panelRef, locale = "en" }: Props) {
   const t = createTranslator(locale);
   const activeStyle = useAnnotation((s) => s.activeStyle);
-  const setActiveStyle = useAnnotation((s) => s.setActiveStyle);
-  const modifyStyle = useAnnotation((s) => s.modifyStyle);
+  const updateSelectedStyle = useAnnotation((s) => s.updateSelectedStyle);
   const resizeObject = useAnnotation((s) => s.resizeObject);
   const style = object?.style ?? activeStyle;
   const set = (partial: Partial<AnnotationStyle>) => {
-    if (object) {
-      modifyStyle(object.id, partial);
-      if (object.type === "measure" && partial.measureMode === "axis") {
-        const next = constrainMeasureObjectToAxisAroundMidpoint({
-          ...object,
-          style: { ...object.style, ...partial },
-        });
-        resizeObject(object.id, { start: next.start, end: next.end });
-      }
-      return;
+    updateSelectedStyle(partial);
+    if (object?.type === "measure" && partial.measureMode === "axis") {
+      const next = constrainMeasureObjectToAxisAroundMidpoint({
+        ...object,
+        style: { ...object.style, ...partial },
+      });
+      resizeObject(object.id, { start: next.start, end: next.end });
     }
-    setActiveStyle(partial);
   };
 
   if (tool === "select") return null;
