@@ -1092,32 +1092,35 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
     if (!obj) return;
 
     e.preventDefault();
-    const delta = e.deltaY > 0 ? -1 : 1;
+    // Slow down: require minimum threshold to avoid over-sensitivity
+    const rawDelta = e.deltaY;
+    const step = Math.abs(rawDelta) > 5 ? (rawDelta > 0 ? -1 : 1) : 0;
+    if (step === 0) return;
 
     switch (obj.type) {
       case "line":
       case "arrow":
       case "highlight": {
         const current = obj.style.strokeWidth ?? 4;
-        const next = Math.max(3, Math.min(30, current + delta));
+        const next = Math.max(3, Math.min(30, current + step));
         if (next !== current) updateSelectedStyle({ strokeWidth: next });
         break;
       }
       case "blur": {
         const current = obj.style.blurIntensity ?? 10;
-        const next = Math.max(3, Math.min(30, current + delta));
+        const next = Math.max(3, Math.min(30, current + step));
         if (next !== current) updateSelectedStyle({ blurIntensity: next });
         break;
       }
       case "marker": {
         const current = obj.style.fontSize ?? MARKER_DEFAULT_FONT_SIZE;
-        const next = Math.max(12, Math.min(48, current + delta * 2));
+        const next = Math.max(12, Math.min(48, current + step * 2));
         if (next !== current) updateSelectedStyle({ fontSize: next });
         break;
       }
       case "text": {
         const current = obj.style.fontSize ?? 16;
-        const next = Math.max(12, Math.min(96, current + delta * 4));
+        const next = Math.max(12, Math.min(96, current + step * 4));
         if (next !== current) updateSelectedStyle({ fontSize: next });
         break;
       }
@@ -1128,7 +1131,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
         const currentWidth = Math.abs(end.x - start.x);
         const currentHeight = Math.abs(end.y - start.y);
         const currentSize = Math.max(currentWidth, currentHeight);
-        const sizeDelta = delta * 10;
+        const sizeDelta = step * 10;
         const nextSize = Math.max(50, Math.min(500, currentSize + sizeDelta));
 
         if (nextSize !== currentSize) {
