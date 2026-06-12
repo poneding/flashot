@@ -171,17 +171,18 @@ pub fn run() {
                         // Unlike the actions above, the color picker arms must
                         // ignore key-release events: macOS delivers both Pressed
                         // and Released, and the format toggle is not idempotent.
-                        Some(hotkey::HotkeyAction::ColorFormatToggle) => {
-                            if event.state() == global_hotkey::HotKeyState::Pressed {
-                                let _ =
-                                    app_handle.emit("capture:color-format-toggle-requested", ());
-                            }
+                        Some(hotkey::HotkeyAction::ColorFormatToggle)
+                            if event.state() == global_hotkey::HotKeyState::Pressed =>
+                        {
+                            let _ = app_handle.emit("capture:color-format-toggle-requested", ());
                         }
-                        Some(hotkey::HotkeyAction::ColorCopy) => {
-                            if event.state() == global_hotkey::HotKeyState::Pressed {
-                                let _ = app_handle.emit("capture:color-copy-requested", ());
-                            }
+                        Some(hotkey::HotkeyAction::ColorCopy)
+                            if event.state() == global_hotkey::HotKeyState::Pressed =>
+                        {
+                            let _ = app_handle.emit("capture:color-copy-requested", ());
                         }
+                        Some(hotkey::HotkeyAction::ColorFormatToggle)
+                        | Some(hotkey::HotkeyAction::ColorCopy) => {}
                         None => {}
                     }
                 }

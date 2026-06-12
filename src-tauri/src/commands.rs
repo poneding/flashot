@@ -672,9 +672,15 @@ fn settings_window_size() -> (f64, f64) {
 }
 
 #[tauri::command]
-pub fn push_capture_cursor_macos(_app: AppHandle) {
+pub fn push_capture_cursor_macos(app: AppHandle) {
+    // `[NSCursor set]` must run on the main thread; a Tauri sync command is not
+    // guaranteed to. Dispatch like the session-start push does (lib.rs).
     #[cfg(target_os = "macos")]
-    crate::overlay_window::push_capture_cursor();
+    {
+        if let Err(e) = app.run_on_main_thread(crate::overlay_window::push_capture_cursor) {
+            tracing::warn!("failed to dispatch capture cursor push: {e}");
+        }
+    }
     #[cfg(not(target_os = "macos"))]
     let _ = app;
 }
