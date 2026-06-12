@@ -99,7 +99,93 @@ let magnifierSourceRect: Rect | null = null;
 // of racing. One size step is taken each time the accumulator crosses the
 // threshold; the sign resets the accumulator so direction changes feel instant.
 let wheelResizeAccum = 0;
-const WHEEL_RESIZE_THRESHOLD = 80;
+export const WHEEL_RESIZE_THRESHOLD = 80;
+
+/// Fold a raw wheel deltaY into the accumulator and decide whether a discrete
+/// size step is due. A trackpad fires dozens of small-delta events per gesture,
+/// so we only advance one step per threshold crossing instead of once per event.
+/// A direction flip resets the accumulator so reversing feels immediate.
+export function wheelResizeStep(
+  accum: number,
+  deltaY: number,
+  threshold = WHEEL_RESIZE_THRESHOLD,
+): { step: -1 | 0 | 1; nextAccum: number } {
+  let next = accum;
+  if ((next > 0 && deltaY < 0) || (next < 0 && deltaY > 0)) next = 0;
+  next += deltaY;
+  if (Math.abs(next) < threshold) return { step: 0, nextAccum: next };
+  // Wheel-down (deltaY > 0) shrinks; wheel-up grows.
+  return { step: next > 0 ? -1 : 1, nextAccum: 0 };
+}
+
+export type AnnotationResizeUpdate =
+  | { kind: "style"; updates: Partial<AnnotationStyle> }
+  | { kind: "bounds"; updates: Partial<AnnotationObject> }
+  | null;
+
+/// Map one discrete size step onto a concrete update for the given object.
+/// Stroke-based shapes change `strokeWidth`, blur changes intensity, text/marker
+/// change `fontSize`, and magnifier/spotlight rescale their bounds around the
+/// center. Returns null when the step would not change anything (already clamped).
+export function annotationResizeUpdates(
+  obj: AnnotationObject,
+  step: -1 | 1,
+): AnnotationResizeUpdate {
+  switch (obj.type) {
+    case "line":
+    case "arrow":
+    case "highlight":
+    case "draw":
+    case "measure":
+    case "rect":
+    case "ellipse": {
+      const current = obj.style.strokeWidth ?? 4;
+      const next = Math.max(1, Math.min(30, current + step));
+      return next !== current ? { kind: "style", updates: { strokeWidth: next } } : null;
+    }
+    case "blur": {
+      const current = obj.style.blurIntensity ?? 10;
+      const next = Math.max(3, Math.min(30, current + step));
+      return next !== current ? { kind: "style", updates: { blurIntensity: next } } : null;
+    }
+    case "marker": {
+      const current = obj.style.fontSize ?? MARKER_DEFAULT_FONT_SIZE;
+      const next = Math.max(12, Math.min(48, current + step * 2));
+      return next !== current ? { kind: "style", updates: { fontSize: next } } : null;
+    }
+    case "text": {
+      const current = obj.style.fontSize ?? 16;
+      const next = Math.max(12, Math.min(96, current + step * 4));
+      return next !== current ? { kind: "style", updates: { fontSize: next } } : null;
+    }
+    case "magnifier":
+    case "spotlight": {
+      const start = obj.start ?? { x: 0, y: 0 };
+      const end = obj.end ?? start;
+      const currentWidth = Math.abs(end.x - start.x);
+      const currentHeight = Math.abs(end.y - start.y);
+      const currentSize = Math.max(currentWidth, currentHeight);
+      if (currentSize === 0) return null;
+      const nextSize = Math.max(50, Math.min(500, currentSize + step * 10));
+      if (nextSize === currentSize) return null;
+      const scale = nextSize / currentSize;
+      const centerX = (start.x + end.x) / 2;
+      const centerY = (start.y + end.y) / 2;
+      const halfWidth = (currentWidth * scale) / 2;
+      const halfHeight = (currentHeight * scale) / 2;
+      return {
+        kind: "bounds",
+        updates: {
+          start: { x: centerX - halfWidth, y: centerY - halfHeight },
+          end: { x: centerX + halfWidth, y: centerY + halfHeight },
+        },
+      };
+    }
+    default:
+      return null;
+  }
+}
+
 let focusPreview: {
   shape: "rect" | "ellipse" | "circle";
   start: Point;
@@ -734,7 +820,7 @@ function toolCursor(
   }
 }
 
-function stageCursorForTool(
+export function stageCursorForTool(
   tool: ToolType,
   style: AnnotationStyle,
   colorPickerVisible: boolean,
@@ -1102,71 +1188,14 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
 
     // Accumulate raw deltaY so a trackpad gesture (dozens of small-delta
     // events) advances one step per threshold crossing instead of racing.
-    // A direction flip resets the accumulator so it responds immediately.
-    if ((wheelResizeAccum > 0 && e.deltaY < 0) || (wheelResizeAccum < 0 && e.deltaY > 0)) {
-      wheelResizeAccum = 0;
-    }
-    wheelResizeAccum += e.deltaY;
-    if (Math.abs(wheelResizeAccum) < WHEEL_RESIZE_THRESHOLD) return;
-    const step = wheelResizeAccum > 0 ? -1 : 1;
-    wheelResizeAccum = 0;
+    const { step, nextAccum } = wheelResizeStep(wheelResizeAccum, e.deltaY);
+    wheelResizeAccum = nextAccum;
+    if (step === 0) return;
 
-    switch (obj.type) {
-      case "line":
-      case "arrow":
-      case "highlight":
-      case "draw":
-      case "measure":
-      case "rect":
-      case "ellipse": {
-        const current = obj.style.strokeWidth ?? 4;
-        const next = Math.max(1, Math.min(30, current + step));
-        if (next !== current) updateSelectedStyle({ strokeWidth: next });
-        break;
-      }
-      case "blur": {
-        const current = obj.style.blurIntensity ?? 10;
-        const next = Math.max(3, Math.min(30, current + step));
-        if (next !== current) updateSelectedStyle({ blurIntensity: next });
-        break;
-      }
-      case "marker": {
-        const current = obj.style.fontSize ?? MARKER_DEFAULT_FONT_SIZE;
-        const next = Math.max(12, Math.min(48, current + step * 2));
-        if (next !== current) updateSelectedStyle({ fontSize: next });
-        break;
-      }
-      case "text": {
-        const current = obj.style.fontSize ?? 16;
-        const next = Math.max(12, Math.min(96, current + step * 4));
-        if (next !== current) updateSelectedStyle({ fontSize: next });
-        break;
-      }
-      case "magnifier":
-      case "spotlight": {
-        const start = obj.start ?? { x: 0, y: 0 };
-        const end = obj.end ?? start;
-        const currentWidth = Math.abs(end.x - start.x);
-        const currentHeight = Math.abs(end.y - start.y);
-        const currentSize = Math.max(currentWidth, currentHeight);
-        const sizeDelta = step * 10;
-        const nextSize = Math.max(50, Math.min(500, currentSize + sizeDelta));
-
-        if (nextSize !== currentSize) {
-          const scale = nextSize / currentSize;
-          const centerX = (start.x + end.x) / 2;
-          const centerY = (start.y + end.y) / 2;
-          const halfWidth = (currentWidth * scale) / 2;
-          const halfHeight = (currentHeight * scale) / 2;
-
-          resizeObject(obj.id, {
-            start: { x: centerX - halfWidth, y: centerY - halfHeight },
-            end: { x: centerX + halfWidth, y: centerY + halfHeight },
-          });
-        }
-        break;
-      }
-    }
+    const update = annotationResizeUpdates(obj, step);
+    if (!update) return;
+    if (update.kind === "style") updateSelectedStyle(update.updates);
+    else resizeObject(obj.id, update.updates);
   }, []);
 
   useEffect(() => {
