@@ -50,10 +50,9 @@ pnpm tauri build      # Build production bundle (.dmg, .msi, .AppImage)
    - Emits `capture:start` event to each overlay window with frame URL + window rects
 
 2. **Overlay interaction** (`src/routes/Overlay.tsx` + `src/overlay/state.ts`)
-   - Zustand store manages state machine: `idle → hover → dragging → committed`
+   - Zustand store manages state machine: `idle → hover → dragging → committed` (plus `locked`, `scrollStarting`, `scrolling` for multi-monitor locking and scroll capture)
    - Mouse events drive state transitions
-   - Custom crosshair cursor (`src/overlay/Crosshair.tsx`) uses CSS transforms for hardware-accelerated rendering
-   - Native cursor is hidden in `hover` and `dragging` modes to prevent double cursor display
+   - Cursor handling: the overlay sets a CSS cursor and mirrors it natively via `webviewWindow.setCursorIcon` (`src/routes/Overlay.tsx`); cursor position is polled via `src/lib/cursor.ts`; on macOS a native `NSCursor` crosshair is also pushed when overlays are shown (`src-tauri/src/overlay_window.rs`, final push in `lib.rs:run_capture`)
    - Window detection uses z-order hit-testing (`src/lib/hit-test.ts`)
    - Selection handles use geometry utilities (`src/lib/geometry.ts`)
 
@@ -65,21 +64,36 @@ pnpm tauri build      # Build production bundle (.dmg, .msi, .AppImage)
 ### Key Rust Modules
 
 - **`window_mgr.rs`**: Session lifecycle manager. `SessionGuard` is RAII — drop always calls `end()` to hide overlays and clear frames. Never manually manage session state.
-- **`capture/`**: Platform-specific screen capture (macOS uses `xcap`, Windows uses `xcap` + Win32 APIs)
-- **`window_probe/`**: Platform-specific window enumeration (macOS: Core Graphics, Windows: Win32)
-- **`hotkey.rs`**: Global hotkey registration with live updates on settings change
-- **`commands.rs`**: Tauri command handlers. All commands receive `State<Arc<WindowMgr>>` to access frozen frames.
+- **`overlay_window.rs`**: Platform-specific overlay window configuration/show. On macOS, capture overlays are shown with `orderFrontRegardless` and never activate the app; also pushes the native `NSCursor` crosshair at overlay show (`push_capture_cursor`).
+- **`app_activation.rs`**: macOS activation helpers. `deactivate_then_hide_overlays_macos` deactivates the app, then hides overlays, atomically on the main thread at session end.
+- **`scroll_session.rs`**: Tokio capture loop for scroll capture. Recaptures the selected region on a tick, feeds the stitcher, and emits throttled progress events (with a bottom-tail preview PNG) to the chrome window only.
+- **`scroll_stitch.rs`**: Incremental scroll stitcher. Matches adjacent frames via normalized cross-correlation (NCC) on feature-sampled ROIs and appends only the newly scrolled strip to the canvas.
+- **`capture/`**: Platform-specific screen capture (all platforms use `xcap`; Windows adds Win32 APIs)
+- **`window_probe/`**: Platform-specific window enumeration (macOS: Core Graphics, Windows: Win32, Linux: X11)
+- **`hotkey.rs`**: Global hotkey registration with live updates on settings change. Also owns session-scoped hotkeys (Esc cancel; color picker X/C) registered only while a capture session is active.
+- **`commands.rs`**: Tauri command handlers. Capture-related commands receive `State<Arc<WindowMgr>>` to access frozen frames.
 - **`pin_mgr.rs`**: Pin image lifecycle manager. Tracks active pin windows and their associated PNG files in app cache. Each pin gets a UUID, an independent always-on-top transparent window, and is removed via `close_pin`.
+- **`mask.rs`**: Rounded-corner alpha masking for captured RGBA buffers.
+- **`image_adjust.rs`**: Pixel-level image adjustments applied to crops before output.
+- **`saver.rs`**: Save dialog, PNG encoding to disk, last-save-dir bookkeeping.
+- **`settings_store.rs`**: `Settings` struct + JSON load/save (`<config>/flashot/settings.json`).
+- **`clipboard.rs`**: Copies RGBA images to the system clipboard.
+- **`tray.rs`**: Tray icon and localized menu.
+- **`i18n.rs`**: Native-side localized strings (tray menu, dialogs).
+- **`permission.rs`**: Best-effort first-launch macOS screen-recording permission probe.
 
 ### Key Frontend Modules
 
 - **`src/overlay/state.ts`**: Zustand store for overlay state machine. All overlay components read from this store.
-- **`src/overlay/Crosshair.tsx`**: Custom crosshair cursor component. Uses CSS `transform` with `willChange: "transform"` for GPU-accelerated rendering. Displays a 20px crosshair (10px per side) with a centered circle. Designed for future color picker integration.
+- **`src/annotation/`**: Konva-based annotation editor (used in the overlay and pin windows). `types.ts` is the data model, `store.ts` is a Zustand store with a command stack for undo/redo, `Stage.tsx` is the canvas interaction layer, `tools/` holds per-type modules (e.g. `marker.ts` — split badge + label connected by a leader line; `blur.ts` — mosaic/gaussian/solid/smart-erase modes), `render.ts` dispatches objects to Konva nodes, `export.ts` exports the stage to PNG.
 - **`src/lib/geometry.ts`**: Pure functions for rect operations (clamp, resize, translate). Used by selection handles.
 - **`src/lib/hit-test.ts`**: Z-order window hit-testing. Returns topmost window at cursor position.
+- **`src/lib/cursor.ts`**: Cursor position polling — converts the global cursor point to window-local coordinates.
 - **`src/lib/ipc.ts`**: Typed wrappers around Tauri IPC (commands + events). Use these instead of raw `invoke()`.
 - **`src/routes/Pin.tsx`**: Pin window route. Displays a pinned screenshot in an always-on-top borderless window. Mouse drag moves the window via `startDragging()`, scroll wheel scales (50%–300%), double-click and Escape close the pin.
+- **`src/routes/ScrollChrome.tsx`**: Scroll-capture chrome window. Shows the live progress preview, a check button that finishes the capture into a pin, and auto-pins when the stitcher reaches max height (both paths funnel through one guarded `finishPin`).
 - **`src/overlay/ColorPicker.tsx`**: Snipaste-style color picker overlay. Loads the frozen frame into an offscreen canvas, reads a 15×15 pixel block around the cursor on each move, renders a 120×120 magnifier with grid lines and center highlight. X toggles HEX/RGB format; C copies the color value.
+- **`src/i18n/`**: Frontend translations (`en`, `zh-CN`, `zh-TW`).
 
 ### Multi-Monitor Handling
 
@@ -93,7 +107,7 @@ When the user selects a region, the frontend sends the monitor ID + rect to Rust
 
 ### Settings Persistence
 
-Settings are stored via `tauri-plugin-store` in JSON format. When settings change:
+Settings are persisted by `src-tauri/src/settings_store.rs` as a JSON file in the OS config dir (`<config>/flashot/settings.json`). When settings change:
 
 1. Frontend calls `setSettings` command
 2. Rust saves to disk and emits `settings:changed` event
@@ -107,7 +121,7 @@ This allows live hotkey updates without app restart.
 
 - Located in `src/__tests__/`
 - Use Vitest + React Testing Library
-- Focus on pure logic (geometry, hit-testing)
+- Cover pure logic (geometry, hit-testing, annotation tools) and component/route behavior (overlay, settings, scroll chrome, pin)
 - Run with `pnpm test`
 
 ### Rust Tests
@@ -119,6 +133,7 @@ This allows live hotkey updates without app restart.
 
 - Located in `src-tauri/benches/`
 - `crop_bench`: Pure CPU cropping (runs in CI)
+- `scroll_stitch_bench`: Pure CPU scroll stitching + preview encode (not in CI)
 - `capture_bench`, `window_enum_bench`, `clipboard_bench`: Require display server (skip in CI)
 - Run with `cd src-tauri && cargo bench`
 
@@ -129,6 +144,13 @@ This allows live hotkey updates without app restart.
 - Requires screen recording permission (checked at startup in `permission.rs`)
 - Uses `macOSPrivateApi: true` in `tauri.conf.json` for overlay rendering
 - Window enumeration uses Core Graphics (`CGWindowListCopyWindowInfo`)
+
+**macOS capture window management** (load-bearing invariants, pinned by guard tests in `overlay_window.rs`, `app_activation.rs`, and `commands.rs`):
+
+- Capture overlays are shown with `orderFrontRegardless` and never activate the app (no makeKey/activate during capture) — activating would raise open utility windows (Settings/About/Updater).
+- Session end must deactivate the app BEFORE hiding overlays, atomically on the main thread (`app_activation::deactivate_then_hide_overlays_macos`). `crop_and_save` is the exception: the save dialog needs the app active, so it deactivates after the dialog returns.
+- Because overlays never own keyboard focus on macOS, session shortcuts (Esc, and X/C for the color picker) are session-scoped GLOBAL hotkeys (`hotkey.rs`), disabled during annotation text input.
+- The crosshair cursor is pushed natively via `NSCursor` at overlay show (process-global; no activation needed).
 
 ### Windows
 
@@ -222,4 +244,4 @@ docs: update CLAUDE.md with commit conventions
 - Crop operation: < 8ms (measured by `crop_bench`, currently ~748µs)
 - Capture latency: < 200ms (subjective, not benchmarked)
 - Overlay render: 60fps (React + CSS transforms with GPU acceleration)
-- Crosshair cursor: Real-time tracking via `onMouseMove` events, hardware-accelerated via CSS `transform`
+- Scroll progress preview: flat-cost encode — the emitted preview is a bottom tail sized to the chrome viewport, not the full canvas (measured by `scroll_stitch_bench`)
