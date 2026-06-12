@@ -14,7 +14,7 @@ import {
   type MagnifierRenderContext,
 } from "@/annotation/magnifierContext";
 import { MarkerTextOverlay } from "@/annotation/MarkerTextOverlay";
-import { markerLabelAnchor } from "@/annotation/markerStyle";
+import { MARKER_DEFAULT_FONT_SIZE, markerLabelAnchor } from "@/annotation/markerStyle";
 import { renderObject } from "@/annotation/render";
 import { useAnnotation } from "@/annotation/store";
 import { TextOverlay } from "@/annotation/TextOverlay";
@@ -76,7 +76,7 @@ import { hitTestHandle } from "@/lib/geometry";
 import type { Point, Rect } from "@/lib/types";
 import { useOverlay } from "@/overlay/state";
 import Konva from "konva";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type Props = {
   selection: Rect;
@@ -1084,6 +1084,70 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
     setMarkerEditing({ object, key: markerKeyRef.current });
   };
 
+  const onWheel = useCallback((e: WheelEvent) => {
+    const { selectedObjectId, objects, updateSelectedStyle, resizeObject } = useAnnotation.getState();
+    if (!selectedObjectId) return;
+
+    const obj = objects.find(o => o.id === selectedObjectId);
+    if (!obj) return;
+
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -1 : 1;
+
+    switch (obj.type) {
+      case "line":
+      case "arrow":
+      case "highlight": {
+        const current = obj.style.strokeWidth ?? 4;
+        const next = Math.max(3, Math.min(30, current + delta));
+        if (next !== current) updateSelectedStyle({ strokeWidth: next });
+        break;
+      }
+      case "blur": {
+        const current = obj.style.blurIntensity ?? 10;
+        const next = Math.max(3, Math.min(30, current + delta));
+        if (next !== current) updateSelectedStyle({ blurIntensity: next });
+        break;
+      }
+      case "marker": {
+        const current = obj.style.fontSize ?? MARKER_DEFAULT_FONT_SIZE;
+        const next = Math.max(12, Math.min(48, current + delta * 2));
+        if (next !== current) updateSelectedStyle({ fontSize: next });
+        break;
+      }
+      case "text": {
+        const current = obj.style.fontSize ?? 16;
+        const next = Math.max(12, Math.min(96, current + delta * 4));
+        if (next !== current) updateSelectedStyle({ fontSize: next });
+        break;
+      }
+      case "magnifier":
+      case "spotlight": {
+        const start = obj.start ?? { x: 0, y: 0 };
+        const end = obj.end ?? start;
+        const currentWidth = Math.abs(end.x - start.x);
+        const currentHeight = Math.abs(end.y - start.y);
+        const currentSize = Math.max(currentWidth, currentHeight);
+        const sizeDelta = delta * 10;
+        const nextSize = Math.max(50, Math.min(500, currentSize + sizeDelta));
+
+        if (nextSize !== currentSize) {
+          const scale = nextSize / currentSize;
+          const centerX = (start.x + end.x) / 2;
+          const centerY = (start.y + end.y) / 2;
+          const halfWidth = (currentWidth * scale) / 2;
+          const halfHeight = (currentHeight * scale) / 2;
+
+          resizeObject(obj.id, {
+            start: { x: centerX - halfWidth, y: centerY - halfHeight },
+            end: { x: centerX + halfWidth, y: centerY + halfHeight },
+          });
+        }
+        break;
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -1224,9 +1288,13 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
     });
     stage.on("mouseleave", () => setStageCursor(toolCursor()));
 
+    const div = containerRef.current;
+    div.addEventListener("wheel", onWheel, { passive: false });
+
     forceRender((n) => n + 1);
 
     return () => {
+      div.removeEventListener("wheel", onWheel);
       stage?.destroy();
       stage = null;
       layer = null;
@@ -1237,7 +1305,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
       magnifierSourceRect = null;
       focusPreview = null;
     };
-  }, []);
+  }, [onWheel]);
 
   useEffect(() => {
     magnifierScaleFactor = scaleFactor;
