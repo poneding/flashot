@@ -83,6 +83,8 @@ function nativeCursorIcon(cursor: string): CursorIcon {
   switch (cursor) {
     case "crosshair":
       return "crosshair";
+    case "text":
+      return "text";
     case "move":
       return "move";
     case "nwse-resize":
