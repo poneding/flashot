@@ -27,6 +27,7 @@ import {
   Circle,
   Eraser,
   Minus,
+  MinusSquare,
   Move,
   MoveDiagonal,
   PencilLine,
@@ -1731,6 +1732,15 @@ function MarkerSection({
         step={1}
         minTooltip={t("annotation.markerNumberMin")}
         maxTooltip={t("annotation.markerNumberMax")}
+      />
+      <Separator />
+      <ToggleGroup
+        options={[
+          { value: "solid", label: PanelIcon(Minus), title: t("annotation.solid") },
+          { value: "dashed", label: PanelIcon(MinusSquare), title: t("annotation.dashed") },
+        ]}
+        value={style.markerConnectorStyle ?? "dashed"}
+        onChange={(markerConnectorStyle) => set({ markerConnectorStyle })}
       />
     </>
   );

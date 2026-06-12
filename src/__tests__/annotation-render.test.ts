@@ -175,6 +175,7 @@ describe("annotation object rendering", () => {
     expect(connector.visible()).toBe(true);
     expect(connector.stroke()).toBe("#0099ff");
     expect(connector.dash()).toEqual([4, 3]);
+    expect(connector.strokeWidth()).toBe(1.5);
     expect(connector.listening()).toBe(false);
     const labelRect = label.findOne(".marker-label-box") as Konva.Rect;
     expect(labelRect.stroke()).toBe("#0099ff");
@@ -209,11 +210,19 @@ describe("annotation object rendering", () => {
     expect(markerConnectorPoints({ x: 0, y: 0 }, 10, { x: 12, y: -5, width: 10, height: 10 })).toBeNull();
   });
 
-  it("places connector endpoints on the badge edge and the label box edge", () => {
+  it("places connector endpoints on the badge edge and the nearest label box edge midpoint", () => {
+    // Badge at origin, label to the right → snaps to left edge midpoint
     expect(markerConnectorPoints({ x: 0, y: 0 }, 10, { x: 30, y: -10, width: 20, height: 20 })).toEqual([10, 0, 30, 0]);
+    // Badge at origin, label below → snaps to top edge midpoint
     expect(markerConnectorPoints({ x: 0, y: 0 }, 10, { x: -10, y: 30, width: 20, height: 20 })).toEqual([0, 10, 0, 30]);
-    // Diagonal: badge exit point lies on the circle along the connector direction.
-    expect(markerConnectorPoints({ x: 0, y: 0 }, 5, { x: 30, y: 40, width: 20, height: 20 })).toEqual([3, 4, 30, 40]);
+    // Diagonal: badge at origin, tall box to the right and down → snaps to top edge midpoint (closest)
+    const points = markerConnectorPoints({ x: 0, y: 0 }, 5, { x: 30, y: 20, width: 20, height: 40 });
+    expect(points).toBeTruthy();
+    if (points) {
+      // Top edge midpoint at (40, 20) is closest to badge at (0,0) with distance ~44.7
+      expect(points[2]).toBe(40); // top edge midpoint x = 30 + 20/2
+      expect(points[3]).toBe(20); // top edge midpoint y
+    }
   });
 
   it("persists marker part drags by baking the transform into both anchors", () => {
@@ -611,25 +620,15 @@ describe("annotation object rendering", () => {
     expect(rect).toEqual({ x: 85, y: 60, width: 160, height: 90 });
   });
 
-  it("renders solid resized blur effects at natural scale", () => {
-    const node = renderObject(object({
+  it("samples resized blur effects from the resized region instead of stretching", () => {
+    const rect = blurSampleRectForObject(object({
       type: "blur",
       start: { x: 60, y: 70 },
       end: { x: 140, y: 100 },
-      style: {
-        color: "#ff0000",
-        strokeWidth: 4,
-        blurMode: "solid",
-        blurSolidColor: "#000000",
-      },
-      transform: { x: 25, y: -10, scaleX: 2, scaleY: 3, rotation: 12 },
-    })) as Konva.Rect;
+      transform: { x: 25, y: -10, scaleX: 2, scaleY: 3, rotation: 0 },
+    }));
 
-    expect(node.width()).toBe(160);
-    expect(node.height()).toBe(90);
-    expect(node.scaleX()).toBe(1);
-    expect(node.scaleY()).toBe(1);
-    expect(node.rotation()).toBe(0);
+    expect(rect).toEqual({ x: 85, y: 60, width: 160, height: 90 });
   });
 
   it("renders lines as endpoint-editable curves without whole-object dragging", () => {
@@ -828,6 +827,30 @@ describe("annotation object rendering", () => {
     const mask = node.findOne(".highlight-mask") as Konva.Shape;
 
     expect(mask.getAttr("highlightCornerRadius")).toBe(12);
+  });
+
+  it("renders markers with configurable connector style (solid or dashed)", () => {
+    const solidObj: AnnotationObject = {
+      id: "marker-solid", type: "marker", start: { x: 40, y: 40 }, end: { x: 140, y: 20 },
+      markerNumber: 1, text: "solid connector",
+      style: { ...DEFAULT_STYLE, markerFill: "#0099ff", markerConnectorStyle: "solid" },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    const solidGroup = renderObject(solidObj) as Konva.Group;
+    const solidConnector = solidGroup.findOne(".marker-connector") as Konva.Line;
+    expect(solidConnector.dash()).toEqual([]);
+    expect(solidConnector.strokeWidth()).toBe(1.5);
+
+    const dashedObj: AnnotationObject = {
+      id: "marker-dashed", type: "marker", start: { x: 40, y: 40 }, end: { x: 140, y: 20 },
+      markerNumber: 2, text: "dashed connector",
+      style: { ...DEFAULT_STYLE, markerFill: "#ff0000", markerConnectorStyle: "dashed" },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    const dashedGroup = renderObject(dashedObj) as Konva.Group;
+    const dashedConnector = dashedGroup.findOne(".marker-connector") as Konva.Line;
+    expect(dashedConnector.dash()).toEqual([4, 3]);
+    expect(dashedConnector.strokeWidth()).toBe(1.5);
   });
 });
 

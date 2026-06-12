@@ -59,8 +59,19 @@ export function markerConnectorPoints(
   badgeRadius: number,
   labelBox: { x: number; y: number; width: number; height: number },
 ): number[] | null {
-  const cx = Math.max(labelBox.x, Math.min(badgeCenter.x, labelBox.x + labelBox.width));
-  const cy = Math.max(labelBox.y, Math.min(badgeCenter.y, labelBox.y + labelBox.height));
+  // For each edge, compute clamped point:
+  const edges = [
+    { x: labelBox.x + labelBox.width / 2, y: labelBox.y },           // top mid
+    { x: labelBox.x + labelBox.width / 2, y: labelBox.y + labelBox.height }, // bottom mid
+    { x: labelBox.x, y: labelBox.y + labelBox.height / 2 },          // left mid
+    { x: labelBox.x + labelBox.width, y: labelBox.y + labelBox.height / 2 }, // right mid
+  ];
+  // Pick the edge point nearest to badgeCenter
+  const closest = edges.reduce((best, pt) => {
+    const d = Math.hypot(pt.x - badgeCenter.x, pt.y - badgeCenter.y);
+    return d < best.dist ? { pt, dist: d } : best;
+  }, { pt: edges[0], dist: Infinity }).pt;
+  const cx = closest.x, cy = closest.y;
   const dx = cx - badgeCenter.x;
   const dy = cy - badgeCenter.y;
   const dist = Math.hypot(dx, dy);
@@ -133,6 +144,7 @@ export function renderMarkerObject(obj: AnnotationObject): Konva.Group {
   const badgeLayoutRadius = markerBadgeRadius(obj.style.fontSize);
   const badgeFontSize = markerBadgeFontSize(obj.style.fontSize, markerNumber);
   const labelFontSize = obj.style.fontSize ?? MARKER_DEFAULT_FONT_SIZE;
+  const connectorStyle = obj.style.markerConnectorStyle ?? "dashed";
   // The outer group carries only the transform offset; the badge and label
   // parts carry absolute stage positions so independent part drags read cleanly.
   const group = new Konva.Group({
@@ -189,7 +201,7 @@ export function renderMarkerObject(obj: AnnotationObject): Konva.Group {
     points: [0, 0, 0, 0],
     stroke: fill,
     strokeWidth: 1.5,
-    dash: [4, 3],
+    dash: connectorStyle === "solid" ? [] : [4, 3],
     opacity: 0.9,
     listening: false,
   });

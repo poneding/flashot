@@ -23,7 +23,7 @@ export type LineStyle = "solid" | "dotted" | "dashed";
 export type ArrowDirection = "none" | "start" | "end" | "both";
 export type ArrowStyle = "v-shape" | "filled-triangle";
 export type FillMode = "hollow" | "solid" | "spotlight";
-export type BlurMode = "mosaic" | "gaussian" | "solid" | "smart";
+export type BlurMode = "mosaic" | "gaussian" | "smart" | "solid";
 export type HighlightMode = "freehand" | "straight";
 export type FocusMode = "none" | "spotlight";
 export type SpotlightShape = "rect" | "circle";
@@ -54,6 +54,7 @@ export type AnnotationStyle = {
   markerFill?: string;
   markerTextColor?: string;
   markerBubbleFill?: string;
+  markerConnectorStyle?: "solid" | "dashed";
   magnifierShape?: MagnifierShape;
   magnifierZoom?: number;
   magnifierBorderColor?: string;
@@ -124,6 +125,7 @@ export const DEFAULT_STYLE: AnnotationStyle = {
   spotlightShape: "rect",
   measureMode: "free",
   markerFill: "#ff0000",
+  markerConnectorStyle: "dashed",
   magnifierShape: "circle",
   magnifierZoom: 2,
   magnifierBorderColor: "#9CA3AF",
