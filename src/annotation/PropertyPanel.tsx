@@ -25,9 +25,7 @@ import { useDismissOnOutsideMouseDown } from "@/lib/useDismissOnOutsideMouseDown
 import {
   ChevronDown,
   Circle,
-  Eraser,
   Minus,
-  MinusSquare,
   Move,
   MoveDiagonal,
   PencilLine,
@@ -1721,8 +1719,8 @@ function MarkerSection({
       <Separator />
       <ToggleGroup
         options={[
-          { value: "solid", label: PanelIcon(Minus), title: t("annotation.solid") },
-          { value: "dashed", label: PanelIcon(MinusSquare), title: t("annotation.dashed") },
+          { value: "solid", label: <LineStyleIcon variant="solid" />, title: t("annotation.solid") },
+          { value: "dashed", label: <LineStyleIcon variant="dashed" />, title: t("annotation.dashed") },
         ]}
         value={style.markerConnectorStyle ?? "dashed"}
         onChange={(markerConnectorStyle) => set({ markerConnectorStyle })}
@@ -1786,7 +1784,7 @@ function BlurSection({
         options={[
           { value: "mosaic", label: <MosaicIcon />, title: t("annotation.mosaic") },
           { value: "gaussian", label: <GaussianIcon />, title: t("annotation.gaussianBlur") },
-          { value: "smart", label: PanelIcon(Eraser), title: t("annotation.smartErase") },
+          { value: "smart", label: PanelIcon(Square), title: t("annotation.smartErase") },
         ]}
         value={mode}
         onChange={(blurMode) => set({ blurMode })}
