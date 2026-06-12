@@ -14,7 +14,7 @@ import {
   type MagnifierRenderContext,
 } from "@/annotation/magnifierContext";
 import { MarkerTextOverlay } from "@/annotation/MarkerTextOverlay";
-import { defaultMarkerLabelAnchor } from "@/annotation/markerStyle";
+import { markerLabelAnchor } from "@/annotation/markerStyle";
 import { renderObject } from "@/annotation/render";
 import { useAnnotation } from "@/annotation/store";
 import { TextOverlay } from "@/annotation/TextOverlay";
@@ -46,7 +46,14 @@ import {
   onMagnifierStart,
   refreshMagnifierObjectNode,
 } from "@/annotation/tools/magnifier";
-import { onMarkerEnd, onMarkerMove, onMarkerStart, updateMarkerObjectNode } from "@/annotation/tools/marker";
+import {
+  markerPartDragUpdates,
+  markerPartFromTarget,
+  onMarkerEnd,
+  onMarkerMove,
+  onMarkerStart,
+  updateMarkerObjectNode,
+} from "@/annotation/tools/marker";
 import {
   constrainMeasureHandlePoint,
   onMeasureEnd,
@@ -83,6 +90,7 @@ let stage: Konva.Stage | null = null;
 let layer: Konva.Layer | null = null;
 let transformer: Konva.Transformer | null = null;
 let lineEditGroup: Konva.Group | null = null;
+let markerSelectionGroup: Konva.Group | null = null;
 let magnifierSourceImage: HTMLImageElement | null = null;
 let magnifierScaleFactor = 1;
 let magnifierSourceRect: Rect | null = null;
@@ -106,6 +114,7 @@ const TRANSFORMER_ANCHORS = [
   "middle-left",
 ];
 const EDIT_OVERLAY_NAME = "annotation-edit-overlay";
+const MARKER_SELECTION_RING_OFFSET = 4;
 const ROTATE_ANCHOR_SIZE = 20;
 const ROTATE_ICON_SIZE = 15;
 const RIGHT_ANGLE_SNAP_THRESHOLD = 5;
@@ -397,32 +406,6 @@ function getObjectNodeFromHit(node: Konva.Node | null): Konva.Node | null {
     current = current.getParent();
   }
   return null;
-}
-
-function markerPartFromTarget(node: Konva.Node | null): "badge" | "label" | null {
-  let current: Konva.Node | null = node;
-  while (current) {
-    if (current.hasName("marker-badge-part")) return "badge";
-    if (current.hasName("marker-label-part")) return "label";
-    if (current === layer || current === stage) return null;
-    current = current.getParent();
-  }
-  return null;
-}
-
-function markerPartDragUpdates(obj: AnnotationObject, group: Konva.Group): Partial<AnnotationObject> {
-  const badgePart = group.findOne(".marker-badge-part") as Konva.Group | undefined;
-  const labelPart = group.findOne(".marker-label-part") as Konva.Group | undefined;
-  const t = obj.transform;
-  // Bake the transform offset into both anchors so zeroing it never moves a part.
-  const start = badgePart
-    ? { x: t.x + badgePart.x(), y: t.y + badgePart.y() }
-    : obj.start;
-  const end = labelPart
-    ? { x: t.x + labelPart.x(), y: t.y + labelPart.y() }
-    : (obj.end ? { x: t.x + obj.end.x, y: t.y + obj.end.y } : undefined);
-
-  return { start, end, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 } };
 }
 
 function findRenderedObjectNode(id: string): Konva.Node | null {
@@ -832,6 +815,57 @@ function clearLineEditHandles() {
   lineEditGroup = null;
 }
 
+function clearMarkerSelectionChrome() {
+  markerSelectionGroup?.destroy();
+  markerSelectionGroup = null;
+}
+
+// Markers use no transformer; selection feedback is a dashed accent ring
+// around the badge plus, when present, a dashed rect around the label box.
+// EDIT_OVERLAY_NAME keeps the chrome out of exports (see export.ts).
+function renderMarkerSelectionChrome(obj: AnnotationObject) {
+  if (!layer) return;
+  clearMarkerSelectionChrome();
+  const node = findRenderedObjectNode(obj.id);
+  if (!(node instanceof Konva.Group)) return;
+  const badgePart = node.findOne(".marker-badge-part") as Konva.Group | undefined;
+  const badge = badgePart?.findOne(".marker-badge") as Konva.Circle | undefined;
+  if (!badgePart || !badge) return;
+
+  const ringStyle = {
+    stroke: annotationAccentColor(),
+    strokeWidth: 1.5,
+    dash: [4, 3],
+    listening: false,
+  };
+  const chrome = new Konva.Group({ name: `${EDIT_OVERLAY_NAME} marker-selection`, listening: false });
+
+  chrome.add(new Konva.Circle({
+    ...ringStyle,
+    name: "marker-selection-badge-ring",
+    x: node.x() + badgePart.x(),
+    y: node.y() + badgePart.y(),
+    radius: badge.radius() + MARKER_SELECTION_RING_OFFSET,
+  }));
+
+  const labelPart = node.findOne(".marker-label-part") as Konva.Group | undefined;
+  const box = labelPart?.findOne(".marker-label-box") as Konva.Rect | undefined;
+  if (labelPart && box) {
+    chrome.add(new Konva.Rect({
+      ...ringStyle,
+      name: "marker-selection-label-ring",
+      x: node.x() + labelPart.x() - MARKER_SELECTION_RING_OFFSET,
+      y: node.y() + labelPart.y() - MARKER_SELECTION_RING_OFFSET,
+      width: box.width() + MARKER_SELECTION_RING_OFFSET * 2,
+      height: box.height() + MARKER_SELECTION_RING_OFFSET * 2,
+    }));
+  }
+
+  layer.add(chrome);
+  chrome.moveToTop();
+  markerSelectionGroup = chrome;
+}
+
 function moveLineEditHandles(obj: AnnotationObject, activeHandle?: LineEditHandle) {
   if (!lineEditGroup) return;
   const handles = editableLineHandles(obj);
@@ -961,6 +995,7 @@ function syncSelectionWithStore(selectedObjectId = useAnnotation.getState().sele
   transformer.borderStroke(accentConfig.borderStroke);
   transformer.anchorStroke(accentConfig.anchorStroke);
   clearLineEditHandles();
+  clearMarkerSelectionChrome();
   if (!selectedObjectId) {
     transformer.nodes([]);
     layer.batchDraw();
@@ -973,6 +1008,8 @@ function syncSelectionWithStore(selectedObjectId = useAnnotation.getState().sele
     transformer.nodes([]);
     if (selectedObject && isEndpointEditableObject(selectedObject)) {
       renderLineEditHandles(selectedObject);
+    } else if (selectedObject?.type === "marker") {
+      renderMarkerSelectionChrome(selectedObject);
     }
     layer.batchDraw();
     return;
@@ -1151,7 +1188,9 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
       if (!obj) return;
 
       if (obj.type === "marker" && markerPartFromTarget(e.target)) {
-        if (node instanceof Konva.Group) updateMarkerObjectNode(node, obj);
+        if (node instanceof Konva.Group) updateMarkerObjectNode(node);
+        // dragstart selected this marker; keep the rings on the live parts.
+        renderMarkerSelectionChrome(obj);
         layer?.batchDraw();
         return;
       }
@@ -1193,6 +1232,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
       layer = null;
       transformer = null;
       lineEditGroup = null;
+      markerSelectionGroup = null;
       magnifierSourceImage = null;
       magnifierSourceRect = null;
       focusPreview = null;
@@ -1487,12 +1527,11 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
             const editingObject = markerEditing.object;
             useAnnotation.getState().resizeObject(editingObject.id, {
               text,
-              // First confirm fixes the label anchor; later edits keep the user's anchor.
-              end: editingObject.end ?? defaultMarkerLabelAnchor(
-                editingObject.start ?? { x: 0, y: 0 },
-                text,
-                editingObject.style.fontSize,
-              ),
+              // The first non-empty confirm fixes the label anchor; later edits
+              // keep the user's anchor. Empty confirms must not bake an anchor,
+              // otherwise text added after moving the badge would appear at the
+              // original placement position.
+              end: text ? markerLabelAnchor({ ...editingObject, text }) : editingObject.end,
             });
             setMarkerEditing(null);
           }}

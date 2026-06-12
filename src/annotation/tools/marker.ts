@@ -9,10 +9,12 @@ import {
   MARKER_BUBBLE_RADIUS,
   MARKER_BUBBLE_TEXT_COLOR,
   MARKER_DEFAULT_FONT_SIZE,
-  defaultMarkerLabelAnchor,
+  MARKER_GLOW_BLUR,
+  MARKER_LABEL_STROKE_WIDTH,
   markerBadgeFontSize,
   markerBadgeRadius,
   markerBadgeVisualRadius,
+  markerLabelAnchor,
   markerLabelMetrics,
 } from "@/annotation/markerStyle";
 import { useAnnotation } from "@/annotation/store";
@@ -20,7 +22,6 @@ import type { AnnotationObject, AnnotationStyle } from "@/annotation/types";
 import type { Point } from "@/lib/types";
 
 const MARKER_CONNECTOR_BADGE_CLEARANCE = 2;
-const MARKER_GLOW_BLUR = 10;
 const MARKER_GLOW_OPACITY = 0.85;
 
 let startX = 0;
@@ -53,10 +54,6 @@ export function onMarkerEnd(): AnnotationObject {
   };
 }
 
-export function markerLabelAnchor(obj: AnnotationObject): Point {
-  return obj.end ?? defaultMarkerLabelAnchor(obj.start ?? { x: 0, y: 0 }, obj.text ?? "", obj.style.fontSize);
-}
-
 export function markerConnectorPoints(
   badgeCenter: Point,
   badgeRadius: number,
@@ -73,7 +70,32 @@ export function markerConnectorPoints(
   return [badgeCenter.x + ux * badgeRadius, badgeCenter.y + uy * badgeRadius, cx, cy];
 }
 
-export function updateMarkerObjectNode(group: Konva.Group, obj: AnnotationObject): void {
+export function markerPartFromTarget(node: Konva.Node | null): "badge" | "label" | null {
+  let current: Konva.Node | null = node;
+  while (current) {
+    if (current.hasName("marker-badge-part")) return "badge";
+    if (current.hasName("marker-label-part")) return "label";
+    current = current.getParent();
+  }
+  return null;
+}
+
+export function markerPartDragUpdates(obj: AnnotationObject, group: Konva.Group): Partial<AnnotationObject> {
+  const badgePart = group.findOne(".marker-badge-part") as Konva.Group | undefined;
+  const labelPart = group.findOne(".marker-label-part") as Konva.Group | undefined;
+  const t = obj.transform;
+  // Bake the transform offset into both anchors so zeroing it never moves a part.
+  const start = badgePart
+    ? { x: t.x + badgePart.x(), y: t.y + badgePart.y() }
+    : obj.start;
+  const end = labelPart
+    ? { x: t.x + labelPart.x(), y: t.y + labelPart.y() }
+    : (obj.end ? { x: t.x + obj.end.x, y: t.y + obj.end.y } : undefined);
+
+  return { start, end, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 } };
+}
+
+export function updateMarkerObjectNode(group: Konva.Group): void {
   const connector = group.findOne(".marker-connector") as Konva.Line | undefined;
   const badgePart = group.findOne(".marker-badge-part") as Konva.Group | undefined;
   const labelPart = group.findOne(".marker-label-part") as Konva.Group | undefined;
@@ -81,15 +103,16 @@ export function updateMarkerObjectNode(group: Konva.Group, obj: AnnotationObject
 
   const badge = badgePart.findOne(".marker-badge") as Konva.Circle | undefined;
   const box = labelPart.findOne(".marker-label-box") as Konva.Rect | undefined;
-  const metrics = markerLabelMetrics((obj.text ?? "").trim(), obj.style.fontSize);
+  if (!badge || !box) return;
+
   const points = markerConnectorPoints(
     { x: badgePart.x(), y: badgePart.y() },
-    badge?.radius() ?? markerBadgeVisualRadius(obj.style.fontSize),
+    badge.radius(),
     {
       x: labelPart.x(),
       y: labelPart.y(),
-      width: box?.width() ?? metrics.width,
-      height: box?.height() ?? metrics.height,
+      width: box.width(),
+      height: box.height(),
     },
   );
 
@@ -186,7 +209,7 @@ export function renderMarkerObject(obj: AnnotationObject): Konva.Group {
     fill: MARKER_BUBBLE_BACKGROUND,
     cornerRadius: MARKER_BUBBLE_RADIUS,
     stroke: fill,
-    strokeWidth: 1.5,
+    strokeWidth: MARKER_LABEL_STROKE_WIDTH,
     shadowColor: fill,
     shadowBlur: MARKER_GLOW_BLUR,
     shadowOpacity: MARKER_GLOW_OPACITY,
@@ -208,7 +231,7 @@ export function renderMarkerObject(obj: AnnotationObject): Konva.Group {
   group.add(connector);
   group.add(badgePart);
   group.add(labelPart);
-  updateMarkerObjectNode(group, obj);
+  updateMarkerObjectNode(group);
 
   return group;
 }

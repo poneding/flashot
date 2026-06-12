@@ -147,6 +147,45 @@ describe("AnnotationStage text interactions", () => {
     expect(getLayer()?.findOne(".marker-connector")).not.toBeUndefined();
   });
 
+  it("does not bake a label anchor when confirming empty marker text", () => {
+    useAnnotation.getState().setActiveTool("marker");
+    const { container } = render(<AnnotationStage selection={selection} scaleFactor={1} />);
+    const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
+
+    fireEvent.mouseDown(stageNode, { clientX: 60, clientY: 70 });
+    fireEvent.mouseUp(stageNode, { clientX: 60, clientY: 70 });
+
+    const emptyEditor = container.querySelector("textarea") as HTMLTextAreaElement;
+    fireEvent.keyDown(emptyEditor, { key: "Enter" });
+
+    expect(useAnnotation.getState().objects[0].end).toBeUndefined();
+
+    const markerId = useAnnotation.getState().objects[0].id;
+    const group = getLayer()?.findOne(`#${markerId}`) as Konva.Group;
+    const badgePart = group.findOne(".marker-badge-part") as Konva.Group;
+    act(() => {
+      badgePart.position({ x: 160, y: 120 });
+      getStage()?.fire("dragend", { target: badgePart });
+    });
+
+    const moved = useAnnotation.getState().objects[0];
+    expect(moved.start).toEqual({ x: 160, y: 120 });
+    expect(moved.end).toBeUndefined();
+
+    vi.spyOn(getStage()!, "getIntersection").mockReturnValue(getLayer()?.findOne(`#${markerId}`) as never);
+    fireEvent.mouseDown(stageNode, { clientX: 160, clientY: 120, detail: 2 });
+    fireEvent.mouseUp(stageNode, { clientX: 160, clientY: 120 });
+
+    const textEditor = container.querySelector("textarea") as HTMLTextAreaElement;
+    fireEvent.input(textEditor, { target: { value: "note" } });
+    fireEvent.keyDown(textEditor, { key: "Enter" });
+
+    // The label anchors next to the badge's NEW position, not the original placement.
+    const committed = useAnnotation.getState().objects[0];
+    expect(committed.end?.x).toBe(181);
+    expect(committed.end?.y).toBeCloseTo(106.6);
+  });
+
   it("selects marker on single click without opening the editor", () => {
     const { container } = render(<AnnotationStage selection={selection} scaleFactor={1} />);
 

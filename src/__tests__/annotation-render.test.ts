@@ -21,7 +21,7 @@ import {
   defaultMarkerLabelAnchor,
   markerBadgeRadius,
 } from "@/annotation/markerStyle";
-import { markerConnectorPoints } from "@/annotation/tools/marker";
+import { markerConnectorPoints, markerPartDragUpdates } from "@/annotation/tools/marker";
 
 function object(overrides: Partial<AnnotationObject>): AnnotationObject {
   return {
@@ -212,6 +212,45 @@ describe("annotation object rendering", () => {
   it("places connector endpoints on the badge edge and the label box edge", () => {
     expect(markerConnectorPoints({ x: 0, y: 0 }, 10, { x: 30, y: -10, width: 20, height: 20 })).toEqual([10, 0, 30, 0]);
     expect(markerConnectorPoints({ x: 0, y: 0 }, 10, { x: -10, y: 30, width: 20, height: 20 })).toEqual([0, 10, 0, 30]);
+    // Diagonal: badge exit point lies on the circle along the connector direction.
+    expect(markerConnectorPoints({ x: 0, y: 0 }, 5, { x: 30, y: 40, width: 20, height: 20 })).toEqual([3, 4, 30, 40]);
+  });
+
+  it("persists marker part drags by baking the transform into both anchors", () => {
+    const obj: AnnotationObject = {
+      id: "marker-drag-updates", type: "marker", start: { x: 40, y: 40 }, end: { x: 140, y: 20 },
+      markerNumber: 1, text: "note",
+      style: { ...DEFAULT_STYLE, markerFill: "#0099ff" },
+      transform: { x: 10, y: 6, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    const group = renderObject(obj) as Konva.Group;
+    const labelPart = group.findOne(".marker-label-part") as Konva.Group;
+    labelPart.position({ x: 180, y: 70 });
+
+    const updates = markerPartDragUpdates(obj, group);
+
+    expect(updates.start).toEqual({ x: 50, y: 46 });
+    expect(updates.end).toEqual({ x: 190, y: 76 });
+    expect(updates.transform).toEqual({ x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 });
+  });
+
+  it("translates a baked end anchor when dragging a badge-only marker", () => {
+    const obj: AnnotationObject = {
+      id: "marker-badge-only-drag", type: "marker", start: { x: 40, y: 40 }, end: { x: 61, y: 26.6 },
+      markerNumber: 1, text: "",
+      style: { ...DEFAULT_STYLE, markerFill: "#0099ff" },
+      transform: { x: 10, y: 6, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    const group = renderObject(obj) as Konva.Group;
+    expect(group.findOne(".marker-label-part")).toBeUndefined();
+    const badgePart = group.findOne(".marker-badge-part") as Konva.Group;
+    badgePart.position({ x: 90, y: 110 });
+
+    const updates = markerPartDragUpdates(obj, group);
+
+    expect(updates.start).toEqual({ x: 100, y: 116 });
+    expect(updates.end).toEqual({ x: 61 + 10, y: 26.6 + 6 });
+    expect(updates.transform).toEqual({ x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 });
   });
 
   it("matches the legacy bubble offset for derived label anchors", () => {

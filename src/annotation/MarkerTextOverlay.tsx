@@ -7,7 +7,9 @@ import {
   MARKER_BUBBLE_RADIUS,
   MARKER_BUBBLE_TEXT_COLOR,
   MARKER_DEFAULT_FONT_SIZE,
-  defaultMarkerLabelAnchor,
+  MARKER_GLOW_BLUR,
+  MARKER_LABEL_STROKE_WIDTH,
+  markerLabelAnchor,
   markerLabelMetrics,
 } from "@/annotation/markerStyle";
 import type { AnnotationObject } from "@/annotation/types";
@@ -22,8 +24,6 @@ type Props = {
   viewportOrigin?: { x: number; y: number };
 };
 
-const GLOW_BORDER_WIDTH = 1.5;
-
 export function MarkerTextOverlay({ object, selection, onConfirm, onCancel, viewportOrigin }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const confirmedRef = useRef(false);
@@ -32,10 +32,9 @@ export function MarkerTextOverlay({ object, selection, onConfirm, onCancel, view
   const [textValue, setTextValue] = useState(object.text ?? "");
   const textValueRef = useRef(object.text ?? "");
   const origin = viewportOrigin ?? { x: selection.x, y: selection.y };
-  const start = object.start ?? { x: 0, y: 0 };
   const fontSize = object.style.fontSize ?? MARKER_DEFAULT_FONT_SIZE;
   const markerFill = object.style.markerFill ?? object.style.color;
-  const anchor = object.end ?? defaultMarkerLabelAnchor(start, object.text ?? "", object.style.fontSize);
+  const anchor = markerLabelAnchor(object);
   const metrics = markerLabelMetrics(textValue, fontSize);
   const left = origin.x + anchor.x + object.transform.x;
   const top = origin.y + anchor.y + object.transform.y;
@@ -108,11 +107,11 @@ export function MarkerTextOverlay({ object, selection, onConfirm, onCancel, view
         height: metrics.height,
         // Border-box sizing: fold the glow border into the padding so the text
         // keeps the exact offsets of the rendered Konva label.
-        padding: `${MARKER_BUBBLE_PADDING_Y - GLOW_BORDER_WIDTH}px ${MARKER_BUBBLE_PADDING_X - GLOW_BORDER_WIDTH}px`,
+        padding: `${MARKER_BUBBLE_PADDING_Y - MARKER_LABEL_STROKE_WIDTH}px ${MARKER_BUBBLE_PADDING_X - MARKER_LABEL_STROKE_WIDTH}px`,
         margin: 0,
-        border: `${GLOW_BORDER_WIDTH}px solid ${markerFill}`,
+        border: `${MARKER_LABEL_STROKE_WIDTH}px solid ${markerFill}`,
         borderRadius: MARKER_BUBBLE_RADIUS,
-        boxShadow: `0 0 10px ${markerFill}`,
+        boxShadow: `0 0 ${MARKER_GLOW_BLUR}px ${markerFill}`,
         background: MARKER_BUBBLE_BACKGROUND,
         color: MARKER_BUBBLE_TEXT_COLOR,
         fontSize,

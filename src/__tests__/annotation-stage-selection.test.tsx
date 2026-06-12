@@ -441,6 +441,106 @@ describe("AnnotationStage selection movement", () => {
     expect(updated?.transform).toEqual({ x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 });
   });
 
+  it("hides the connector while the badge is dragged onto the label", () => {
+    const marker: AnnotationObject = {
+      id: "marker-overlap-drag",
+      type: "marker",
+      start: { x: 40, y: 40 },
+      end: { x: 140, y: 20 },
+      markerNumber: 4,
+      text: "overlap",
+      style: { color: "#ff0000", strokeWidth: 4, markerFill: "#0099ff", fontSize: 14 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(marker);
+    });
+
+    const group = getLayer()?.findOne("#marker-overlap-drag") as Konva.Group | undefined;
+    const badgePart = group?.findOne(".marker-badge-part") as Konva.Group | undefined;
+    const connector = group?.findOne(".marker-connector") as Konva.Line | undefined;
+    expect(connector?.visible()).toBe(true);
+
+    act(() => {
+      badgePart!.fire("dragstart", undefined, true);
+      badgePart!.position({ x: 150, y: 33 });
+      badgePart!.fire("dragmove", undefined, true);
+    });
+
+    expect(connector?.visible()).toBe(false);
+
+    act(() => {
+      badgePart!.position({ x: 40, y: 40 });
+      badgePart!.fire("dragmove", undefined, true);
+    });
+
+    expect(connector?.visible()).toBe(true);
+  });
+
+  it("shows dashed selection rings for markers and clears them on deselect", () => {
+    const marker: AnnotationObject = {
+      id: "marker-selection-1",
+      type: "marker",
+      start: { x: 40, y: 40 },
+      end: { x: 140, y: 20 },
+      markerNumber: 5,
+      text: "selected",
+      style: { color: "#ff0000", strokeWidth: 4, markerFill: "#0099ff", fontSize: 14 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(marker);
+      useAnnotation.getState().setSelectedObject(marker.id);
+    });
+
+    const chrome = getLayer()?.findOne(".marker-selection") as Konva.Group | undefined;
+    expect(getTransformer()?.nodes()).toEqual([]);
+    expect(chrome).toBeInstanceOf(Konva.Group);
+    // Carries the edit-overlay name so exports hide it (see export.ts).
+    expect(chrome?.hasName("annotation-edit-overlay")).toBe(true);
+    expect(chrome?.listening()).toBe(false);
+
+    const badgeRing = getLayer()?.findOne(".marker-selection-badge-ring") as Konva.Circle | undefined;
+    const labelRing = getLayer()?.findOne(".marker-selection-label-ring") as Konva.Rect | undefined;
+    expect(badgeRing?.position()).toEqual({ x: 40, y: 40 });
+    expect(badgeRing?.dash()).toEqual([4, 3]);
+    expect(labelRing?.position()).toEqual({ x: 136, y: 16 });
+
+    act(() => {
+      useAnnotation.getState().setSelectedObject(null);
+    });
+
+    expect(getLayer()?.findOne(".marker-selection")).toBeUndefined();
+  });
+
+  it("shows only the badge ring for markers without a label", () => {
+    const marker: AnnotationObject = {
+      id: "marker-selection-2",
+      type: "marker",
+      start: { x: 40, y: 40 },
+      markerNumber: 6,
+      text: "",
+      style: { color: "#ff0000", strokeWidth: 4, markerFill: "#0099ff", fontSize: 14 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(marker);
+      useAnnotation.getState().setSelectedObject(marker.id);
+    });
+
+    expect(getLayer()?.find(".marker-selection-badge-ring")).toHaveLength(1);
+    expect(getLayer()?.find(".marker-selection-label-ring")).toHaveLength(0);
+  });
+
   it("bakes shape resize scale into bounds so selection and corner radius stay aligned", () => {
     const rect: AnnotationObject = {
       id: "rounded-rect-1",

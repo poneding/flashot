@@ -1,3 +1,4 @@
+import type { AnnotationObject } from "@/annotation/types";
 import type { Point } from "@/lib/types";
 
 export const MARKER_BADGE_TEXT_COLOR = "#ffffff";
@@ -15,6 +16,10 @@ export const MARKER_BUBBLE_LINE_HEIGHT = 1.2;
 export const MARKER_BUBBLE_RADIUS = 7;
 export const MARKER_BUBBLE_MIN_WIDTH = 36;
 export const MARKER_BUBBLE_FONT_FAMILY = "Arial, sans-serif";
+// Shared by the Konva label box and the editing textarea so the in-place
+// editor lines up pixel-exactly with the rendered label glow.
+export const MARKER_LABEL_STROKE_WIDTH = 1.5;
+export const MARKER_GLOW_BLUR = 10;
 
 export function markerBadgeFontSize(fontSize?: number, markerNumber = 1): number {
   const base = Number.isFinite(fontSize) ? Math.max(1, fontSize ?? MARKER_DEFAULT_FONT_SIZE) : MARKER_DEFAULT_FONT_SIZE;
@@ -62,4 +67,8 @@ export function defaultMarkerLabelAnchor(start: Point, text: string, fontSize = 
     x: start.x + markerBadgeRadius(fontSize) + MARKER_BUBBLE_GAP,
     y: start.y - height / 2,
   };
+}
+
+export function markerLabelAnchor(obj: AnnotationObject): Point {
+  return obj.end ?? defaultMarkerLabelAnchor(obj.start ?? { x: 0, y: 0 }, obj.text ?? "", obj.style.fontSize);
 }
