@@ -1,7 +1,8 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { ScrollProgress } from "@/lib/types";
 import { createTranslator } from "@/i18n";
 import {
+  onScrollMaxHeight,
   onScrollProgress,
   scrollPin,
 } from "@/lib/ipc";
@@ -105,6 +106,19 @@ export function ScrollChromeRoute() {
   const t = createTranslator(useStoredLanguage());
   const [parsed] = useState(() => parseScrollChromeRoute());
   const [progress, setProgress] = useState<ScrollProgress | null>(null);
+  const finishingRef = useRef(false);
+
+  // Single entry point for finishing the capture: the check button and the
+  // backend's max-height signal both funnel through here, and the ref guard
+  // ensures scroll_pin (which consumes the session) runs at most once even
+  // if the signal lands in the same instant as a click.
+  const finishPin = useCallback(() => {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    scrollPin().catch(() => {
+      finishingRef.current = false;
+    });
+  }, []);
 
   useEffect(() => {
     const sub = onScrollProgress((p) => setProgress(p));
@@ -112,6 +126,13 @@ export function ScrollChromeRoute() {
       sub.then((unlisten) => unlisten()).catch(() => {});
     };
   }, []);
+
+  useEffect(() => {
+    const sub = onScrollMaxHeight(finishPin);
+    return () => {
+      sub.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, [finishPin]);
 
   const statusText = t("scroll.framesStatus", { frames: progress?.frames ?? 0, height: progress?.height ?? 0 });
 
@@ -138,7 +159,7 @@ export function ScrollChromeRoute() {
           type="button"
           aria-label={t("scroll.finishPin")}
           onMouseDown={(event) => event.stopPropagation()}
-          onClick={() => void scrollPin()}
+          onClick={finishPin}
           style={finishButtonStyle}
         >
           <CheckIcon size={17} strokeWidth={3} aria-hidden="true" />

@@ -6,14 +6,19 @@ use crate::types::Rect;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, EventTarget};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::{interval, MissedTickBehavior};
 
 const TICK_MS: u64 = 60;
 const PROGRESS_THROTTLE_MS: u64 = 100;
 const PREVIEW_TARGET_WIDTH: u32 = 640;
-const PREVIEW_MAX_HEIGHT: u32 = 8192;
+/// Tail-window height of the progress preview. The chrome window bottom-
+/// anchors the preview image, so only the last chrome-viewport of pixels is
+/// ever visible; encoding at least twice any chrome viewport keeps the
+/// visible pixels identical while the per-emit cost stays flat no matter how
+/// tall the stitched canvas grows.
+const PREVIEW_TAIL_HEIGHT: u32 = 1024;
 
 #[derive(serde::Serialize, Clone)]
 struct ProgressPayload {
@@ -23,14 +28,23 @@ struct ProgressPayload {
     last_score: f32,
 }
 
+/// Scroll events are targeted at the chrome webview window only — progress
+/// payloads carry a base64 PNG and broadcasting them to every webview is
+/// wasted serialization and delivery work.
+fn chrome_target(monitor_id: u32) -> EventTarget {
+    EventTarget::webview_window(crate::commands::scroll_chrome_label(monitor_id))
+}
+
 pub(crate) fn emit_scroll_progress(
     app: &AppHandle,
+    monitor_id: u32,
     frames: u32,
     height: u32,
     preview_png: Vec<u8>,
     last_score: f32,
 ) {
-    let _ = app.emit(
+    let _ = app.emit_to(
+        chrome_target(monitor_id),
         "scroll:progress",
         ProgressPayload {
             frames,
@@ -41,12 +55,13 @@ pub(crate) fn emit_scroll_progress(
     );
 }
 
-pub(crate) fn emit_initial_progress(app: &AppHandle, stitcher: &ScrollStitcher) {
+pub(crate) fn emit_initial_progress(app: &AppHandle, monitor_id: u32, stitcher: &ScrollStitcher) {
     emit_scroll_progress(
         app,
+        monitor_id,
         0,
         stitcher.height(),
-        stitcher.preview_stitched(PREVIEW_TARGET_WIDTH, PREVIEW_MAX_HEIGHT),
+        stitcher.preview_tail(PREVIEW_TARGET_WIDTH, PREVIEW_TAIL_HEIGHT),
         1.0,
     );
 }
@@ -107,9 +122,16 @@ pub fn spawn_loop(
                         last_emit = Instant::now();
                         let thumb = {
                             let s = stitcher.lock().await;
-                            s.preview_stitched(PREVIEW_TARGET_WIDTH, PREVIEW_MAX_HEIGHT)
+                            s.preview_tail(PREVIEW_TARGET_WIDTH, PREVIEW_TAIL_HEIGHT)
                         };
-                        emit_scroll_progress(&app, frames_accepted, new_height, thumb, score);
+                        emit_scroll_progress(
+                            &app,
+                            monitor_id,
+                            frames_accepted,
+                            new_height,
+                            thumb,
+                            score,
+                        );
                     }
                 }
                 IngestResult::NoChange => {
@@ -124,6 +146,11 @@ pub fn spawn_loop(
                 }
                 IngestResult::MaxHeightReached => {
                     tracing::info!(target: "scroll", "max height reached frames={frames_accepted}");
+                    // Tell the chrome window so it can finish through the
+                    // same flow as the finish button (scroll_pin); session
+                    // teardown stays in one place instead of being duplicated
+                    // here.
+                    let _ = app.emit_to(chrome_target(monitor_id), "scroll:max-height", ());
                     cancel.store(true, Ordering::SeqCst);
                     break;
                 }
@@ -175,12 +202,25 @@ mod tests {
     }
 
     #[test]
-    fn scroll_progress_uses_full_stitched_preview() {
+    fn scroll_progress_sends_aspect_correct_tail_preview_to_chrome_window() {
         let source = include_str!("scroll_session.rs").replace("\r\n", "\n");
+        let implementation = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("implementation source");
 
         assert!(
-            source.contains("preview_stitched("),
-            "scroll progress should send a full stitched preview, not a fixed-height bottom thumbnail",
+            implementation.contains("preview_tail("),
+            "progress should encode only the visible tail, not the full canvas",
+        );
+        assert!(
+            !implementation.contains("preview_stitched("),
+            "full-canvas preview encoding grows linearly with capture height",
+        );
+        assert!(
+            implementation.contains("emit_to")
+                || implementation.contains("EventTarget::webview_window"),
+            "progress must target the chrome window, not broadcast to every webview",
         );
     }
 

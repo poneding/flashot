@@ -17,6 +17,8 @@ export type SelectionClaimPayload = {
 
 const COLOR_FORMAT_TOGGLE_REQUESTED = "capture:color-format-toggle-requested";
 const COLOR_COPY_REQUESTED = "capture:color-copy-requested";
+const SCROLL_PROGRESS = "scroll:progress";
+const SCROLL_MAX_HEIGHT = "scroll:max-height";
 
 export async function cropAndCopy(
   monitorId: number,
@@ -205,8 +207,11 @@ type ScrollProgressEvent = {
   last_score: number;
 };
 
+// Both scroll events are emitted by the backend to the chrome webview window
+// only (not broadcast), so they must be listened to through the current
+// webview window, like capture:start.
 export function onScrollProgress(cb: (p: ScrollProgress) => void): Promise<UnlistenFn> {
-  return listen<ScrollProgressEvent>("scroll:progress", (e) => {
+  return getCurrentWebviewWindow().listen<ScrollProgressEvent>(SCROLL_PROGRESS, (e) => {
     cb({
       frames: e.payload.frames,
       height: e.payload.height,
@@ -214,4 +219,10 @@ export function onScrollProgress(cb: (p: ScrollProgress) => void): Promise<Unlis
       lastScore: e.payload.last_score,
     });
   });
+}
+
+/** Fired once when the stitcher hits its maximum canvas height; the chrome
+ * window reacts by finishing the capture as if the user clicked finish. */
+export function onScrollMaxHeight(cb: () => void): Promise<UnlistenFn> {
+  return getCurrentWebviewWindow().listen(SCROLL_MAX_HEIGHT, () => cb());
 }

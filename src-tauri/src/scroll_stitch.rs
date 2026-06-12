@@ -265,21 +265,33 @@ impl ScrollStitcher {
         }
     }
 
-    pub fn preview_thumbnail(&self, target_width_px: u32, target_height_px: u32) -> Vec<u8> {
-        use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder};
+    /// Encode a PNG preview of only the bottom strip ("tail") of the canvas.
+    ///
+    /// The output is `target_width_px` wide. When the canvas is taller than
+    /// the tail window, the bottom `width * max_tail_height_px /
+    /// target_width_px` source rows are rendered into a `target_width_px x
+    /// max_tail_height_px` image. When the canvas is shorter, the whole
+    /// canvas is rendered and the output height *shrinks* so the aspect
+    /// ratio is always preserved (no vertical stretching).
+    ///
+    /// Unlike a full-canvas preview, the cost of this encoder is bounded by
+    /// the tail window and stays flat as the stitched canvas grows.
+    pub fn preview_tail(&self, target_width_px: u32, max_tail_height_px: u32) -> Vec<u8> {
+        use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+        use image::{ExtendedColorType, ImageEncoder};
 
-        let target_width_px = target_width_px.max(1);
-        let target_height_px = target_height_px.max(1);
-        let target_w = target_width_px;
-        let target_h = target_height_px;
-        let crop_h = ((self.width as u64 * target_h as u64).div_ceil(target_w as u64))
+        let target_w = target_width_px.max(1);
+        let max_tail_h = max_tail_height_px.max(1);
+        let crop_h = ((self.width as u64 * max_tail_h as u64).div_ceil(target_w as u64))
             .clamp(1, self.height as u64) as u32;
         let crop_y = self.height - crop_h;
-        let mut scaled = Vec::with_capacity((target_w * target_h * 4) as usize);
+        let out_h = ((crop_h as u64 * target_w as u64 / self.width as u64).max(1))
+            .min(u32::MAX as u64) as u32;
+        let mut scaled = Vec::with_capacity(target_w as usize * out_h as usize * 4);
 
-        for y in 0..target_h {
+        for y in 0..out_h {
             let src_y = crop_y
-                + ((y as u64 * crop_h as u64) / target_h as u64)
+                + ((y as u64 * crop_h as u64) / out_h as u64)
                     .min(crop_h.saturating_sub(1) as u64) as u32;
             for x in 0..target_w {
                 let src_x = ((x as u64 * self.width as u64) / target_w as u64)
@@ -290,12 +302,20 @@ impl ScrollStitcher {
         }
 
         let mut buf = Vec::new();
-        PngEncoder::new(&mut buf)
-            .write_image(&scaled, target_w, target_h, ExtendedColorType::Rgba8)
+        // Fast compression: this PNG lives for one progress tick in the
+        // chrome preview, so encode speed matters and size does not.
+        PngEncoder::new_with_quality(&mut buf, CompressionType::Fast, FilterType::Adaptive)
+            .write_image(&scaled, target_w, out_h, ExtendedColorType::Rgba8)
             .expect("PNG encode");
         buf
     }
 
+    /// Encode a PNG preview of the *entire* stitched canvas, downscaled to
+    /// `target_width_px` wide (capped at `max_height_px` tall).
+    ///
+    /// Cost grows linearly with the stitched height, which is why the live
+    /// session emits [`Self::preview_tail`] instead. Retained as the
+    /// baseline for `benches/scroll_stitch_bench.rs`.
     pub fn preview_stitched(&self, target_width_px: u32, max_height_px: u32) -> Vec<u8> {
         use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder};
 
@@ -917,7 +937,28 @@ mod tests {
     }
 
     #[test]
-    fn preview_thumbnail_renders_a_crisp_panel_sized_view() {
+    fn preview_tail_renders_a_crisp_panel_sized_view_of_the_bottom_strip() {
+        let width = 80;
+        let frame_h = 800;
+        let canvas = gradient_frame(width, frame_h, 0);
+        let stitcher =
+            ScrollStitcher::new(width, frame_h, canvas.clone(), StitchConfig::default());
+        let thumb = stitcher.preview_tail(640, 360);
+        assert!(thumb.starts_with(b"\x89PNG\r\n\x1a\n"));
+        let decoded = image::load_from_memory(&thumb).unwrap().to_rgba8();
+        assert_eq!(decoded.width(), 640);
+        assert_eq!(decoded.height(), 360);
+
+        // The tail must be anchored to the BOTTOM of the canvas: with
+        // crop_h = ceil(80 * 360 / 640) = 45, the first output row samples
+        // canvas row 800 - 45 = 755, not row 0.
+        let crop_y = 755usize;
+        let expected = canvas[crop_y * width as usize * 4];
+        assert_eq!(decoded.get_pixel(0, 0)[0], expected);
+    }
+
+    #[test]
+    fn preview_tail_preserves_aspect_when_canvas_is_shorter_than_tail() {
         let width = 80;
         let frame_h = 800;
         let stitcher = ScrollStitcher::new(
@@ -926,11 +967,15 @@ mod tests {
             gradient_frame(width, frame_h, 0),
             StitchConfig::default(),
         );
-        let thumb = stitcher.preview_thumbnail(640, 360);
-        assert!(thumb.starts_with(b"\x89PNG\r\n\x1a\n"));
-        let decoded = image::load_from_memory(&thumb).unwrap().to_rgba8();
-        assert_eq!(decoded.width(), 640);
-        assert_eq!(decoded.height(), 360);
+
+        // Tail window (80 * 1000 / 40 = 2000 rows) exceeds the 800-row
+        // canvas, so the output height must SHRINK to 800 * 40 / 80 = 400
+        // instead of stretching the canvas to fill 1000 rows.
+        let preview = stitcher.preview_tail(40, 1000);
+        assert!(preview.starts_with(b"\x89PNG\r\n\x1a\n"));
+        let decoded = image::load_from_memory(&preview).unwrap().to_rgba8();
+        assert_eq!(decoded.width(), 40);
+        assert_eq!(decoded.height(), 400);
     }
 
     #[test]
@@ -952,11 +997,11 @@ mod tests {
     }
 
     #[test]
-    fn preview_thumbnail_avoids_full_canvas_clone() {
+    fn preview_tail_avoids_full_canvas_clone() {
         let source = include_str!("scroll_stitch.rs").replace("\r\n", "\n");
-        let start = source.find("pub fn preview_thumbnail").unwrap();
+        let start = source.find("pub fn preview_tail").unwrap();
         let end = source[start..]
-            .find("/// Compute the best vertical shift")
+            .find("pub fn preview_stitched")
             .map(|idx| start + idx)
             .unwrap();
         let body = &source[start..end];

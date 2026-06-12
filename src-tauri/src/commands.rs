@@ -1232,7 +1232,7 @@ pub async fn start_scroll_session(
 
     {
         let s = stitcher.lock().await;
-        crate::scroll_session::emit_initial_progress(&app, &s);
+        crate::scroll_session::emit_initial_progress(&app, monitor_id, &s);
     }
 
     crate::scroll_session::spawn_loop(
@@ -1338,11 +1338,18 @@ fn logical_selection_for_monitor(phys_rect: Rect, scale_factor: f64) -> Rect {
     }
 }
 
+/// Label of the always-on-top chrome window that hosts the live scroll
+/// preview for `monitor_id`. Shared with `scroll_session`, which targets its
+/// progress events at exactly this window.
+pub(crate) fn scroll_chrome_label(monitor_id: u32) -> String {
+    format!("overlay-chrome-{monitor_id}")
+}
+
 /// Spawn the always-on-top chrome window that hosts the live scroll preview.
 /// The window prefers the lower-right side of the selection, flips to the
 /// lower-left side near screen edges, then clamps inside the monitor.
 fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Result<(), String> {
-    let chrome_label = format!("overlay-chrome-{monitor_id}");
+    let chrome_label = scroll_chrome_label(monitor_id);
     if app.get_webview_window(&chrome_label).is_some() {
         return Ok(());
     }
@@ -1379,7 +1386,7 @@ fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Res
 /// Tear down the chrome window for `monitor_id` (if any) and restore mouse
 /// events on the underlying overlay so the next capture session works.
 fn close_scroll_chrome(app: &AppHandle, monitor_id: u32) {
-    if let Some(w) = app.get_webview_window(&format!("overlay-chrome-{monitor_id}")) {
+    if let Some(w) = app.get_webview_window(&scroll_chrome_label(monitor_id)) {
         let _ = w.close();
     }
     if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {

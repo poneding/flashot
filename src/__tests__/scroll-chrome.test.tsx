@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScrollProgress } from "@/lib/types";
-import { getSettings, onScrollProgress, scrollPin, stopScrollSession } from "@/lib/ipc";
+import { getSettings, onScrollMaxHeight, onScrollProgress, scrollPin, stopScrollSession } from "@/lib/ipc";
 import {
   SCREENSHOT_TOOLBAR_BACKGROUND,
   SCREENSHOT_TOOLBAR_BORDER,
@@ -13,6 +13,10 @@ import { ScrollChromeRoute } from "@/routes/ScrollChrome";
 
 const scrollProgressListener = vi.hoisted(() => ({
   current: undefined as undefined | ((p: ScrollProgress) => void),
+}));
+
+const scrollMaxHeightListener = vi.hoisted(() => ({
+  current: undefined as undefined | (() => void),
 }));
 
 vi.mock("@/lib/ipc", () => ({
@@ -26,6 +30,10 @@ vi.mock("@/lib/ipc", () => ({
     scrollProgressListener.current = cb;
     return Promise.resolve(vi.fn());
   }),
+  onScrollMaxHeight: vi.fn((cb: () => void) => {
+    scrollMaxHeightListener.current = cb;
+    return Promise.resolve(vi.fn());
+  }),
   scrollPin: vi.fn().mockResolvedValue("pin-1"),
   scrollCopy: vi.fn().mockResolvedValue(undefined),
   scrollSave: vi.fn().mockResolvedValue(null),
@@ -36,6 +44,7 @@ describe("ScrollChromeRoute", () => {
   beforeEach(() => {
     window.location.hash = "#/scroll-chrome/1";
     scrollProgressListener.current = undefined;
+    scrollMaxHeightListener.current = undefined;
     vi.clearAllMocks();
     vi.mocked(getSettings).mockResolvedValue({
       language: "en",
@@ -143,6 +152,50 @@ describe("ScrollChromeRoute", () => {
       expect(screen.getByText("0 張影格 · 0px")).toBeInTheDocument();
     });
     expect(screen.queryByRole("button", { name: "完成" })).not.toBeInTheDocument();
+  });
+
+  it("auto-pins exactly once when the backend reports max capture height", async () => {
+    render(<ScrollChromeRoute />);
+
+    await waitFor(() => {
+      expect(onScrollMaxHeight).toHaveBeenCalledTimes(1);
+      expect(scrollMaxHeightListener.current).toBeDefined();
+    });
+
+    act(() => {
+      scrollMaxHeightListener.current?.();
+      scrollMaxHeightListener.current?.();
+    });
+
+    await waitFor(() => {
+      expect(scrollPin).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("does not double-pin when max height lands right after the finish click", async () => {
+    render(<ScrollChromeRoute />);
+
+    await waitFor(() => {
+      expect(scrollProgressListener.current).toBeDefined();
+      expect(scrollMaxHeightListener.current).toBeDefined();
+    });
+    act(() => {
+      scrollProgressListener.current?.({
+        frames: 1,
+        height: 280,
+        previewDataUrl: "data:image/png;base64,next",
+        lastScore: 0.96,
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Finish scrolling screenshot" }));
+    act(() => {
+      scrollMaxHeightListener.current?.();
+    });
+
+    await waitFor(() => {
+      expect(scrollPin).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("floats progress status at the bottom center over the preview", async () => {
