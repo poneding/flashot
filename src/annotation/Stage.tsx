@@ -94,6 +94,12 @@ let markerSelectionGroup: Konva.Group | null = null;
 let magnifierSourceImage: HTMLImageElement | null = null;
 let magnifierScaleFactor = 1;
 let magnifierSourceRect: Rect | null = null;
+// Wheel resize accumulates raw deltaY across events so one trackpad gesture
+// (which fires many small-delta events) advances at a controlled pace instead
+// of racing. One size step is taken each time the accumulator crosses the
+// threshold; the sign resets the accumulator so direction changes feel instant.
+let wheelResizeAccum = 0;
+const WHEEL_RESIZE_THRESHOLD = 80;
 let focusPreview: {
   shape: "rect" | "ellipse" | "circle";
   start: Point;
@@ -722,6 +728,7 @@ function toolCursor(
     case "select": return "move";
     case "text": return "text";
     case "eraser": return "grab";
+    case "highlight": return style.highlightMode === "straight" ? "text" : "crosshair";
     case "magnifier": return style.magnifierShape === "rounded-rect" ? "crosshair" : "zoom-in";
     default: return "crosshair";
   }
@@ -1092,17 +1099,28 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
     if (!obj) return;
 
     e.preventDefault();
-    // Slow down: require minimum threshold to avoid over-sensitivity
-    const rawDelta = e.deltaY;
-    const step = Math.abs(rawDelta) > 5 ? (rawDelta > 0 ? -1 : 1) : 0;
-    if (step === 0) return;
+
+    // Accumulate raw deltaY so a trackpad gesture (dozens of small-delta
+    // events) advances one step per threshold crossing instead of racing.
+    // A direction flip resets the accumulator so it responds immediately.
+    if ((wheelResizeAccum > 0 && e.deltaY < 0) || (wheelResizeAccum < 0 && e.deltaY > 0)) {
+      wheelResizeAccum = 0;
+    }
+    wheelResizeAccum += e.deltaY;
+    if (Math.abs(wheelResizeAccum) < WHEEL_RESIZE_THRESHOLD) return;
+    const step = wheelResizeAccum > 0 ? -1 : 1;
+    wheelResizeAccum = 0;
 
     switch (obj.type) {
       case "line":
       case "arrow":
-      case "highlight": {
+      case "highlight":
+      case "draw":
+      case "measure":
+      case "rect":
+      case "ellipse": {
         const current = obj.style.strokeWidth ?? 4;
-        const next = Math.max(3, Math.min(30, current + step));
+        const next = Math.max(1, Math.min(30, current + step));
         if (next !== current) updateSelectedStyle({ strokeWidth: next });
         break;
       }
