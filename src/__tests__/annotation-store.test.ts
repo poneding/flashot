@@ -324,4 +324,78 @@ describe("useAnnotation store", () => {
     useAnnotation.getState().moveObject("1", { x: 50, y: 30, scaleX: 1, scaleY: 1, rotation: 0 });
     expect(useAnnotation.getState().objects[0].transform.x).toBe(50);
   });
+
+  it("updateSelectedStyle updates both selected object and default style", () => {
+    const obj = {
+      id: "1",
+      type: "rect" as const,
+      start: { x: 0, y: 0 },
+      end: { x: 100, y: 100 },
+      style: { color: "#ff0000", strokeWidth: 4 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    useAnnotation.getState().addObject(obj);
+    useAnnotation.getState().setSelectedObject("1");
+    useAnnotation.getState().updateSelectedStyle({ strokeWidth: 10, color: "#00ff00" });
+
+    const updatedObj = useAnnotation.getState().objects.find(o => o.id === "1");
+    expect(updatedObj?.style.strokeWidth).toBe(10);
+    expect(updatedObj?.style.color).toBe("#00ff00");
+    expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(10);
+    expect(useAnnotation.getState().activeStyle.color).toBe("#00ff00");
+  });
+
+  it("updateSelectedStyle with no selection only updates default style", () => {
+    useAnnotation.getState().setActiveTool("rect");
+    useAnnotation.getState().updateSelectedStyle({ strokeWidth: 8, color: "#0000ff" });
+
+    expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(8);
+    expect(useAnnotation.getState().activeStyle.color).toBe("#0000ff");
+  });
+
+  it("new annotations use style remembered from selected annotation", () => {
+    const obj = {
+      id: "1",
+      type: "line" as const,
+      start: { x: 0, y: 0 },
+      end: { x: 100, y: 100 },
+      style: { color: "#ff0000", strokeWidth: 4, lineStyle: "solid" as const },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    useAnnotation.getState().setActiveTool("line");
+    useAnnotation.getState().addObject(obj);
+    useAnnotation.getState().setSelectedObject("1");
+    useAnnotation.getState().updateSelectedStyle({ strokeWidth: 12 });
+
+    const newObj = {
+      id: "2",
+      type: "line" as const,
+      start: { x: 200, y: 200 },
+      end: { x: 300, y: 300 },
+      style: { ...useAnnotation.getState().activeStyle },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    useAnnotation.getState().addObject(newObj);
+
+    expect(useAnnotation.getState().objects[1].style.strokeWidth).toBe(12);
+  });
+
+  it("setSelectedObject pre-fills activeStyle from selected annotation", () => {
+    useAnnotation.getState().setActiveTool("rect");
+    useAnnotation.getState().setActiveStyle({ strokeWidth: 4, cornerRadius: 8 });
+
+    const obj = {
+      id: "1",
+      type: "rect" as const,
+      start: { x: 0, y: 0 },
+      end: { x: 100, y: 100 },
+      style: { color: "#ff0000", strokeWidth: 10, cornerRadius: 20 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    useAnnotation.getState().addObject(obj);
+    useAnnotation.getState().setSelectedObject("1");
+
+    expect(useAnnotation.getState().activeStyle.strokeWidth).toBe(10);
+    expect(useAnnotation.getState().activeStyle.cornerRadius).toBe(20);
+  });
 });

@@ -499,6 +499,8 @@ export function OverlayRoute() {
   };
 
   const overlayCursor = (() => {
+    const { activeTool } = useAnnotation.getState();
+    if (activeTool === "blur") return "crosshair";
     if (mode === "hover" || mode === "dragging") return "crosshair";
     if (mode === "committed" && colorPickerVisible) return "crosshair";
     if (selectionInteraction?.kind === "resize") return cursorForHandle(selectionInteraction.handle);

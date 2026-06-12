@@ -317,6 +317,7 @@ type AnnotationState = {
 type AnnotationActions = {
   setActiveTool: (tool: ToolType) => void;
   setActiveStyle: (style: Partial<AnnotationStyle>) => void;
+  updateSelectedStyle: (updates: Partial<AnnotationStyle>) => void;
   setDrawingState: (state: DrawingState) => void;
   setSelectedObject: (id: AnnotationId | null) => void;
   allocateMarkerNumber: () => number;
@@ -385,12 +386,30 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
     set({ activeStyle });
   },
 
+  updateSelectedStyle(updates) {
+    const id = get().selectedObjectId;
+    if (id) {
+      const obj = get().objects.find(o => o.id === id);
+      if (obj) {
+        get().modifyStyle(id, updates);
+      }
+    }
+    get().setActiveStyle(updates);
+  },
+
   setDrawingState(drawingState) {
     set({ drawingState });
   },
 
   setSelectedObject(id) {
-    set({ selectedObjectId: id });
+    const obj = id ? get().objects.find(o => o.id === id) : null;
+    if (obj) {
+      const { activeTool } = get();
+      const nextStyle = normalizeActiveStyleForTool(activeTool, { ...get().activeStyle, ...obj.style });
+      set({ selectedObjectId: id, activeStyle: nextStyle });
+    } else {
+      set({ selectedObjectId: id });
+    }
   },
 
   allocateMarkerNumber() {

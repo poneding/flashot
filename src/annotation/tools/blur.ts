@@ -219,22 +219,12 @@ function applyBlur(
   h: number,
   mode: BlurMode,
   intensity: number,
-  solidColor?: string
 ): Konva.Image | Konva.Rect | null {
   const rx = Math.round(x);
   const ry = Math.round(y);
   const rw = Math.round(w);
   const rh = Math.round(h);
   if (rw < 1 || rh < 1) return null;
-
-  // For solid mode, use Konva.Rect for better performance
-  if (mode === "solid") {
-    const color = solidColor ?? "#000000";
-    return new Konva.Rect({
-      x: rx, y: ry, width: rw, height: rh,
-      fill: color,
-    });
-  }
 
   // Smart erase: fill the region from the ring of pixels just outside it.
   if (mode === "smart") {
@@ -312,14 +302,13 @@ export function onBlurEnd(x: number, y: number): AnnotationObject | null {
   const { activeStyle } = useAnnotation.getState();
   const intensity = activeStyle.blurIntensity ?? 10;
   const mode = activeStyle.blurMode ?? "mosaic";
-  const solidColor = activeStyle.blurSolidColor;
 
   if (currentRect) {
     currentRect.destroy(); currentRect = null;
     const w = Math.abs(x - startX); const h = Math.abs(y - startY);
     if (w < 4 || h < 4) return null;
     const rx = Math.min(startX, x); const ry = Math.min(startY, y);
-    const blurNode = applyBlur(rx, ry, w, h, mode, intensity, solidColor);
+    const blurNode = applyBlur(rx, ry, w, h, mode, intensity);
     if (!blurNode || !layer) return null;
     const id = crypto.randomUUID();
     blurNode.id(id); blurNode.listening(true); blurNode.draggable(true);
@@ -338,8 +327,7 @@ export function renderBlurObject(obj: AnnotationObject): Konva.Image | Konva.Rec
   if (rect.width < 1 || rect.height < 1) return null;
   const mode = obj.style.blurMode ?? "mosaic";
   const intensity = obj.style.blurIntensity ?? 10;
-  const solidColor = obj.style.blurSolidColor;
-  const node = applyBlur(rect.x, rect.y, rect.width, rect.height, mode, intensity, solidColor);
+  const node = applyBlur(rect.x, rect.y, rect.width, rect.height, mode, intensity);
   if (!node) return null;
   node.id(obj.id);
   node.scaleX(1);
@@ -354,24 +342,9 @@ export function refreshBlurObjectNode(node: Konva.Node, obj: AnnotationObject): 
   const rect = blurSampleRectForObject(obj);
   const mode = obj.style.blurMode ?? "mosaic";
   const intensity = obj.style.blurIntensity ?? 10;
-  const solidColor = obj.style.blurSolidColor;
-
-  if (mode === "solid" && node instanceof Konva.Rect) {
-    node.setAttrs({
-      x: rect.x,
-      y: rect.y,
-      width: rect.width,
-      height: rect.height,
-      fill: solidColor ?? "#000000",
-      scaleX: 1,
-      scaleY: 1,
-      rotation: 0,
-    });
-    return true;
-  }
 
   if (!(node instanceof Konva.Image)) return false;
-  const nextNode = applyBlur(rect.x, rect.y, rect.width, rect.height, mode, intensity, solidColor);
+  const nextNode = applyBlur(rect.x, rect.y, rect.width, rect.height, mode, intensity);
   if (!(nextNode instanceof Konva.Image)) return false;
 
   node.setAttrs({
