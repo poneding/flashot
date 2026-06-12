@@ -7,8 +7,11 @@
 //! `preview_full` is the legacy `preview_stitched(640, 8192)` call the
 //! session loop used to make on every progress emit: its cost grows linearly
 //! with the stitched height. `preview_tail` is the bounded-cost replacement
-//! (`preview_tail(640, 1024)`) that encodes only the bottom strip the chrome
-//! window can actually display.
+//! that encodes only the bottom strip the chrome window can actually
+//! display; the 1024 rows used here are `PREVIEW_TAIL_MIN_ROWS`, the floor
+//! of the per-session tail derived in `commands::tail_rows_for_chrome`
+//! (capped at 8192 rows for the tallest chrome viewports — still
+//! independent of canvas height).
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use flashot_lib::scroll_stitch::{IngestResult, ScrollStitcher, StitchConfig};

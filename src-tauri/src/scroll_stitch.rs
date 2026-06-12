@@ -269,10 +269,14 @@ impl ScrollStitcher {
     ///
     /// The output is `target_width_px` wide. When the canvas is taller than
     /// the tail window, the bottom `width * max_tail_height_px /
-    /// target_width_px` source rows are rendered into a `target_width_px x
-    /// max_tail_height_px` image. When the canvas is shorter, the whole
-    /// canvas is rendered and the output height *shrinks* so the aspect
-    /// ratio is always preserved (no vertical stretching).
+    /// target_width_px` source rows are rendered into an image of roughly
+    /// `target_width_px x max_tail_height_px`; rounding of the crop window
+    /// can overshoot `max_tail_height_px` by up to `target_width_px / width`
+    /// rows when the canvas is narrower than `target_width_px` (upscaling) —
+    /// bounded and harmless for the bottom-anchored preview. When the canvas
+    /// is shorter than the tail window, the whole canvas is rendered and the
+    /// output height *shrinks* so the aspect ratio is always preserved (no
+    /// vertical stretching).
     ///
     /// Unlike a full-canvas preview, the cost of this encoder is bounded by
     /// the tail window and stays flat as the stitched canvas grows.
@@ -955,6 +959,27 @@ mod tests {
         let crop_y = 755usize;
         let expected = canvas[crop_y * width as usize * 4];
         assert_eq!(decoded.get_pixel(0, 0)[0], expected);
+    }
+
+    #[test]
+    fn preview_tail_handles_canvas_exactly_filling_the_tail_window() {
+        let width = 80;
+        let frame_h = 800;
+        let canvas = gradient_frame(width, frame_h, 0);
+        let stitcher =
+            ScrollStitcher::new(width, frame_h, canvas.clone(), StitchConfig::default());
+
+        // Boundary between the crop and shrink regimes: crop_h =
+        // ceil(80 * 400 / 40) = 800 == canvas height, so the crop window
+        // starts at row 0 and the output is exactly the requested 40x400 —
+        // no shrink, no stretch.
+        let preview = stitcher.preview_tail(40, 400);
+        assert!(preview.starts_with(b"\x89PNG\r\n\x1a\n"));
+        let decoded = image::load_from_memory(&preview).unwrap().to_rgba8();
+        assert_eq!(decoded.width(), 40);
+        assert_eq!(decoded.height(), 400);
+        // crop_y == 0: the first output row samples canvas row 0.
+        assert_eq!(decoded.get_pixel(0, 0)[0], canvas[0]);
     }
 
     #[test]

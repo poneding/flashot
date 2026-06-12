@@ -198,6 +198,38 @@ describe("ScrollChromeRoute", () => {
     });
   });
 
+  it("allows retrying the finish pin after a failed attempt", async () => {
+    vi.mocked(scrollPin)
+      .mockRejectedValueOnce(new Error("pin failed"))
+      .mockResolvedValueOnce("pin-2");
+
+    render(<ScrollChromeRoute />);
+
+    await waitFor(() => {
+      expect(scrollProgressListener.current).toBeDefined();
+    });
+    act(() => {
+      scrollProgressListener.current?.({
+        frames: 1,
+        height: 280,
+        previewDataUrl: "data:image/png;base64,next",
+        lastScore: 0.96,
+      });
+    });
+
+    const button = screen.getByRole("button", { name: "Finish scrolling screenshot" });
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(scrollPin).toHaveBeenCalledTimes(1);
+    });
+
+    // The rejection must reset the finishing guard so the user can retry.
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(scrollPin).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it("floats progress status at the bottom center over the preview", async () => {
     render(<ScrollChromeRoute />);
 

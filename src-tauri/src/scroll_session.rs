@@ -12,13 +12,16 @@ use tokio::time::{interval, MissedTickBehavior};
 
 const TICK_MS: u64 = 60;
 const PROGRESS_THROTTLE_MS: u64 = 100;
-const PREVIEW_TARGET_WIDTH: u32 = 640;
-/// Tail-window height of the progress preview. The chrome window bottom-
-/// anchors the preview image, so only the last chrome-viewport of pixels is
-/// ever visible; encoding at least twice any chrome viewport keeps the
-/// visible pixels identical while the per-emit cost stays flat no matter how
-/// tall the stitched canvas grows.
-const PREVIEW_TAIL_HEIGHT: u32 = 1024;
+/// Width of the encoded progress preview PNG in pixels.
+pub(crate) const PREVIEW_TARGET_WIDTH: u32 = 640;
+/// Floor for the per-session preview tail height (source rows at
+/// `PREVIEW_TARGET_WIDTH`). The actual tail is derived from the chrome
+/// viewport in `commands::tail_rows_for_chrome`; this floor keeps compact
+/// panels comfortably covered.
+pub(crate) const PREVIEW_TAIL_MIN_ROWS: u32 = 1024;
+/// Cap for the per-session preview tail height; bounds the worst-case
+/// per-emit encode cost for very tall chrome viewports.
+pub(crate) const PREVIEW_TAIL_MAX_ROWS: u32 = 8192;
 
 #[derive(serde::Serialize, Clone)]
 struct ProgressPayload {
@@ -28,23 +31,20 @@ struct ProgressPayload {
     last_score: f32,
 }
 
-/// Scroll events are targeted at the chrome webview window only — progress
-/// payloads carry a base64 PNG and broadcasting them to every webview is
-/// wasted serialization and delivery work.
-fn chrome_target(monitor_id: u32) -> EventTarget {
-    EventTarget::webview_window(crate::commands::scroll_chrome_label(monitor_id))
-}
-
+/// Scroll events are targeted at the chrome webview window only (the caller
+/// in `commands::start_scroll_session` builds `target` from the chrome
+/// label) — progress payloads carry a base64 PNG and broadcasting them to
+/// every webview is wasted serialization and delivery work.
 pub(crate) fn emit_scroll_progress(
     app: &AppHandle,
-    monitor_id: u32,
+    target: &EventTarget,
     frames: u32,
     height: u32,
     preview_png: Vec<u8>,
     last_score: f32,
 ) {
     let _ = app.emit_to(
-        chrome_target(monitor_id),
+        target.clone(),
         "scroll:progress",
         ProgressPayload {
             frames,
@@ -55,13 +55,18 @@ pub(crate) fn emit_scroll_progress(
     );
 }
 
-pub(crate) fn emit_initial_progress(app: &AppHandle, monitor_id: u32, stitcher: &ScrollStitcher) {
+pub(crate) fn emit_initial_progress(
+    app: &AppHandle,
+    target: &EventTarget,
+    preview_tail_rows: u32,
+    stitcher: &ScrollStitcher,
+) {
     emit_scroll_progress(
         app,
-        monitor_id,
+        target,
         0,
         stitcher.height(),
-        stitcher.preview_tail(PREVIEW_TARGET_WIDTH, PREVIEW_TAIL_HEIGHT),
+        stitcher.preview_tail(PREVIEW_TARGET_WIDTH, preview_tail_rows),
         1.0,
     );
 }
@@ -70,6 +75,8 @@ pub fn spawn_loop(
     app: AppHandle,
     monitor_id: u32,
     rect: Rect,
+    preview_tail_rows: u32,
+    progress_target: EventTarget,
     stitcher: Arc<AsyncMutex<ScrollStitcher>>,
     cancel: Arc<AtomicBool>,
 ) {
@@ -120,13 +127,16 @@ pub fn spawn_loop(
                     );
                     if last_emit.elapsed() >= Duration::from_millis(PROGRESS_THROTTLE_MS) {
                         last_emit = Instant::now();
+                        // Encoding the tail holds the stitcher mutex, but the
+                        // cost is bounded by the tail window (a few ms), not
+                        // by the canvas height.
                         let thumb = {
                             let s = stitcher.lock().await;
-                            s.preview_tail(PREVIEW_TARGET_WIDTH, PREVIEW_TAIL_HEIGHT)
+                            s.preview_tail(PREVIEW_TARGET_WIDTH, preview_tail_rows)
                         };
                         emit_scroll_progress(
                             &app,
-                            monitor_id,
+                            &progress_target,
                             frames_accepted,
                             new_height,
                             thumb,
@@ -150,7 +160,7 @@ pub fn spawn_loop(
                     // same flow as the finish button (scroll_pin); session
                     // teardown stays in one place instead of being duplicated
                     // here.
-                    let _ = app.emit_to(chrome_target(monitor_id), "scroll:max-height", ());
+                    let _ = app.emit_to(progress_target.clone(), "scroll:max-height", ());
                     cancel.store(true, Ordering::SeqCst);
                     break;
                 }

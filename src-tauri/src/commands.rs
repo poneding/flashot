@@ -1202,7 +1202,13 @@ pub async fn start_scroll_session(
     //    selection outline) but is made mouse-transparent and the whole app
     //    is deactivated on macOS so scroll-wheel events flow to the underlying
     //    app instead of being intercepted by our key window.
-    spawn_scroll_chrome(&app, monitor_id, phys_rect)?;
+    let (chrome_w, chrome_h) = spawn_scroll_chrome(&app, monitor_id, phys_rect)?;
+    // Size the progress preview tail to THIS session's chrome viewport (see
+    // tail_rows_for_chrome). The chrome is clamped to the monitor, so the
+    // tail — and with it the per-emit encode cost — stays bounded no matter
+    // how tall the stitched canvas grows.
+    let preview_tail_rows = tail_rows_for_chrome(chrome_w, chrome_h);
+    let progress_target = tauri::EventTarget::webview_window(scroll_chrome_label(monitor_id));
     if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
         let _ = w.set_ignore_cursor_events(true);
     }
@@ -1232,13 +1238,15 @@ pub async fn start_scroll_session(
 
     {
         let s = stitcher.lock().await;
-        crate::scroll_session::emit_initial_progress(&app, monitor_id, &s);
+        crate::scroll_session::emit_initial_progress(&app, &progress_target, preview_tail_rows, &s);
     }
 
     crate::scroll_session::spawn_loop(
         app.clone(),
         monitor_id,
         phys_rect,
+        preview_tail_rows,
+        progress_target,
         stitcher.clone(),
         cancel.clone(),
     );
@@ -1278,6 +1286,28 @@ fn scroll_chrome_size(selection: Rect, monitor: Rect, gap: f64) -> (f64, f64) {
     let height = clamp_f64(aspect_height, min_h, max_h);
 
     (width, height)
+}
+
+/// Per-session preview tail height (source rows at `PREVIEW_TARGET_WIDTH`)
+/// for a chrome viewport of `chrome_w x chrome_h` logical px.
+///
+/// The chrome bottom-anchors a `width: 100%` preview image, so one preview
+/// row spans `chrome_w / PREVIEW_TARGET_WIDTH` logical px and covering the
+/// panel needs `chrome_h * PREVIEW_TARGET_WIDTH / chrome_w` rows. That is
+/// doubled for HiDPI displays (2 device px per logical px), floored at
+/// `PREVIEW_TAIL_MIN_ROWS`, and capped at `PREVIEW_TAIL_MAX_ROWS`. Because
+/// the chrome itself is clamped to the monitor, the result is bounded by
+/// monitor height — per-emit preview cost stays flat regardless of how tall
+/// the stitched canvas grows.
+pub(crate) fn tail_rows_for_chrome(chrome_w: f64, chrome_h: f64) -> u32 {
+    use crate::scroll_session::{
+        PREVIEW_TAIL_MAX_ROWS, PREVIEW_TAIL_MIN_ROWS, PREVIEW_TARGET_WIDTH,
+    };
+
+    let chrome_w = chrome_w.max(1.0);
+    let chrome_h = chrome_h.max(0.0);
+    let rows = (chrome_h * f64::from(PREVIEW_TARGET_WIDTH) / chrome_w).ceil() * 2.0;
+    (rows as u32).clamp(PREVIEW_TAIL_MIN_ROWS, PREVIEW_TAIL_MAX_ROWS)
 }
 
 fn scroll_chrome_position(
@@ -1348,11 +1378,14 @@ pub(crate) fn scroll_chrome_label(monitor_id: u32) -> String {
 /// Spawn the always-on-top chrome window that hosts the live scroll preview.
 /// The window prefers the lower-right side of the selection, flips to the
 /// lower-left side near screen edges, then clamps inside the monitor.
-fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Result<(), String> {
+/// Returns the chrome's logical `(width, height)` so the caller can size the
+/// progress preview tail to the viewport it will be displayed in.
+fn spawn_scroll_chrome(
+    app: &AppHandle,
+    monitor_id: u32,
+    phys_rect: Rect,
+) -> Result<(f64, f64), String> {
     let chrome_label = scroll_chrome_label(monitor_id);
-    if app.get_webview_window(&chrome_label).is_some() {
-        return Ok(());
-    }
 
     let mon = crate::capture::enumerate_monitors()
         .ok()
@@ -1362,6 +1395,9 @@ fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Res
     let gap = 12.0;
     let logical_selection = logical_selection_for_monitor(phys_rect, mon.scale_factor as f64);
     let (chrome_w, chrome_h) = scroll_chrome_size(logical_selection, mon.rect, gap);
+    if app.get_webview_window(&chrome_label).is_some() {
+        return Ok((chrome_w, chrome_h));
+    }
     let pos = scroll_chrome_position(logical_selection, mon.rect, (chrome_w, chrome_h), gap);
 
     tauri::WebviewWindowBuilder::new(
@@ -1380,7 +1416,7 @@ fn spawn_scroll_chrome(app: &AppHandle, monitor_id: u32, phys_rect: Rect) -> Res
     .build()
     .map_err(|e| e.to_string())?;
 
-    Ok(())
+    Ok((chrome_w, chrome_h))
 }
 
 /// Tear down the chrome window for `monitor_id` (if any) and restore mouse
@@ -1939,6 +1975,22 @@ mod tests {
 
         assert_eq!(tiny_height, 160.0);
         assert_eq!(tall_height, 776.0);
+    }
+
+    #[test]
+    fn tail_rows_for_chrome_covers_viewport_with_floor_and_cap() {
+        // Compact chrome (280x160): ceil(160 * 640 / 280) * 2 = 732, below
+        // the floor -> floor applies.
+        assert_eq!(tail_rows_for_chrome(280.0, 160.0), 1024);
+
+        // Tall selection chrome (280x1200): ceil(1200 * 640 / 280) * 2 =
+        // 5486 rows; the old fixed 1024-row tail covered less than a fifth
+        // of this viewport.
+        assert_eq!(tail_rows_for_chrome(280.0, 1200.0), 5486);
+
+        // Extreme viewport (280x2000): ceil(2000 * 640 / 280) * 2 = 9144 is
+        // capped so the per-emit encode cost stays bounded.
+        assert_eq!(tail_rows_for_chrome(280.0, 2000.0), 8192);
     }
 
     #[test]
