@@ -68,7 +68,7 @@ pnpm tauri build      # Build production bundle (.dmg, .msi, .AppImage)
 - **`app_activation.rs`**: macOS activation helpers. `deactivate_then_hide_overlays_macos` deactivates the app, then hides overlays, atomically on the main thread at session end.
 - **`scroll_session.rs`**: Tokio capture loop for scroll capture. Recaptures the selected region on a tick, feeds the stitcher, and emits throttled progress events (with a bottom-tail preview PNG) to the chrome window only.
 - **`scroll_stitch.rs`**: Incremental scroll stitcher. Matches adjacent frames via normalized cross-correlation (NCC) on feature-sampled ROIs and appends only the newly scrolled strip to the canvas.
-- **`capture/`**: Platform-specific screen capture (all platforms use `xcap`; Windows adds Win32 APIs)
+- **`capture/`**: Platform-specific screen capture (all platforms use `xcap`)
 - **`window_probe/`**: Platform-specific window enumeration (macOS: Core Graphics, Windows: Win32, Linux: X11)
 - **`hotkey.rs`**: Global hotkey registration with live updates on settings change. Also owns session-scoped hotkeys (Esc cancel; color picker X/C) registered only while a capture session is active.
 - **`commands.rs`**: Tauri command handlers. Capture-related commands receive `State<Arc<WindowMgr>>` to access frozen frames.
@@ -79,7 +79,7 @@ pnpm tauri build      # Build production bundle (.dmg, .msi, .AppImage)
 - **`settings_store.rs`**: `Settings` struct + JSON load/save (`<config>/flashot/settings.json`).
 - **`clipboard.rs`**: Copies RGBA images to the system clipboard.
 - **`tray.rs`**: Tray icon and localized menu.
-- **`i18n.rs`**: Native-side localized strings (tray menu, dialogs).
+- **`i18n.rs`**: Native-side localized strings (tray menu, utility window titles).
 - **`permission.rs`**: Best-effort first-launch macOS screen-recording permission probe.
 
 ### Key Frontend Modules
@@ -88,7 +88,7 @@ pnpm tauri build      # Build production bundle (.dmg, .msi, .AppImage)
 - **`src/annotation/`**: Konva-based annotation editor (used in the overlay and pin windows). `types.ts` is the data model, `store.ts` is a Zustand store with a command stack for undo/redo, `Stage.tsx` is the canvas interaction layer, `tools/` holds per-type modules (e.g. `marker.ts` — split badge + label connected by a leader line; `blur.ts` — mosaic/gaussian/solid/smart-erase modes), `render.ts` dispatches objects to Konva nodes, `export.ts` exports the stage to PNG.
 - **`src/lib/geometry.ts`**: Pure functions for rect operations (clamp, resize, translate). Used by selection handles.
 - **`src/lib/hit-test.ts`**: Z-order window hit-testing. Returns topmost window at cursor position.
-- **`src/lib/cursor.ts`**: Cursor position polling — converts the global cursor point to window-local coordinates.
+- **`src/lib/cursor.ts`**: One-shot global-cursor read — converts the global cursor point to window-local coordinates (the 50 ms polling loop lives in `Overlay.tsx`).
 - **`src/lib/ipc.ts`**: Typed wrappers around Tauri IPC (commands + events). Use these instead of raw `invoke()`.
 - **`src/routes/Pin.tsx`**: Pin window route. Displays a pinned screenshot in an always-on-top borderless window. Mouse drag moves the window via `startDragging()`, scroll wheel scales (50%–300%), double-click and Escape close the pin.
 - **`src/routes/ScrollChrome.tsx`**: Scroll-capture chrome window. Shows the live progress preview, a check button that finishes the capture into a pin, and auto-pins when the stitcher reaches max height (both paths funnel through one guarded `finishPin`).
@@ -149,7 +149,7 @@ This allows live hotkey updates without app restart.
 
 - Capture overlays are shown with `orderFrontRegardless` and never activate the app (no makeKey/activate during capture) — activating would raise open utility windows (Settings/About/Updater).
 - Session end must deactivate the app BEFORE hiding overlays, atomically on the main thread (`app_activation::deactivate_then_hide_overlays_macos`). `crop_and_save` is the exception: the save dialog needs the app active, so it deactivates after the dialog returns.
-- Because overlays never own keyboard focus on macOS, session shortcuts (Esc, and X/C for the color picker) are session-scoped GLOBAL hotkeys (`hotkey.rs`), disabled during annotation text input.
+- Because overlays never own keyboard focus on macOS, session shortcuts (Esc, and X/C for the color picker) are session-scoped GLOBAL hotkeys (`hotkey.rs`); X/C are disabled during annotation text input so they can be typed (Esc remains active).
 - The crosshair cursor is pushed natively via `NSCursor` at overlay show (process-global; no activation needed).
 
 ### Windows
@@ -191,7 +191,7 @@ This allows live hotkey updates without app restart.
 GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push/PR:
 
 - `cargo check`, `cargo clippy -D warnings`, `cargo test`
-- `cargo bench --bench crop_bench` (only bench that works without display)
+- `cargo bench --bench crop_bench` (the only bench CI runs; `scroll_stitch_bench` is also display-free but not enabled)
 - Runs on macOS, Windows, Linux (Ubuntu)
 
 ## Git Commit Convention
