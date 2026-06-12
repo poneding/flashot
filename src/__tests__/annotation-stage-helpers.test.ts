@@ -116,13 +116,13 @@ describe("annotation stage helpers", () => {
     expect(config.enabledAnchors.length).toBeGreaterThan(0);
   });
 
-  it("allows markers to move without resize or rotation handles", () => {
+  it("selects markers without any transformer chrome", () => {
     const config = transformerConfigForObject(object({
       type: "marker",
       markerNumber: 1,
     }));
 
-    expect(config.useTransformer).toBe(true);
+    expect(config.useTransformer).toBe(false);
     expect(config.rotateEnabled).toBe(false);
     expect(config.enabledAnchors).toEqual([]);
   });

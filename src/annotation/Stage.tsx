@@ -14,6 +14,7 @@ import {
   type MagnifierRenderContext,
 } from "@/annotation/magnifierContext";
 import { MarkerTextOverlay } from "@/annotation/MarkerTextOverlay";
+import { defaultMarkerLabelAnchor } from "@/annotation/markerStyle";
 import { renderObject } from "@/annotation/render";
 import { useAnnotation } from "@/annotation/store";
 import { TextOverlay } from "@/annotation/TextOverlay";
@@ -45,7 +46,7 @@ import {
   onMagnifierStart,
   refreshMagnifierObjectNode,
 } from "@/annotation/tools/magnifier";
-import { onMarkerEnd, onMarkerMove, onMarkerStart } from "@/annotation/tools/marker";
+import { onMarkerEnd, onMarkerMove, onMarkerStart, updateMarkerObjectNode } from "@/annotation/tools/marker";
 import {
   constrainMeasureHandlePoint,
   onMeasureEnd,
@@ -245,7 +246,9 @@ function objectBasePosition(obj: AnnotationObject): { x: number; y: number } {
   }
 
   if (obj.type === "marker") {
-    return start;
+    // Marker outer groups carry only the transform offset; the badge and label
+    // parts hold absolute stage positions (see renderMarkerObject).
+    return { x: 0, y: 0 };
   }
 
   if (obj.type === "line" || obj.type === "arrow" || obj.type === "measure") {
@@ -377,7 +380,7 @@ export function transformerConfigForObject(obj: AnnotationObject | undefined): {
   if (!obj) return { useTransformer: false, rotateEnabled: false, enabledAnchors: [] };
   if (isEndpointEditableObject(obj)) return { useTransformer: false, rotateEnabled: false, enabledAnchors: [] };
   if (obj.type === "draw") return { useTransformer: true, rotateEnabled: false, enabledAnchors: [] };
-  if (obj.type === "marker") return { useTransformer: true, rotateEnabled: false, enabledAnchors: [] };
+  if (obj.type === "marker") return { useTransformer: false, rotateEnabled: false, enabledAnchors: [] };
   if (obj.type === "highlight") return { useTransformer: true, rotateEnabled: false, enabledAnchors: [] };
   if (obj.type === "text" || obj.type === "blur" || obj.type === "magnifier" || obj.type === "spotlight") {
     return { useTransformer: true, rotateEnabled: false, enabledAnchors: TRANSFORMER_ANCHORS };
@@ -394,6 +397,32 @@ function getObjectNodeFromHit(node: Konva.Node | null): Konva.Node | null {
     current = current.getParent();
   }
   return null;
+}
+
+function markerPartFromTarget(node: Konva.Node | null): "badge" | "label" | null {
+  let current: Konva.Node | null = node;
+  while (current) {
+    if (current.hasName("marker-badge-part")) return "badge";
+    if (current.hasName("marker-label-part")) return "label";
+    if (current === layer || current === stage) return null;
+    current = current.getParent();
+  }
+  return null;
+}
+
+function markerPartDragUpdates(obj: AnnotationObject, group: Konva.Group): Partial<AnnotationObject> {
+  const badgePart = group.findOne(".marker-badge-part") as Konva.Group | undefined;
+  const labelPart = group.findOne(".marker-label-part") as Konva.Group | undefined;
+  const t = obj.transform;
+  // Bake the transform offset into both anchors so zeroing it never moves a part.
+  const start = badgePart
+    ? { x: t.x + badgePart.x(), y: t.y + badgePart.y() }
+    : obj.start;
+  const end = labelPart
+    ? { x: t.x + labelPart.x(), y: t.y + labelPart.y() }
+    : (obj.end ? { x: t.x + obj.end.x, y: t.y + obj.end.y } : undefined);
+
+  return { start, end, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 } };
 }
 
 function findRenderedObjectNode(id: string): Konva.Node | null {
@@ -1049,9 +1078,13 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
     stage.on("dragend", (e) => {
       const node = getObjectNodeFromHit(e.target);
       if (!node) return;
-      const { moveObject } = useAnnotation.getState();
+      const { moveObject, resizeObject } = useAnnotation.getState();
       const obj = useAnnotation.getState().objects.find((o) => o.id === node.id());
       if (!obj) return;
+      if (obj.type === "marker" && markerPartFromTarget(e.target) && node instanceof Konva.Group) {
+        resizeObject(obj.id, markerPartDragUpdates(obj, node));
+        return;
+      }
       moveObject(obj.id, getNodeTransform(obj, node));
     });
 
@@ -1097,6 +1130,12 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
         return;
       }
       setStageCursor("grabbing");
+      const obj = useAnnotation.getState().objects.find((o) => o.id === node.id());
+      if (obj?.type === "marker" && markerPartFromTarget(e.target)) {
+        // Marker parts drag independently; selection shows no transformer chrome.
+        setSelectedObject(node.id());
+        return;
+      }
       setSelectedObject(node.id());
       transformer?.nodes([node]);
       transformer?.moveToTop();
@@ -1110,6 +1149,12 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
 
       const obj = useAnnotation.getState().objects.find((o) => o.id === node.id());
       if (!obj) return;
+
+      if (obj.type === "marker" && markerPartFromTarget(e.target)) {
+        if (node instanceof Konva.Group) updateMarkerObjectNode(node, obj);
+        layer?.batchDraw();
+        return;
+      }
 
       const nextObj = objectWithNodeTransform(obj, node);
       refreshLivePositionDependentNode(nextObj, node);
@@ -1439,7 +1484,16 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
           selection={selection}
           viewportOrigin={viewportOrigin}
           onConfirm={(text) => {
-            useAnnotation.getState().resizeObject(markerEditing.object.id, { text });
+            const editingObject = markerEditing.object;
+            useAnnotation.getState().resizeObject(editingObject.id, {
+              text,
+              // First confirm fixes the label anchor; later edits keep the user's anchor.
+              end: editingObject.end ?? defaultMarkerLabelAnchor(
+                editingObject.start ?? { x: 0, y: 0 },
+                text,
+                editingObject.style.fontSize,
+              ),
+            });
             setMarkerEditing(null);
           }}
           onCancel={() => setMarkerEditing(null)}

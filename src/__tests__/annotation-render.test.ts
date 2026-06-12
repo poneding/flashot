@@ -13,8 +13,15 @@ import { renderRectObject } from "@/annotation/tools/rect";
 import { blurSampleRectForObject } from "@/annotation/tools/blur";
 import { renderObject } from "@/annotation/render";
 import { renderTextObject } from "@/annotation/tools/text";
-import type { AnnotationObject } from "@/annotation/types";
-import { MARKER_BUBBLE_GAP, markerBadgeRadius } from "@/annotation/markerStyle";
+import { DEFAULT_STYLE, type AnnotationObject } from "@/annotation/types";
+import {
+  MARKER_BUBBLE_GAP,
+  MARKER_BUBBLE_LINE_HEIGHT,
+  MARKER_BUBBLE_PADDING_Y,
+  defaultMarkerLabelAnchor,
+  markerBadgeRadius,
+} from "@/annotation/markerStyle";
+import { markerConnectorPoints } from "@/annotation/tools/marker";
 
 function object(overrides: Partial<AnnotationObject>): AnnotationObject {
   return {
@@ -124,7 +131,7 @@ describe("annotation object rendering", () => {
     expect((node as Konva.Ellipse).strokeWidth()).toBe(0);
   });
 
-  it("renders empty markers as a numbered badge without a bubble", () => {
+  it("renders empty markers as a numbered badge without a label", () => {
     const node = renderObject(object({
       id: "marker-1",
       type: "marker",
@@ -146,47 +153,78 @@ describe("annotation object rendering", () => {
 
     expect(group.findOne(".marker-badge")).toBeInstanceOf(Konva.Circle);
     expect((group.findOne(".marker-number") as Konva.Text).text()).toBe("5");
-    expect(group.findOne(".marker-bubble")).toBeUndefined();
+    expect(group.findOne(".marker-label-part")).toBeUndefined();
+    expect(group.findOne(".marker-connector")).toBeUndefined();
   });
 
-  it("renders marker text inside a bubble when present", () => {
-    const node = renderObject(object({
-      id: "marker-2",
-      type: "marker",
-      start: { x: 30, y: 40 },
-      markerNumber: 2,
-      text: "Review this",
-      style: {
-        color: "#ff0000",
-        strokeWidth: 4,
-        markerFill: "#ff6600",
-        markerTextColor: "#101010",
-        markerBubbleFill: "#ffeecc",
-      },
+  it("renders marker badge and label as separately draggable parts with a connector", () => {
+    const obj: AnnotationObject = {
+      id: "marker-2", type: "marker", start: { x: 40, y: 40 }, end: { x: 140, y: 20 },
+      markerNumber: 3, text: "step three",
+      style: { ...DEFAULT_STYLE, markerFill: "#0099ff" },
       transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
-    }));
-
-    expect(node).toBeInstanceOf(Konva.Group);
-    const group = node as Konva.Group;
-    const bubble = group.findOne(".marker-bubble") as Konva.Rect;
-    const pointer = group.findOne(".marker-bubble-pointer") as Konva.Line;
-    const text = group.findOne(".marker-bubble-text") as Konva.Text;
-
-    expect(bubble).toBeInstanceOf(Konva.Rect);
-    expect(pointer).toBeInstanceOf(Konva.Line);
-    expect(text.text()).toBe("Review this");
-    expect(bubble.fill()).toBe("#111827");
-    expect(bubble.strokeEnabled()).toBe(false);
-    expect(bubble.strokeWidth()).toBe(0);
-    expect(pointer.fill()).toBe("#111827");
-    expect(pointer.strokeEnabled()).toBe(false);
-    expect(pointer.strokeWidth()).toBe(0);
-    expect(text.fill()).toBe("#ffffff");
+    };
+    const group = renderObject(obj) as Konva.Group;
+    const badge = group.findOne(".marker-badge-part") as Konva.Group;
+    const label = group.findOne(".marker-label-part") as Konva.Group;
+    const connector = group.findOne(".marker-connector") as Konva.Line;
+    expect(group.draggable()).toBe(false);
+    expect(badge.draggable()).toBe(true);
+    expect(label.draggable()).toBe(true);
+    expect(connector).toBeTruthy();
+    expect(connector.visible()).toBe(true);
+    expect(connector.stroke()).toBe("#0099ff");
+    expect(connector.dash()).toEqual([4, 3]);
+    expect(connector.listening()).toBe(false);
+    const labelRect = label.findOne(".marker-label-box") as Konva.Rect;
+    expect(labelRect.stroke()).toBe("#0099ff");
+    expect(labelRect.shadowColor()).toBe("#0099ff");
+    expect(labelRect.fill()).toBe("#111827");
+    expect((label.findOne(".marker-label-text") as Konva.Text).text()).toBe("step three");
+    expect(group.findOne(".marker-bubble-pointer")).toBeUndefined();
   });
 
-  it("uses marker font size for the marker note bubble", () => {
+  it("derives a legacy label anchor when end is missing", () => {
+    const obj: AnnotationObject = { id: "marker-3", type: "marker", start: { x: 40, y: 40 }, markerNumber: 1, text: "legacy", style: { ...DEFAULT_STYLE }, transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 } };
+    const group = renderObject(obj) as Konva.Group;
+    const label = group.findOne(".marker-label-part") as Konva.Group;
+    expect(label.x()).toBeGreaterThan(40); // sits right of the badge like the old bubble
+    expect(label.x()).toBe(40 + markerBadgeRadius(DEFAULT_STYLE.fontSize) + MARKER_BUBBLE_GAP);
+  });
+
+  it("hides the connector when the label box overlaps the badge", () => {
+    const obj: AnnotationObject = {
+      id: "marker-overlap", type: "marker", start: { x: 40, y: 40 }, end: { x: 40, y: 40 },
+      markerNumber: 2, text: "near",
+      style: { ...DEFAULT_STYLE, markerFill: "#0099ff" },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    const group = renderObject(obj) as Konva.Group;
+    const connector = group.findOne(".marker-connector") as Konva.Line;
+    expect(connector.visible()).toBe(false);
+  });
+
+  it("returns null connector points when the label overlaps the badge", () => {
+    expect(markerConnectorPoints({ x: 0, y: 0 }, 10, { x: -5, y: -5, width: 10, height: 10 })).toBeNull();
+    expect(markerConnectorPoints({ x: 0, y: 0 }, 10, { x: 12, y: -5, width: 10, height: 10 })).toBeNull();
+  });
+
+  it("places connector endpoints on the badge edge and the label box edge", () => {
+    expect(markerConnectorPoints({ x: 0, y: 0 }, 10, { x: 30, y: -10, width: 20, height: 20 })).toEqual([10, 0, 30, 0]);
+    expect(markerConnectorPoints({ x: 0, y: 0 }, 10, { x: -10, y: 30, width: 20, height: 20 })).toEqual([0, 10, 0, 30]);
+  });
+
+  it("matches the legacy bubble offset for derived label anchors", () => {
+    const anchor = defaultMarkerLabelAnchor({ x: 30, y: 40 }, "note", 14);
+    const labelHeight = 14 * MARKER_BUBBLE_LINE_HEIGHT + MARKER_BUBBLE_PADDING_Y * 2;
+
+    expect(anchor.x).toBe(30 + markerBadgeRadius(14) + MARKER_BUBBLE_GAP);
+    expect(anchor.y).toBeCloseTo(40 - labelHeight / 2);
+  });
+
+  it("uses marker font size for the marker label text", () => {
     const node = renderObject(object({
-      id: "marker-3",
+      id: "marker-4",
       type: "marker",
       start: { x: 30, y: 40 },
       markerNumber: 3,
@@ -200,14 +238,14 @@ describe("annotation object rendering", () => {
       transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
     })) as Konva.Group;
 
-    const text = node.findOne(".marker-bubble-text") as Konva.Text;
+    const text = node.findOne(".marker-label-text") as Konva.Text;
 
     expect(text.fontSize()).toBe(20);
   });
 
   it("uses marker font size for the numbered marker badge", () => {
     const node = renderObject(object({
-      id: "marker-4",
+      id: "marker-5",
       type: "marker",
       start: { x: 30, y: 40 },
       markerNumber: 4,
@@ -228,11 +266,12 @@ describe("annotation object rendering", () => {
     expect(badge.radius()).toBeGreaterThan(12);
   });
 
-  it("shrinks only the numbered marker circle while preserving text and bubble layout", () => {
+  it("shrinks only the numbered marker circle while preserving text and label layout", () => {
     const node = renderObject(object({
       id: "marker-compact-badge",
       type: "marker",
       start: { x: 30, y: 40 },
+      end: undefined,
       markerNumber: 8,
       text: "Keep layout",
       style: {
@@ -247,7 +286,7 @@ describe("annotation object rendering", () => {
     const layoutRadius = markerBadgeRadius(20);
     const badge = node.findOne(".marker-badge") as Konva.Circle;
     const number = node.findOne(".marker-number") as Konva.Text;
-    const bubble = node.findOne(".marker-bubble") as Konva.Rect;
+    const labelPart = node.findOne(".marker-label-part") as Konva.Group;
 
     expect(badge.radius()).toBeLessThan(layoutRadius);
     expect(number.fontSize()).toBe(20);
@@ -255,7 +294,7 @@ describe("annotation object rendering", () => {
     expect(number.height()).toBe(layoutRadius * 2);
     expect(number.x() + number.width() / 2).toBe(badge.x());
     expect(number.y() + number.height() / 2).toBe(badge.y());
-    expect(bubble.x()).toBe(layoutRadius + MARKER_BUBBLE_GAP);
+    expect(labelPart.x()).toBe(30 + layoutRadius + MARKER_BUBBLE_GAP);
   });
 
   it("renders circle magnifiers with a clipped composited image and border", () => {

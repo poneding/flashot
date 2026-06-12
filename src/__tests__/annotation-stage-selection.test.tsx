@@ -353,6 +353,94 @@ describe("AnnotationStage selection movement", () => {
     expect(resized?.end).toEqual({ x: 240, y: 200 });
   });
 
+  it("persists independent marker label drags and bakes the transform", () => {
+    const marker: AnnotationObject = {
+      id: "marker-split-1",
+      type: "marker",
+      start: { x: 40, y: 40 },
+      end: { x: 140, y: 20 },
+      markerNumber: 2,
+      text: "step two",
+      style: { color: "#ff0000", strokeWidth: 4, markerFill: "#0099ff", fontSize: 14 },
+      transform: { x: 10, y: 6, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(marker);
+    });
+
+    const group = getLayer()?.findOne("#marker-split-1") as Konva.Group | undefined;
+    expect(group).toBeInstanceOf(Konva.Group);
+    expect(group?.draggable()).toBe(false);
+    expect(group?.position()).toEqual({ x: 10, y: 6 });
+    const labelPart = group?.findOne(".marker-label-part") as Konva.Group | undefined;
+    const badgePart = group?.findOne(".marker-badge-part") as Konva.Group | undefined;
+    expect(labelPart?.draggable()).toBe(true);
+    expect(badgePart?.position()).toEqual({ x: 40, y: 40 });
+
+    act(() => {
+      labelPart!.fire("dragstart", undefined, true);
+      labelPart!.position({ x: 180, y: 70 });
+      labelPart!.fire("dragmove", undefined, true);
+      labelPart!.fire("dragend", undefined, true);
+    });
+
+    const updated = useAnnotation.getState().objects.find((obj) => obj.id === marker.id);
+    expect(updated?.end).toEqual({ x: 190, y: 76 });
+    expect(updated?.start).toEqual({ x: 50, y: 46 });
+    expect(updated?.transform).toEqual({ x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 });
+    // Marker selection shows no transformer chrome.
+    expect(useAnnotation.getState().selectedObjectId).toBe(marker.id);
+    expect(getTransformer()?.nodes()).toEqual([]);
+  });
+
+  it("moves the marker badge independently and re-points the connector", () => {
+    const marker: AnnotationObject = {
+      id: "marker-split-2",
+      type: "marker",
+      start: { x: 40, y: 40 },
+      markerNumber: 3,
+      text: "legacy note",
+      style: { color: "#ff0000", strokeWidth: 4, markerFill: "#0099ff", fontSize: 14 },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+
+    render(<AnnotationStage selection={selection} scaleFactor={2} />);
+
+    act(() => {
+      useAnnotation.getState().addObject(marker);
+    });
+
+    const group = getLayer()?.findOne("#marker-split-2") as Konva.Group | undefined;
+    const badgePart = group?.findOne(".marker-badge-part") as Konva.Group | undefined;
+    const connector = group?.findOne(".marker-connector") as Konva.Line | undefined;
+    expect(badgePart?.draggable()).toBe(true);
+    expect(connector).toBeInstanceOf(Konva.Line);
+    const initialPoints = connector!.points();
+
+    act(() => {
+      badgePart!.fire("dragstart", undefined, true);
+      badgePart!.position({ x: 90, y: 110 });
+      badgePart!.fire("dragmove", undefined, true);
+    });
+
+    // The connector follows the live badge position during the drag.
+    expect(connector!.points()).not.toEqual(initialPoints);
+
+    act(() => {
+      badgePart!.fire("dragend", undefined, true);
+    });
+
+    const updated = useAnnotation.getState().objects.find((obj) => obj.id === marker.id);
+    expect(updated?.start).toEqual({ x: 90, y: 110 });
+    // The derived legacy anchor is baked into `end` so the label stays put.
+    expect(updated?.end?.x).toBe(61);
+    expect(updated?.end?.y).toBeCloseTo(26.6);
+    expect(updated?.transform).toEqual({ x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 });
+  });
+
   it("bakes shape resize scale into bounds so selection and corner radius stay aligned", () => {
     const rect: AnnotationObject = {
       id: "rounded-rect-1",
