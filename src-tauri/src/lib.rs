@@ -271,6 +271,7 @@ pub fn run() {
             commands::end_text_input_session,
             commands::open_about_window,
             commands::open_updater_window,
+            commands::push_capture_cursor_macos,
             commands::quit_app,
             commands::list_system_fonts,
             commands::pin_image,

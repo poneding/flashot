@@ -76,6 +76,9 @@ export async function beginTextInputSession(): Promise<void> {
 export async function endTextInputSession(): Promise<void> {
   await invoke("end_text_input_session");
 }
+export async function pushCaptureCursorMacos(): Promise<void> {
+  await invoke("push_capture_cursor_macos");
+}
 export async function listSystemFonts(): Promise<string[]> {
   return await invoke<string[]>("list_system_fonts");
 }

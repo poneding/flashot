@@ -18,6 +18,7 @@ import {
   onSelectionClaimed,
   onSelectionReleased,
   pinImage,
+  pushCaptureCursorMacos,
   releaseSelection,
   requestColorCopy,
   requestColorFormatToggle,
@@ -345,6 +346,17 @@ export function OverlayRoute() {
       window.clearInterval(interval);
     };
   }, [mode, frameUrl]);
+
+  // Enforce crosshair cursor on macOS during selection modes
+  useEffect(() => {
+    if (mode !== "hover" && mode !== "dragging") return;
+    const interval = setInterval(() => {
+      pushCaptureCursorMacos().catch(() => {
+        /* best-effort */
+      });
+    }, 100);
+    return () => clearInterval(interval);
+  }, [mode]);
 
   const handleCopy = async () => {
     if (monitorId == null || !selection) return;
