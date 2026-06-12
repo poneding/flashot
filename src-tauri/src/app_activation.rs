@@ -51,13 +51,22 @@ fn deactivate_app_macos_on_main_thread() {
 pub fn deactivate_then_hide_overlays_macos(app: &AppHandle) -> bool {
     #[cfg(target_os = "macos")]
     {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
         let handle = app.clone();
+        let (tx, rx) = mpsc::channel();
         if let Err(e) = app.run_on_main_thread(move || {
             deactivate_then_hide_overlays_macos_on_main_thread(&handle);
+            let _ = tx.send(());
         }) {
             tracing::warn!("failed to schedule capture-end deactivation: {e}");
             return false;
         }
+        // Block until main-thread task completes or timeout. This prevents
+        // AppKit from promoting utility windows in the gap between queueing
+        // the deactivate task and its execution.
+        let _ = rx.recv_timeout(Duration::from_millis(500));
         true
     }
     #[cfg(not(target_os = "macos"))]

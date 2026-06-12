@@ -672,6 +672,14 @@ fn settings_window_size() -> (f64, f64) {
 }
 
 #[tauri::command]
+pub fn push_capture_cursor_macos(_app: AppHandle) {
+    #[cfg(target_os = "macos")]
+    crate::overlay_window::push_capture_cursor();
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+}
+
+#[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }
