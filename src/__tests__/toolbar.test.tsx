@@ -332,26 +332,15 @@ describe("Toolbar", () => {
     expect(useOverlay.getState().colorPickerVisible).toBe(false);
   });
 
-  it("uses a vertical chevrons ellipsis icon for scrolling screenshot", () => {
+  it("uses the lucide mouse icon for scrolling screenshot", () => {
     renderToolbar();
 
     const icon = screen
       .getByRole("button", { name: "Scrolling screenshot" })
       .querySelector("svg");
-    const paths = Array.from(icon?.querySelectorAll("path") ?? []).map((path) =>
-      path.getAttribute("d"),
-    );
 
-    expect(icon?.getAttribute("data-scroll-screenshot-icon")).toBe("vertical");
-    expect(paths).toEqual(
-      expect.arrayContaining([
-        "M12 8h.01",
-        "M12 12h.01",
-        "M12 16h.01",
-        "m7 7 5-5 5 5",
-        "m7 17 5 5 5-5",
-      ]),
-    );
+    expect(icon?.classList.contains("lucide-mouse")).toBe(true);
+    expect(icon?.querySelector("rect")).not.toBeNull();
   });
 
   it("defaults to the right side of the selection", () => {

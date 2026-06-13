@@ -6,7 +6,7 @@ import type { Rect } from "@/lib/types";
 import { CornerRadiusPanel, CORNER_RADIUS_PANEL_SIZE } from "@/overlay/CornerRadiusPanel";
 import { ImageAdjustmentsPanel } from "@/overlay/ImageAdjustmentsPanel";
 import { useOverlay } from "@/overlay/state";
-import { CopyIcon, GripHorizontal, Image, PinIcon, Pipette, SaveIcon, SquareRoundCorner, XIcon } from "lucide-react";
+import { CopyIcon, GripHorizontal, Image, Mouse, PinIcon, Pipette, SaveIcon, SquareRoundCorner, XIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 export const SCREENSHOT_TOOLBAR_RADIUS = 10;
@@ -231,7 +231,7 @@ export function Toolbar({
           />
           <ToolbarButton
             label={scrollSelectionTooSmall ? t("screenshot.selectionTooSmall") : t("screenshot.scrollingScreenshot")}
-            icon={<ScrollScreenshotIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
+            icon={<Mouse size={18} strokeWidth={2.2} aria-hidden="true" />}
             onClick={() => runAction(onScroll)}
             disabled={scrollSelectionTooSmall}
           />
@@ -292,35 +292,6 @@ export function Toolbar({
         />
       )}
     </>
-  );
-}
-
-function ScrollScreenshotIcon({ size = 24, strokeWidth = 2, ...props }: {
-  size?: number | string;
-  strokeWidth?: number | string;
-  "aria-hidden"?: "true";
-}) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="lucide lucide-chevrons-up-down-ellipsis-icon lucide-chevrons-up-down-ellipsis"
-      data-scroll-screenshot-icon="vertical"
-      {...props}
-    >
-      <path d="M12 8h.01" />
-      <path d="M12 12h.01" />
-      <path d="M12 16h.01" />
-      <path d="m7 7 5-5 5 5" />
-      <path d="m7 17 5 5 5-5" />
-    </svg>
   );
 }
 
