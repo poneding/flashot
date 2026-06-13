@@ -75,6 +75,7 @@ vi.mock("@/lib/ipc", () => ({
   onSelectionClaimed: vi.fn().mockResolvedValue(vi.fn()),
   onSelectionReleased: vi.fn().mockResolvedValue(vi.fn()),
   pinImage: vi.fn().mockResolvedValue("pin-1"),
+  pushCaptureCursorMacos: vi.fn().mockResolvedValue(undefined),
   requestColorCopy: vi.fn().mockResolvedValue(undefined),
   requestColorFormatToggle: vi.fn().mockResolvedValue(undefined),
   releaseSelection: vi.fn().mockResolvedValue(undefined),
