@@ -38,7 +38,13 @@ describe("DetectHighlight rounded hover outline", () => {
 
     expect(highlight?.style.border).toBe("1.5px solid var(--flashot-accent)");
     expect(highlight?.style.boxShadow).toBe("0 0 14px rgba(var(--flashot-accent-rgb), 0.4)");
-    expect(highlight?.style.background).toBe("var(--flashot-accent-soft)");
+  });
+
+  it("leaves the hovered region interior untinted", () => {
+    const { container } = render(<DetectHighlight />);
+    const highlight = container.firstElementChild as HTMLElement | null;
+
+    expect(highlight?.style.background).toBe("");
   });
 
 });

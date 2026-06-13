@@ -1,5 +1,5 @@
 import { useOverlay } from "@/overlay/state";
-import { ACCENT_COLOR_CSS_VAR, ACCENT_RGB_CSS_VAR, ACCENT_SOFT_CSS_VAR } from "@/lib/colors";
+import { ACCENT_COLOR_CSS_VAR, ACCENT_RGB_CSS_VAR } from "@/lib/colors";
 
 const COLOR = ACCENT_COLOR_CSS_VAR;
 
@@ -21,7 +21,6 @@ export function DetectHighlight() {
         height: r.height,
         border: `1.5px solid ${COLOR}`,
         borderRadius: effectiveRadius,
-        background: ACCENT_SOFT_CSS_VAR,
         boxShadow: `0 0 14px rgba(${ACCENT_RGB_CSS_VAR}, 0.4)`,
         pointerEvents: "none",
       }}
