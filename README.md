@@ -1,25 +1,23 @@
-<h1 align="center">Flashot</h1>
+<div align="center">
 
-<p align="center">
-  <img src="public/app-logo.svg" alt="Flashot logo" width="128" height="128" />
-</p>
+# Flashot
 
-<p align="center">
-  <strong>Fast, lightweight screenshot tool built with Tauri + React.</strong>
-</p>
+**English** · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md)
 
-<p align="center">
-  <a href="https://github.com/poneding/flashot/releases/latest"><img src="https://img.shields.io/github/v/release/poneding/flashot?style=flat-square&color=blue" alt="Release" /></a>
-  <a href="https://github.com/poneding/flashot/actions"><img src="https://img.shields.io/github/actions/workflow/status/poneding/flashot/ci.yml?style=flat-square" alt="CI" /></a>
-  <a href="https://github.com/poneding/flashot/blob/main/LICENSE"><img src="https://img.shields.io/github/license/poneding/flashot?style=flat-square" alt="License" /></a>
-  <a href="https://github.com/poneding/flashot/releases"><img src="https://img.shields.io/github/downloads/poneding/flashot/total?style=flat-square&color=green" alt="Downloads" /></a>
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platform" />
-  <a href="https://linux.do" alt="LINUX DO"><img src="https://shorturl.at/ggSqS" /></a>
-</p>
+<img src="public/app-logo.svg" alt="Flashot logo" width="128" height="128" />
 
-<p align="center">
-  <img src="docs/images/demo-01.png" alt="Flashot Demo" width="720" />
-</p>
+**Fast, lightweight screenshot tool built with Tauri + React.**
+
+[![Release](https://img.shields.io/github/v/release/poneding/flashot?color=blue)](https://github.com/poneding/flashot/releases/latest)
+[![CI](https://github.com/poneding/flashot/actions/workflows/ci.yml/badge.svg)](https://github.com/poneding/flashot/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/poneding/flashot/blob/main/LICENSE)
+[![Downloads](https://img.shields.io/github/downloads/poneding/flashot/total?color=green)](https://github.com/poneding/flashot/releases)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](https://github.com/poneding/flashot)
+[![Linux Do](https://img.shields.io/badge/Linux-DO-ffce4c)](https://linux.do)
+
+<img src="docs/images/demo-01.png" alt="Flashot Demo" width="720" />
+
+</div>
 
 ---
 
