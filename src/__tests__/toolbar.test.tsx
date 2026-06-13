@@ -332,15 +332,15 @@ describe("Toolbar", () => {
     expect(useOverlay.getState().colorPickerVisible).toBe(false);
   });
 
-  it("uses the lucide mouse icon for scrolling screenshot", () => {
+  it("uses the lucide scroll icon for scrolling screenshot", () => {
     renderToolbar();
 
     const icon = screen
       .getByRole("button", { name: "Scrolling screenshot" })
       .querySelector("svg");
 
-    expect(icon?.classList.contains("lucide-mouse")).toBe(true);
-    expect(icon?.querySelector("rect")).not.toBeNull();
+    expect(icon?.classList.contains("lucide-scroll")).toBe(true);
+    expect(icon?.querySelector("path")).not.toBeNull();
   });
 
   it("defaults to the right side of the selection", () => {

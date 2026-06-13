@@ -1,12 +1,12 @@
+import { useAnnotation } from "@/annotation/store";
 import { TooltipBubble } from "@/annotation/Tooltip";
 import { createTranslator, type Locale } from "@/i18n";
-import { useAnnotation } from "@/annotation/store";
 import { clampToolbarPosition, computeSidePanelPosition, computeVerticalToolbarPosition } from "@/lib/geometry";
 import type { Rect } from "@/lib/types";
-import { CornerRadiusPanel, CORNER_RADIUS_PANEL_SIZE } from "@/overlay/CornerRadiusPanel";
+import { CORNER_RADIUS_PANEL_SIZE, CornerRadiusPanel } from "@/overlay/CornerRadiusPanel";
 import { ImageAdjustmentsPanel } from "@/overlay/ImageAdjustmentsPanel";
 import { useOverlay } from "@/overlay/state";
-import { CopyIcon, GripHorizontal, Image, Mouse, PinIcon, Pipette, SaveIcon, SquareRoundCorner, XIcon } from "lucide-react";
+import { CopyIcon, GripHorizontal, Image, PinIcon, Pipette, SaveIcon, Scroll, SquareRoundCorner, XIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 export const SCREENSHOT_TOOLBAR_RADIUS = 10;
@@ -231,7 +231,7 @@ export function Toolbar({
           />
           <ToolbarButton
             label={scrollSelectionTooSmall ? t("screenshot.selectionTooSmall") : t("screenshot.scrollingScreenshot")}
-            icon={<Mouse size={18} strokeWidth={2.2} aria-hidden="true" />}
+            icon={<Scroll size={18} strokeWidth={2.2} aria-hidden="true" />}
             onClick={() => runAction(onScroll)}
             disabled={scrollSelectionTooSmall}
           />
