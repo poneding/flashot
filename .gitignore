@@ -33,6 +33,10 @@ yarn-debug.log*
 !.vscode/settings.json
 *.swp
 
+# docs
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
 # secrets / local
 .env
 .env.local

@@ -10,7 +10,10 @@
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc -b --noEmit"
+    "lint": "tsc -b --noEmit",
+    "docs:dev": "cd docs && pnpm dev",
+    "docs:build": "cd docs && pnpm build",
+    "docs:preview": "cd docs && pnpm preview"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
