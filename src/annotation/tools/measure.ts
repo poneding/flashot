@@ -16,6 +16,12 @@ const LABEL_MIN_WIDTH = 38;
 const LABEL_OFFSET = 18;
 const LABEL_BACKGROUND_FILL = "#111827";
 const LABEL_TEXT_FILL = "#ffffff";
+// Mirror the marker label's colored border + glow (markerStyle
+// MARKER_LABEL_STROKE_WIDTH / MARKER_GLOW_BLUR) so measurement labels share the
+// same "halo" treatment, tinted by the measurement's own color.
+const LABEL_BORDER_WIDTH = 1.5;
+const LABEL_GLOW_BLUR = 10;
+const LABEL_GLOW_OPACITY = 0.85;
 
 export function measureLength(start: Point, end: Point): number {
   return Math.round(Math.hypot(end.x - start.x, end.y - start.y));
@@ -179,8 +185,11 @@ function buildMeasureObjectChildren(group: Konva.Group, obj: AnnotationObject) {
     height: LABEL_HEIGHT,
     cornerRadius: 5,
     fill: LABEL_BACKGROUND_FILL,
-    strokeEnabled: false,
-    strokeWidth: 0,
+    stroke: style.color,
+    strokeWidth: LABEL_BORDER_WIDTH,
+    shadowColor: style.color,
+    shadowBlur: LABEL_GLOW_BLUR,
+    shadowOpacity: LABEL_GLOW_OPACITY,
     name: "measure-label-bg",
   }));
 

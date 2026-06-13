@@ -667,8 +667,10 @@ describe("annotation object rendering", () => {
     expect(label.fill()).toBe("#ffffff");
     expect(label.fontStyle()).not.toBe("bold");
     expect(background.fill()).toBe("#111827");
-    expect(background.strokeEnabled()).toBe(false);
-    expect(background.strokeWidth()).toBe(0);
+    expect(background.stroke()).toBe("#ff0000");
+    expect(background.strokeWidth()).toBe(1.5);
+    expect(background.shadowColor()).toBe("#ff0000");
+    expect(background.shadowBlur()).toBe(10);
   });
 
   it("dispatches measurement objects through renderObject", () => {

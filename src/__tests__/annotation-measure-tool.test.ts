@@ -132,8 +132,11 @@ describe("measure annotation tool", () => {
     expect(label.fill()).toBe("#ffffff");
     expect(label.fontStyle()).not.toBe("bold");
     expect(labelBg.fill()).toBe("#111827");
-    expect(labelBg.strokeEnabled()).toBe(false);
-    expect(labelBg.strokeWidth()).toBe(0);
+    expect(labelBg.stroke()).toBe("#0099ff");
+    expect(labelBg.strokeWidth()).toBe(1.5);
+    expect(labelBg.shadowColor()).toBe("#0099ff");
+    expect(labelBg.shadowBlur()).toBe(10);
+    expect(labelBg.shadowOpacity()).toBeCloseTo(0.85);
     expect(labelBg.listening()).toBe(true);
     expect(mainLine.listening()).toBe(false);
     expect(labelGroup.rotation()).toBe(0);
