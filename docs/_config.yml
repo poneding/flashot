@@ -1,0 +1,4 @@
+# Exclude plan/spec documents from Jekyll processing.
+# These files contain JSX code blocks with {{ }} that break Liquid parsing.
+exclude:
+  - superpowers
