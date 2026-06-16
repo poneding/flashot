@@ -3,6 +3,7 @@ import { defineConfig } from "vitepress";
 export default defineConfig({
   lastUpdated: true,
   cleanUrls: true,
+  srcExclude: ["superpowers/**"],
 
   // Top-level site identity for nav bar branding
   title: "Flashot",
@@ -178,7 +179,7 @@ export default defineConfig({
     },
 
     editLink: {
-      pattern: "https://github.com/poneding/flashot/edit/main/docs/:path",
+      pattern: "https://github.com/poneding/flashot/edit/master/docs/:path",
     },
   },
 });
