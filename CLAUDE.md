@@ -64,8 +64,8 @@ pnpm tauri build      # Build production bundle (.dmg, .msi, .AppImage)
 ### Key Rust Modules
 
 - **`window_mgr.rs`**: Session lifecycle manager. `SessionGuard` is RAII — drop always calls `end()` to hide overlays and clear frames. Never manually manage session state.
-- **`overlay_window.rs`**: Platform-specific overlay window configuration/show. On macOS, capture overlays are shown with `orderFrontRegardless` and never activate the app; also pushes the native `NSCursor` crosshair at overlay show (`push_capture_cursor`).
-- **`app_activation.rs`**: macOS activation helpers. `deactivate_then_hide_overlays_macos` deactivates the app, then hides overlays, atomically on the main thread at session end.
+- **`overlay_window.rs`**: Platform-specific overlay window configuration/show. On macOS, capture overlays are shown per-monitor with `orderFrontRegardless`; also pushes the native `NSCursor` crosshair at overlay show (`push_capture_cursor`). Flashot itself is activated once after all overlays are up (see `app_activation::activate_flashot_for_capture`) so the crosshair is honored.
+- **`app_activation.rs`**: macOS focus management. Captures the previously-frontmost app (`capture_previous_frontmost_app`), activates Flashot for capture (`activate_flashot_for_capture`), and restores focus by reactivating the previous app — `reactivate_previous_app` (borrow, for scroll mid-session) and `reactivate_then_hide_overlays_macos` (reactivate then hide overlays, atomically on the main thread at session end).
 - **`scroll_session.rs`**: Tokio capture loop for scroll capture. Recaptures the selected region on a tick, feeds the stitcher, and emits throttled progress events (with a bottom-tail preview PNG) to the chrome window only.
 - **`scroll_stitch.rs`**: Incremental scroll stitcher. Matches adjacent frames via normalized cross-correlation (NCC) on feature-sampled ROIs and appends only the newly scrolled strip to the canvas.
 - **`capture/`**: Platform-specific screen capture (all platforms use `xcap`)
@@ -145,12 +145,15 @@ This allows live hotkey updates without app restart.
 - Uses `macOSPrivateApi: true` in `tauri.conf.json` for overlay rendering
 - Window enumeration uses Core Graphics (`CGWindowListCopyWindowInfo`)
 
-**macOS capture window management** (load-bearing invariants, pinned by guard tests in `overlay_window.rs`, `app_activation.rs`, and `commands.rs`):
+**macOS capture window management** (load-bearing invariants, pinned by guard tests in `overlay_window.rs`, `app_activation.rs`, `window_mgr.rs`, and `commands.rs`):
 
-- Capture overlays are shown with `orderFrontRegardless` and never activate the app (no makeKey/activate during capture) — activating would raise open utility windows (Settings/About/Updater).
-- Session end must deactivate the app BEFORE hiding overlays, atomically on the main thread (`app_activation::deactivate_then_hide_overlays_macos`). `crop_and_save` is the exception: the save dialog needs the app active, so it deactivates after the dialog returns.
-- Because overlays never own keyboard focus on macOS, session shortcuts (Esc, and X/C for the color picker) are session-scoped GLOBAL hotkeys (`hotkey.rs`); X/C are disabled during annotation text input so they can be typed (Esc remains active).
-- The crosshair cursor is pushed natively via `NSCursor` at overlay show (process-global; no activation needed).
+- Flashot's utility windows (Settings/About/Updater) are **permanently pinned** to the floating window level the moment they are shown (`commands.rs::pin_utility_window_to_level`, set via the stable `setLevel:` AppKit call — never `orderOut:`/`orderFront:`, which throw NSExceptions on windows mid-interaction and crashed the app). Priority by level (higher = further front): Pin (FLOATING+3) > Updater (+2) > Settings (+1) > About (FLOATING). Because they are already pinned front, activating Flashot during capture never visibly bumps/reshuffles them — no flicker, no "jump to top after capture" bug. They stay open-and-pinned; the user closes them manually when done.
+- The app that was frontmost when the capture hotkey fired is captured (`app_activation::capture_previous_frontmost_app`) into the session state BEFORE Flashot activates itself, so it can be reactivated on session end to return focus to the app the user was in.
+- Capture overlays are shown per-monitor with `orderFrontRegardless` (no per-window activation), then Flashot is activated ONCE (`app_activation::activate_flashot_for_capture`) after every overlay already covers its monitor. Activation is required because macOS only honors the cursor of the frontmost app, so the overlay crosshair never stuck under the old "never activate" model. Utility windows are already pinned, so activation does not visibly reshuffle them.
+- Session end reactivates the previously-frontmost app (NSRunningApplication `activateWithOptions: AllWindows | IgnoringOtherApps`) BEFORE hiding overlays, atomically in one main-thread task (`app_activation::reactivate_then_hide_overlays_macos`), which returns focus to the user's previous app. `reactivate_previous_app` BLOCKS until the main-thread task completes (a fire-and-forget version would drop the retained `NSRunningApplication` before `activateWithOptions` dereferences it, crashing via a dangling pointer). `crop_and_save` keeps Flashot active across its save dialog, then calls `WindowMgr::restore_focus_to_previous_app` to reactivate the previous app.
+- scroll capture reactivates the underlying app mid-session (`WindowMgr::reactivate_previous_app`, which borrows the handle) so wheel events reach the underlying app; scroll end then goes through the normal session-end reactivate-and-hide path.
+- Because overlay windows never take Tauri focus (`capture_overlay_should_take_focus() == false` on macOS) and keyboard focus is not relied upon, session shortcuts (Esc, and X/C for the color picker) are session-scoped GLOBAL hotkeys (`hotkey.rs`); X/C are disabled during annotation text input so they can be typed (Esc remains active).
+- The crosshair cursor is pushed natively via `NSCursor` at overlay show plus a post-loop backstop (`push_capture_cursor`); it is only visible because Flashot is frontmost during capture (see activation above).
 
 ### Windows
 

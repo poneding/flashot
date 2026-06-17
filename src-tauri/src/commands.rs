@@ -1,5 +1,4 @@
 use crate::{
-    app_activation::schedule_app_deactivation_macos,
     clipboard, overlay_window,
     pin_mgr::{PinEntry, PinManager},
     saver, settings_store,
@@ -123,7 +122,41 @@ fn show_app_window(window: &WebviewWindow) -> Result<(), String> {
 
 fn show_utility_window(window: &WebviewWindow, theme: Option<TauriTheme>) -> Result<(), String> {
     apply_utility_window_appearance(window, theme)?;
-    show_app_window(window)
+    show_app_window(window)?;
+    // Pin utility windows to a floating level permanently (Snipaste-style):
+    // they stay above other apps' windows while open, so activating Flashot
+    // during capture never visibly bumps them (no flicker / no "jump to top").
+    // Priority: Pin > Updater > Settings > About.
+    pin_utility_window_to_level(window);
+    Ok(())
+}
+
+/// Set the window level for Flashot's utility windows so they stay pinned
+/// above other apps' windows while open. Priority order (higher = further
+/// front): Pin > Updater > Settings > About. No-op on non-macOS and for
+/// non-utility windows.
+fn pin_utility_window_to_level(window: &WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    {
+        let level = match window.label() {
+            "about" => Some(crate::app_activation::FLOATING_WINDOW_LEVEL),
+            "settings" => Some(crate::app_activation::FLOATING_WINDOW_LEVEL + 1),
+            "updater" => Some(crate::app_activation::FLOATING_WINDOW_LEVEL + 2),
+            _ => None,
+        };
+        let Some(level) = level else { return };
+        let app = window.app_handle();
+        let w = window.clone();
+        if let Err(e) = app.run_on_main_thread(move || {
+            let _ = crate::app_activation::set_window_level(&w, level);
+        }) {
+            tracing::warn!("failed to set utility window level: {e}");
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+    }
 }
 
 fn utility_window_theme_for_settings(settings: &Settings) -> Option<TauriTheme> {
@@ -307,7 +340,14 @@ fn configure_macos_pin_window_before_show(window: &WebviewWindow) -> Result<(), 
             .send_message::<_, ()>(Sel::register("setOpaque:"), (NO,))
             .map_err(|e| e.to_string())?;
     }
-
+    // Pin windows sit above utility windows: Pin > Updater(FLOATING+2) >
+    // Settings(+1) > About(FLOATING). FLOATING + 3 keeps pinned screenshots
+    // on top of Flashot's own utility windows while still below capture
+    // overlays (which use the shielding / maximum level).
+    let _ = crate::app_activation::set_window_level(
+        window,
+        crate::app_activation::FLOATING_WINDOW_LEVEL + 3,
+    );
     Ok(())
 }
 
@@ -404,7 +444,10 @@ pub async fn crop_and_save(
         final_image.height,
         &settings,
     );
-    schedule_app_deactivation_macos(&app);
+    // The save dialog needs Flashot active, so we hide overlays above but keep
+    // it frontmost while the dialog runs; now restore the previously-frontmost
+    // app so utility windows return to their background z-order.
+    mgr.restore_focus_to_previous_app(&app);
     let path = path.map_err(|e| e.to_string())?;
     if path.is_some() {
         if let Some(saved_path) = path.as_deref() {
@@ -1226,7 +1269,10 @@ pub async fn start_scroll_session(
     if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
         let _ = w.set_ignore_cursor_events(true);
     }
-    schedule_app_deactivation_macos(&app);
+    // Reactivate the underlying app so wheel events flow to it instead of
+    // being intercepted by our overlay. Borrow (don't consume) so the eventual
+    // scroll-end restore can reactivate it again.
+    mgr.reactivate_previous_app(&app);
 
     // 3. Give macOS a moment to actually compose the screen without the
     //    frozen overlay layer (frontend hides FrozenLayer when entering
@@ -1711,17 +1757,17 @@ mod tests {
     }
 
     #[test]
-    fn save_paths_deactivate_app_after_user_facing_dialogs() {
+    fn save_paths_restore_focus_after_user_facing_dialogs() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let crop_body = function_body(&source, "crop_and_save");
         let crop_end_idx = crop_body.find("mgr.end_session(&app);").unwrap();
         let dialog_idx = crop_body.find("saver::save_image_dialog").unwrap();
-        let crop_deactivate_idx = crop_body
-            .find("schedule_app_deactivation_macos(&app);")
-            .expect("crop_and_save must deactivate after the save dialog returns");
+        let crop_restore_idx = crop_body
+            .find("mgr.restore_focus_to_previous_app(&app);")
+            .expect("crop_and_save must restore focus after the save dialog returns");
         assert!(
-            crop_end_idx < dialog_idx && dialog_idx < crop_deactivate_idx,
-            "crop_and_save must hide overlays, show the save dialog, then deactivate the app",
+            crop_end_idx < dialog_idx && dialog_idx < crop_restore_idx,
+            "crop_and_save must hide overlays, show the save dialog, then restore the previous app",
         );
 
         let scroll_body = function_body(&source, "scroll_save");
@@ -1729,7 +1775,7 @@ mod tests {
         let scroll_end_idx = scroll_body
             .find("mgr.end_session_deactivating_app(&app);")
             .expect(
-                "scroll_save must deactivate and hide overlays in one main-thread task; \
+                "scroll_save must reactivate the previous app and hide overlays in one main-thread task; \
                  unlike crop_and_save, its path dialog completes BEFORE the session ends, \
                  so nothing after the end needs the app to stay active",
             );
@@ -2066,7 +2112,7 @@ mod tests {
     }
 
     #[test]
-    fn macos_deactivation_is_scheduled_on_main_thread() {
+    fn scroll_start_focus_restore_runs_on_main_thread() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let start = source.find("pub async fn start_scroll_session").unwrap();
         let end = source[start..]
@@ -2076,23 +2122,19 @@ mod tests {
         let body = &source[start..end];
 
         assert!(
-            !body.contains("deactivate_app_macos();"),
+            body.contains("mgr.reactivate_previous_app(&app)"),
+            "start_scroll_session must reactivate the underlying app via the manager (without ending the session) so wheel events are not intercepted",
+        );
+        assert!(
+            !body.contains("activateWithOptions:") && !body.contains("deactivate_app_macos();"),
             "start_scroll_session runs on a Tauri IPC worker and must not call AppKit directly",
         );
 
         let helper_source = include_str!("app_activation.rs").replace("\r\n", "\n");
-        let helper_start = helper_source
-            .find("pub fn schedule_app_deactivation_macos")
-            .expect("missing macOS main-thread scheduling helper");
-        let helper_end = helper_source[helper_start..]
-            .find("fn deactivate_app_macos_on_main_thread")
-            .map(|idx| helper_start + idx)
-            .expect("missing main-thread AppKit helper");
-        let helper_body = &helper_source[helper_start..helper_end];
-
         assert!(
-            helper_body.contains(".run_on_main_thread("),
-            "macOS app deactivation must be dispatched to the main thread",
+            helper_source.contains("pub fn reactivate_previous_app")
+                && helper_source.contains(".run_on_main_thread("),
+            "focus restore must dispatch AppKit activation to the main thread",
         );
     }
 

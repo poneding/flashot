@@ -1,3 +1,4 @@
+use crate::app_activation::PreviousFrontmostApp;
 use crate::scroll_stitch::ScrollStitcher;
 use crate::types::FrozenFrame;
 use parking_lot::Mutex;
@@ -18,6 +19,9 @@ struct Inner {
     frames: HashMap<u32, FrozenFrame>,
     in_session: bool,
     scroll: Option<ScrollState>,
+    /// The app that was frontmost when the session started. Restoring focus
+    /// to it on session end returns focus to the app the user was in.
+    previous_app: PreviousFrontmostApp,
 }
 
 #[allow(dead_code)] // `monitor_id`/`rect` are recorded for future routing/debug use
@@ -40,12 +44,19 @@ impl WindowMgr {
             let mut inner = self.inner.lock();
             inner.in_session = true;
             inner.frames.clear();
+            inner.previous_app = PreviousFrontmostApp::default();
         }
         SessionGuard {
             mgr: self.clone(),
             app,
             ended: false,
         }
+    }
+
+    /// Record the app that was frontmost when the session started, so it can be
+    /// reactivated on session end to restore app focus.
+    pub fn set_previous_app(&self, app: PreviousFrontmostApp) {
+        self.inner.lock().previous_app = app;
     }
 
     pub fn store_frame(&self, frame: FrozenFrame) {
@@ -92,14 +103,38 @@ impl WindowMgr {
     }
 
     pub fn end_session_deactivating_app(&self, app: &AppHandle) {
+        // Reactivate the previous app BEFORE hiding the overlay (Flashot's key
+        // window): with Flashot no longer frontmost, AppKit won't promote a
+        // utility window to key. Utility windows are pinned to the floating
+        // level by design (see `commands.rs`), so they stay where the user
+        // expects regardless of capture.
+        let previous = self.take_previous_app();
         self.clear_session_state();
-        // Deactivate BEFORE hiding overlays, in one main-thread task. Hiding
-        // the key overlay while the app is still active makes AppKit raise the
-        // next visible Flashot window (Settings/About/Updater).
-        if !crate::app_activation::deactivate_then_hide_overlays_macos(app) {
+        if !crate::app_activation::reactivate_then_hide_overlays_macos(app, &previous) {
             crate::app_activation::hide_overlay_windows(app);
         }
         let _ = app.emit("capture:end", ());
+    }
+
+    /// Reactivate the previously-frontmost app WITHOUT hiding overlays first.
+    /// Used by save-dialog paths (`crop_and_save`) where overlays were already
+    /// hidden for the dialog; this just restores app focus afterward.
+    pub fn restore_focus_to_previous_app(&self, app: &AppHandle) {
+        let previous = self.take_previous_app();
+        crate::app_activation::reactivate_previous_app(app, &previous);
+    }
+
+    /// Reactivate the previously-frontmost app WITHOUT ending the session or
+    /// consuming the handle, so a later `end_session_deactivating_app` can
+    /// reactivate it again. Used by scroll capture to hand wheel events to the
+    /// underlying app while the session stays alive.
+    pub fn reactivate_previous_app(&self, app: &AppHandle) {
+        let inner = self.inner.lock();
+        crate::app_activation::reactivate_previous_app(app, &inner.previous_app);
+    }
+
+    fn take_previous_app(&self) -> PreviousFrontmostApp {
+        std::mem::take(&mut self.inner.lock().previous_app)
     }
 
     fn clear_session_state(&self) {
@@ -230,12 +265,12 @@ mod tests {
     }
 
     #[test]
-    fn capture_end_deactivates_app_before_hiding_overlays_on_macos() {
+    fn capture_end_reactivates_previous_app_before_hiding_overlays_on_macos() {
         let source = include_str!("window_mgr.rs").replace("\r\n", "\n");
         let body = function_body(&source, "end_session_deactivating_app");
         assert!(
-            body.contains("deactivate_then_hide_overlays_macos"),
-            "macOS capture end must deactivate the app and hide overlays in one main-thread task, deactivate first",
+            body.contains("reactivate_then_hide_overlays_macos"),
+            "macOS capture end must reactivate the previous frontmost app and hide overlays in one main-thread task, reactivate first",
         );
     }
 

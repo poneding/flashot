@@ -607,6 +607,12 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     set_capture_cancel_hotkey(&app, true);
     set_color_picker_hotkeys(&app, true);
 
+    // Record the app that was frontmost when the hotkey fired, BEFORE Flashot
+    // activates itself for the overlay. Reactivating it on session end is what
+    // restores utility-window (Settings/About/Updater) z-order to its original
+    // background position. No-op handle off macOS.
+    mgr.set_previous_app(app_activation::capture_previous_frontmost_app(&app));
+
     let current_monitors =
         capture::enumerate_monitors().context("Failed to enumerate monitors before capture")?;
     ensure_overlays_for_monitors(&app, &current_monitors)?;
@@ -726,6 +732,16 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
             tracing::warn!("run_capture: overlay window {} not found", label);
         }
     }
+
+    // Activate Flashot so the overlay cursor is honored: macOS only displays
+    // the cursor owned by the frontmost app, so an overlay shown without
+    // activation never got its crosshair to stick. Activating here (after every
+    // overlay already covers its monitor) makes Flashot frontmost. Utility
+    // windows (Settings/About/Updater) are pinned to the floating level by
+    // design (see `commands.rs`), so activation does not visibly reshuffle
+    // them — they stay where the user expects. The original frontmost app is
+    // restored on session end. No-op off macOS.
+    app_activation::activate_flashot_for_capture(&app);
 
     // Final cursor push after the loop: (a) backstop for monitors whose
     // overlay window was not found above (that branch skips the per-show
