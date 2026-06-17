@@ -126,22 +126,25 @@ fn show_utility_window(window: &WebviewWindow, theme: Option<TauriTheme>) -> Res
     // Pin utility windows to a floating level permanently (Snipaste-style):
     // they stay above other apps' windows while open, so activating Flashot
     // during capture never visibly bumps them (no flicker / no "jump to top").
-    // Priority: Pin > Updater > Settings > About.
+    // Settings/Updater/About share the SAME level so the most recently opened
+    // one lands on top (a smaller window like About is never trapped behind a
+    // larger sibling); Pin sits above them all.
     pin_utility_window_to_level(window);
     Ok(())
 }
 
 /// Set the window level for Flashot's utility windows so they stay pinned
-/// above other apps' windows while open. Priority order (higher = further
-/// front): Pin > Updater > Settings > About. No-op on non-macOS and for
+/// above other apps' windows while open. Settings/Updater/About all share the
+/// floating level (the most recently opened one is on top); Pin is set higher
+/// in `configure_macos_pin_window_before_show`. No-op on non-macOS and for
 /// non-utility windows.
 fn pin_utility_window_to_level(window: &WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
         let level = match window.label() {
-            "about" => Some(crate::app_activation::FLOATING_WINDOW_LEVEL),
-            "settings" => Some(crate::app_activation::FLOATING_WINDOW_LEVEL + 1),
-            "updater" => Some(crate::app_activation::FLOATING_WINDOW_LEVEL + 2),
+            "about" | "settings" | "updater" => {
+                Some(crate::app_activation::FLOATING_WINDOW_LEVEL)
+            }
             _ => None,
         };
         let Some(level) = level else { return };
@@ -340,10 +343,10 @@ fn configure_macos_pin_window_before_show(window: &WebviewWindow) -> Result<(), 
             .send_message::<_, ()>(Sel::register("setOpaque:"), (NO,))
             .map_err(|e| e.to_string())?;
     }
-    // Pin windows sit above utility windows: Pin > Updater(FLOATING+2) >
-    // Settings(+1) > About(FLOATING). FLOATING + 3 keeps pinned screenshots
-    // on top of Flashot's own utility windows while still below capture
-    // overlays (which use the shielding / maximum level).
+    // Pin windows sit above the (same-level) utility windows: Settings/Updater/
+    // About are all at FLOATING, so FLOATING + 3 keeps pinned screenshots on
+    // top of Flashot's own utility windows while still below capture overlays
+    // (which use the shielding / maximum level).
     let _ = crate::app_activation::set_window_level(
         window,
         crate::app_activation::FLOATING_WINDOW_LEVEL + 3,
