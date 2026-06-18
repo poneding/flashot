@@ -1,4 +1,6 @@
-use tauri::{AppHandle, Manager, WebviewWindow};
+#[cfg(target_os = "macos")]
+use tauri::WebviewWindow;
+use tauri::{AppHandle, Manager};
 
 /// An opaque handle to the app that was frontmost when a capture session
 /// started. On macOS it retains an `NSRunningApplication`; off macOS it is a
@@ -53,6 +55,19 @@ impl Drop for PreviousFrontmostApp {
 #[cfg(not(target_os = "macos"))]
 #[derive(Default)]
 pub struct PreviousFrontmostApp;
+
+impl PreviousFrontmostApp {
+    pub fn empty() -> Self {
+        #[cfg(target_os = "macos")]
+        {
+            Self::default()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Self
+        }
+    }
+}
 
 /// Capture the app that is currently frontmost. Must be called once at the
 /// start of a capture session, BEFORE Flashot activates itself for the overlay.

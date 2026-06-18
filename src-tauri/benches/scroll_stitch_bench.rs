@@ -13,8 +13,9 @@
 //! (capped at 8192 rows for the tallest chrome viewports — still
 //! independent of canvas height).
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use flashot_lib::scroll_stitch::{IngestResult, ScrollStitcher, StitchConfig};
+use std::hint::black_box;
 
 const WIDTH: u32 = 1280;
 const FRAME_H: u32 = 800;

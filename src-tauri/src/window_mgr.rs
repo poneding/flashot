@@ -44,7 +44,7 @@ impl WindowMgr {
             let mut inner = self.inner.lock();
             inner.in_session = true;
             inner.frames.clear();
-            inner.previous_app = PreviousFrontmostApp::default();
+            inner.previous_app = PreviousFrontmostApp::empty();
         }
         SessionGuard {
             mgr: self.clone(),
