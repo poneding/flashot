@@ -61,7 +61,19 @@ fn window_rect_from_dict(dict: &CFDictionary) -> Option<WindowRect> {
     let pid = read_u32(dict, "kCGWindowOwnerPID").unwrap_or(0);
     let layer = read_u32(dict, "kCGWindowLayer").unwrap_or(0);
 
-    if layer != 0 || rect.width <= 1 || rect.height <= 1 || app_name.is_empty() {
+    // Normal app windows live at layer 0. Flashot's own utility windows
+    // (Settings/About/Updater) are pinned to the floating level so they stay
+    // on top during capture (see `commands.rs::pin_utility_window_to_level`);
+    // include them so the user can snap-select them. Other non-normal layers
+    // (Dock, menu bar, capture overlays, pin windows at FLOATING+3, ...) are
+    // skipped — pinning them to floating deliberately moved them off layer 0.
+    let is_own_pinned_utility =
+        pid == std::process::id() && layer == crate::app_activation::FLOATING_WINDOW_LEVEL as u32;
+    if !(layer == 0 || is_own_pinned_utility)
+        || rect.width <= 1
+        || rect.height <= 1
+        || app_name.is_empty()
+    {
         return None;
     }
 
@@ -224,5 +236,41 @@ mod tests {
         });
 
         assert!(window_rect_from_dict(&dict).is_none());
+    }
+
+    #[test]
+    fn includes_flashots_own_floating_utility_windows() {
+        // Settings/About/Updater are pinned to the floating level so they stay
+        // on top during capture; the probe must still detect them so the user
+        // can snap-select them.
+        let dict = window_dict(WindowDictInput {
+            title: Some("Settings"),
+            app_name: "Flashot",
+            pid: std::process::id() as i32,
+            layer: crate::app_activation::FLOATING_WINDOW_LEVEL as i32,
+            bounds: (120.0, 80.0, 560.0, 560.0),
+        });
+
+        let window = window_rect_from_dict(&dict).expect("own floating utility window is detected");
+        assert_eq!(window.app_name, "Flashot");
+        assert_eq!(window.pid, std::process::id());
+    }
+
+    #[test]
+    fn rejects_other_apps_floating_windows() {
+        // A different app's floating panel must NOT be detected — only
+        // Flashot's own pinned utility windows opt in.
+        let dict = window_dict(WindowDictInput {
+            title: Some("Panel"),
+            app_name: "OtherApp",
+            pid: 5555,
+            layer: crate::app_activation::FLOATING_WINDOW_LEVEL as i32,
+            bounds: (120.0, 80.0, 300.0, 200.0),
+        });
+
+        assert!(
+            window_rect_from_dict(&dict).is_none(),
+            "other apps' floating windows must stay filtered out"
+        );
     }
 }
