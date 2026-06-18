@@ -452,13 +452,12 @@ pub async fn crop_and_save(
     // app so utility windows return to their background z-order.
     mgr.restore_focus_to_previous_app(&app);
     let path = path.map_err(|e| e.to_string())?;
-    if path.is_some() {
-        if let Some(saved_path) = path.as_deref() {
+    if path.is_some()
+        && let Some(saved_path) = path.as_deref() {
             saver::remember_last_save_dir(&mut settings, saved_path);
             settings_store::save(&settings).map_err(|e| e.to_string())?;
             let _ = app.emit("settings:changed", ());
         }
-    }
     Ok(path.map(|p| p.to_string_lossy().to_string()))
 }
 
@@ -958,11 +957,10 @@ pub async fn update_pin_annotation(
             std::fs::write(&next_annotation_path, next_annotation_png)
                 .map_err(|e| format!("Failed to save annotation PNG: {e}"))?;
 
-            if let Some(old_path) = paths.annotation_path.as_ref() {
-                if old_path != &next_annotation_path {
+            if let Some(old_path) = paths.annotation_path.as_ref()
+                && old_path != &next_annotation_path {
                     let _ = std::fs::remove_file(old_path);
                 }
-            }
 
             pin_mgr
                 .update_annotation(&pin_id, Some(next_annotation_path))

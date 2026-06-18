@@ -101,7 +101,7 @@ fn display_icc_profile(display_id: u32) -> Option<Vec<u8>> {
     use core_graphics::sys::CGColorSpaceRef;
 
     #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
+    unsafe extern "C" {
         fn CGDisplayCopyColorSpace(display: CGDirectDisplayID) -> CGColorSpaceRef;
         fn CGColorSpaceCopyICCData(space: CGColorSpaceRef) -> CFDataRef;
     }

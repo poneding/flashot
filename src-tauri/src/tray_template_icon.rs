@@ -24,7 +24,7 @@ mod macos {
 
     static mut ORIGINAL_SET_IMAGE: Option<SetImageFn> = None;
 
-    unsafe extern "C" fn set_image_template(this: *mut Object, sel: Sel, image: *mut Object) {
+    unsafe extern "C" fn set_image_template(this: *mut Object, sel: Sel, image: *mut Object) { unsafe {
         if !image.is_null() {
             let set_template_sel = Sel::register("setTemplate:");
             // Resolve setTemplate: on the image's class and call it directly
@@ -41,7 +41,7 @@ mod macos {
         if let Some(original) = ORIGINAL_SET_IMAGE {
             original(this, sel, image);
         }
-    }
+    }}
 
     pub fn install() {
         static ONCE: Once = Once::new();

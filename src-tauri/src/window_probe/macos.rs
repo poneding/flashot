@@ -10,7 +10,7 @@ use core_graphics::window::{
 };
 
 #[link(name = "CoreGraphics", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     fn CGWindowListCopyWindowInfo(option: CGWindowListOption, relativeToWindow: u32) -> CFArrayRef;
 }
 

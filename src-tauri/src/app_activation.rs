@@ -302,11 +302,10 @@ fn deactivate_app_macos_on_main_thread() {
                         return;
                     }
                 };
-            if !app.is_null() {
-                if let Err(e) = (*app).send_message::<_, ()>(Sel::register("deactivate"), ()) {
+            if !app.is_null()
+                && let Err(e) = (*app).send_message::<_, ()>(Sel::register("deactivate"), ()) {
                     tracing::warn!("NSApp deactivate failed: {e}");
                 }
-            }
         }
     }
 }

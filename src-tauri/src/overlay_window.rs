@@ -251,7 +251,7 @@ fn restore_platform_after_text_input(window: &WebviewWindow) -> Result<()> {
 
 #[cfg(target_os = "macos")]
 fn capture_overlay_window_level() -> isize {
-    extern "C" {
+    unsafe extern "C" {
         fn CGShieldingWindowLevel() -> i32;
         fn CGWindowLevelForKey(key: i32) -> i32;
     }
@@ -268,7 +268,7 @@ fn capture_overlay_window_level() -> isize {
 
 #[cfg(target_os = "macos")]
 fn text_input_overlay_window_level() -> isize {
-    extern "C" {
+    unsafe extern "C" {
         fn CGWindowLevelForKey(key: i32) -> i32;
     }
 

@@ -211,11 +211,10 @@ impl ScrollStitcher {
             );
         }
 
-        if let Some(positive) = best_positive {
-            if positive.trusted_positive || best_any.0 == 0 || positive.score + 0.02 >= best_any.1 {
+        if let Some(positive) = best_positive
+            && (positive.trusted_positive || best_any.0 == 0 || positive.score + 0.02 >= best_any.1) {
                 return (positive.dy, positive.score);
             }
-        }
 
         best_any
     }

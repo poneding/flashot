@@ -87,17 +87,15 @@ fn initial_save_dir(settings: &Settings) -> Result<PathBuf> {
 }
 
 fn expand_user_path(path: &str) -> PathBuf {
-    if path == "~" {
-        if let Some(home) = dirs::home_dir() {
+    if path == "~"
+        && let Some(home) = dirs::home_dir() {
             return home;
         }
-    }
 
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir() {
             return home.join(rest);
         }
-    }
 
     PathBuf::from(path)
 }

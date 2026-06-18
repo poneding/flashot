@@ -54,26 +54,23 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::Destroyed = event {
                 let label = window.label();
-                if let Some(pin_id) = label.strip_prefix("pin-") {
-                    if let Some(pin_mgr) = window.app_handle().try_state::<Arc<PinManager>>() {
-                        if let Some(entry) = pin_mgr.remove_pin(pin_id) {
+                if let Some(pin_id) = label.strip_prefix("pin-")
+                    && let Some(pin_mgr) = window.app_handle().try_state::<Arc<PinManager>>()
+                        && let Some(entry) = pin_mgr.remove_pin(pin_id) {
                             if let Err(e) = std::fs::remove_file(&entry.image_path) {
                                 tracing::warn!(
                                     "failed to remove pin PNG {:?}: {e}",
                                     entry.image_path
                                 );
                             }
-                            if let Some(annotation_path) = entry.annotation_path {
-                                if let Err(e) = std::fs::remove_file(&annotation_path) {
+                            if let Some(annotation_path) = entry.annotation_path
+                                && let Err(e) = std::fs::remove_file(&annotation_path) {
                                     tracing::warn!(
                                         "failed to remove pin annotation PNG {:?}: {e}",
                                         annotation_path
                                     );
                                 }
-                            }
                         }
-                    }
-                }
                 return;
             }
 
@@ -105,11 +102,10 @@ pub fn run() {
 
             // Clean up any stale pin PNGs from previous sessions (PinManager always
             // starts empty, so any leftover files are orphaned).
-            if let Ok(cache_dir) = app.path().app_cache_dir() {
-                if let Err(e) = remove_stale_pin_files(&cache_dir) {
+            if let Ok(cache_dir) = app.path().app_cache_dir()
+                && let Err(e) = remove_stale_pin_files(&cache_dir) {
                     tracing::warn!("failed to clean stale pin files: {e}");
                 }
-            }
 
             let settings = settings_store::load().unwrap_or_default();
 
@@ -680,17 +676,16 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         // Show overlay window
         let label = overlay_label(mon.id);
         tracing::info!("run_capture: showing overlay window: {}", label);
-        if let Some(window) = app.get_webview_window(&label) {
+        match app.get_webview_window(&label) { Some(window) => {
             window
                 .set_ignore_cursor_events(false)
                 .context("Failed to enable cursor events")?;
             overlay_window::show_capture_overlay(&window)
                 .context("Failed to show overlay window")?;
-            if overlay_window::capture_overlay_should_take_focus() {
-                if let Err(e) = window.set_focus() {
+            if overlay_window::capture_overlay_should_take_focus()
+                && let Err(e) = window.set_focus() {
                     tracing::warn!("run_capture: failed to focus overlay window {label}: {e}");
                 }
-            }
             tracing::info!("run_capture: overlay window shown");
 
             // Filter windows overlapping this monitor
@@ -728,9 +723,9 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
             )
             .context("Failed to emit capture:start event")?;
             tracing::info!("run_capture: capture:start event emitted");
-        } else {
+        } _ => {
             tracing::warn!("run_capture: overlay window {} not found", label);
-        }
+        }}
     }
 
     // Activate Flashot so the overlay cursor is honored: macOS only displays

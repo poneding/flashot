@@ -51,110 +51,120 @@ pub fn active_window() -> Result<WindowRect> {
 }
 
 unsafe extern "system" fn enum_proc(hwnd: HWND, lp: LPARAM) -> BOOL {
-    let state = &mut *(lp.0 as *mut State);
-    let Some(window) = window_rect_from_hwnd(hwnd) else {
-        return TRUE;
-    };
+    unsafe {
+        let state = &mut *(lp.0 as *mut State);
+        let Some(window) = window_rect_from_hwnd(hwnd) else {
+            return TRUE;
+        };
 
-    let class_name = read_class_name(hwnd);
-    let is_desktop_surface = is_desktop_surface_class(&class_name);
+        let class_name = read_class_name(hwnd);
+        let is_desktop_surface = is_desktop_surface_class(&class_name);
 
-    if is_desktop_surface {
-        state.desktop_out.push(window);
-    } else {
-        state.out.push(window);
+        if is_desktop_surface {
+            state.desktop_out.push(window);
+        } else {
+            state.out.push(window);
+        }
+        TRUE
     }
-    TRUE
 }
 
 unsafe fn window_rect_from_hwnd(hwnd: HWND) -> Option<WindowRect> {
-    if !is_candidate_top_level_window(hwnd) {
-        return None;
+    unsafe {
+        if !is_candidate_top_level_window(hwnd) {
+            return None;
+        }
+
+        let r = read_visible_rect(hwnd)?;
+        let width = (r.right - r.left).max(0) as u32;
+        let height = (r.bottom - r.top).max(0) as u32;
+        if width < 2 || height < 2 {
+            return None;
+        }
+
+        let title = read_title(hwnd);
+        let class_name = read_class_name(hwnd);
+        let (pid, app) = read_owner(hwnd);
+        let style = WINDOW_STYLE(GetWindowLongPtrW(hwnd, GWL_STYLE) as u32);
+        let ex_style = WINDOW_EX_STYLE(GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32);
+
+        if !is_selectable_app_window(
+            &class_name,
+            &title,
+            !app.is_empty(),
+            style,
+            ex_style,
+            has_owner(hwnd),
+        ) {
+            return None;
+        }
+
+        let app = if app.is_empty() { class_name } else { app };
+
+        Some(WindowRect {
+            rect: Rect {
+                x: r.left,
+                y: r.top,
+                width,
+                height,
+            },
+            title,
+            app_name: app,
+            pid,
+        })
     }
-
-    let r = read_visible_rect(hwnd)?;
-    let width = (r.right - r.left).max(0) as u32;
-    let height = (r.bottom - r.top).max(0) as u32;
-    if width < 2 || height < 2 {
-        return None;
-    }
-
-    let title = read_title(hwnd);
-    let class_name = read_class_name(hwnd);
-    let (pid, app) = read_owner(hwnd);
-    let style = WINDOW_STYLE(GetWindowLongPtrW(hwnd, GWL_STYLE) as u32);
-    let ex_style = WINDOW_EX_STYLE(GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32);
-
-    if !is_selectable_app_window(
-        &class_name,
-        &title,
-        !app.is_empty(),
-        style,
-        ex_style,
-        has_owner(hwnd),
-    ) {
-        return None;
-    }
-
-    let app = if app.is_empty() { class_name } else { app };
-
-    Some(WindowRect {
-        rect: Rect {
-            x: r.left,
-            y: r.top,
-            width,
-            height,
-        },
-        title,
-        app_name: app,
-        pid,
-    })
 }
 
 unsafe fn is_candidate_top_level_window(hwnd: HWND) -> bool {
-    if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
-        return false;
+    unsafe {
+        if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+            return false;
+        }
+        if GetAncestor(hwnd, GA_ROOT) != hwnd {
+            return false;
+        }
+        !is_window_cloaked(hwnd)
     }
-    if GetAncestor(hwnd, GA_ROOT) != hwnd {
-        return false;
-    }
-    !is_window_cloaked(hwnd)
 }
 
 unsafe fn is_window_cloaked(hwnd: HWND) -> bool {
-    let mut cloaked = 0u32;
-    if DwmGetWindowAttribute(
-        hwnd,
-        DWMWA_CLOAKED,
-        &mut cloaked as *mut u32 as *mut c_void,
-        mem::size_of::<u32>() as u32,
-    )
-    .is_err()
-    {
-        return false;
-    }
+    unsafe {
+        let mut cloaked = 0u32;
+        if DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED,
+            &mut cloaked as *mut u32 as *mut c_void,
+            mem::size_of::<u32>() as u32,
+        )
+        .is_err()
+        {
+            return false;
+        }
 
-    cloaked != 0
+        cloaked != 0
+    }
 }
 
 unsafe fn read_visible_rect(hwnd: HWND) -> Option<RECT> {
-    let mut rect = RECT::default();
-    if DwmGetWindowAttribute(
-        hwnd,
-        DWMWA_EXTENDED_FRAME_BOUNDS,
-        &mut rect as *mut RECT as *mut c_void,
-        mem::size_of::<RECT>() as u32,
-    )
-    .is_ok()
-        && !is_empty_rect(&rect)
-    {
-        return Some(rect);
-    }
+    unsafe {
+        let mut rect = RECT::default();
+        if DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut rect as *mut RECT as *mut c_void,
+            mem::size_of::<RECT>() as u32,
+        )
+        .is_ok()
+            && !is_empty_rect(&rect)
+        {
+            return Some(rect);
+        }
 
-    if GetWindowRect(hwnd, &mut rect).is_ok() && !is_empty_rect(&rect) {
-        Some(rect)
-    } else {
-        None
+        if GetWindowRect(hwnd, &mut rect).is_ok() && !is_empty_rect(&rect) {
+            Some(rect)
+        } else {
+            None
+        }
     }
 }
 
@@ -163,20 +173,24 @@ fn is_empty_rect(rect: &RECT) -> bool {
 }
 
 unsafe fn read_class_name(hwnd: HWND) -> String {
-    let mut buf = vec![0u16; 256];
-    let copied = GetClassNameW(hwnd, &mut buf);
-    if copied == 0 {
-        return String::new();
+    unsafe {
+        let mut buf = vec![0u16; 256];
+        let copied = GetClassNameW(hwnd, &mut buf);
+        if copied == 0 {
+            return String::new();
+        }
+        OsString::from_wide(&buf[..copied as usize])
+            .to_string_lossy()
+            .into_owned()
     }
-    OsString::from_wide(&buf[..copied as usize])
-        .to_string_lossy()
-        .into_owned()
 }
 
 unsafe fn has_owner(hwnd: HWND) -> bool {
-    GetWindow(hwnd, GW_OWNER)
-        .map(|owner| !owner.0.is_null())
-        .unwrap_or(false)
+    unsafe {
+        GetWindow(hwnd, GW_OWNER)
+            .map(|owner| !owner.0.is_null())
+            .unwrap_or(false)
+    }
 }
 
 fn is_selectable_app_window(
@@ -238,73 +252,79 @@ fn is_non_selectable_system_class(class_name: &str) -> bool {
 }
 
 unsafe fn read_title(hwnd: HWND) -> String {
-    let len = GetWindowTextLengthW(hwnd);
-    if len == 0 {
-        return String::new();
+    unsafe {
+        let len = GetWindowTextLengthW(hwnd);
+        if len == 0 {
+            return String::new();
+        }
+        let mut buf = vec![0u16; (len + 1) as usize];
+        let copied = GetWindowTextW(hwnd, &mut buf);
+        if copied == 0 {
+            return String::new();
+        }
+        OsString::from_wide(&buf[..copied as usize])
+            .to_string_lossy()
+            .into_owned()
     }
-    let mut buf = vec![0u16; (len + 1) as usize];
-    let copied = GetWindowTextW(hwnd, &mut buf);
-    if copied == 0 {
-        return String::new();
-    }
-    OsString::from_wide(&buf[..copied as usize])
-        .to_string_lossy()
-        .into_owned()
 }
 
 unsafe fn read_owner(hwnd: HWND) -> (u32, String) {
-    let mut pid = 0u32;
-    GetWindowThreadProcessId(hwnd, Some(&mut pid));
-    if pid == 0 {
-        return (0, String::new());
-    }
-    if let Some(name) = read_process_image_name(pid) {
-        return (pid, name);
-    }
+    unsafe {
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == 0 {
+            return (0, String::new());
+        }
+        if let Some(name) = read_process_image_name(pid) {
+            return (pid, name);
+        }
 
-    let flags = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ;
-    let Ok(handle) = OpenProcess(flags, false, pid) else {
-        return (pid, String::new());
-    };
-    let mut buf = vec![0u16; 260];
-    let len = GetModuleBaseNameW(handle, None, &mut buf);
-    let _ = CloseHandle(handle);
-    if len == 0 {
-        return (pid, String::new());
+        let flags = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ;
+        let Ok(handle) = OpenProcess(flags, false, pid) else {
+            return (pid, String::new());
+        };
+        let mut buf = vec![0u16; 260];
+        let len = GetModuleBaseNameW(handle, None, &mut buf);
+        let _ = CloseHandle(handle);
+        if len == 0 {
+            return (pid, String::new());
+        }
+        let name = OsString::from_wide(&buf[..len as usize])
+            .to_string_lossy()
+            .into_owned();
+        (pid, name)
     }
-    let name = OsString::from_wide(&buf[..len as usize])
-        .to_string_lossy()
-        .into_owned();
-    (pid, name)
 }
 
 unsafe fn read_process_image_name(pid: u32) -> Option<String> {
-    let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
-        return None;
-    };
+    unsafe {
+        let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
+            return None;
+        };
 
-    let mut buf = vec![0u16; 32768];
-    let mut len = buf.len() as u32;
-    let result = QueryFullProcessImageNameW(
-        handle,
-        PROCESS_NAME_WIN32,
-        PWSTR(buf.as_mut_ptr()),
-        &mut len,
-    );
-    let _ = CloseHandle(handle);
+        let mut buf = vec![0u16; 32768];
+        let mut len = buf.len() as u32;
+        let result = QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_WIN32,
+            PWSTR(buf.as_mut_ptr()),
+            &mut len,
+        );
+        let _ = CloseHandle(handle);
 
-    if result.is_err() || len == 0 {
-        return None;
+        if result.is_err() || len == 0 {
+            return None;
+        }
+
+        let path = OsString::from_wide(&buf[..len as usize])
+            .to_string_lossy()
+            .into_owned();
+
+        Path::new(&path)
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .filter(|name| !name.is_empty())
     }
-
-    let path = OsString::from_wide(&buf[..len as usize])
-        .to_string_lossy()
-        .into_owned();
-
-    Path::new(&path)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .filter(|name| !name.is_empty())
 }
 
 #[cfg(test)]
