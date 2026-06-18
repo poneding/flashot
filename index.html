@@ -22,6 +22,18 @@
   </head>
 
   <body>
+    <!-- Prevent white flash on transparent windows (pin, overlay, scroll chrome).
+         The inline style is set synchronously before any framework code loads,
+         so the body is transparent from the first paint. Opaque routes
+         (about, settings, updater) are left unchanged. -->
+    <script>
+      (() => {
+        var h = window.location.hash || "";
+        if (h.startsWith("#/pin/") || h.startsWith("#/scroll-chrome/") || h.startsWith("#/overlay")) {
+          document.body.style.background = "transparent";
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

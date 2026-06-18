@@ -25,6 +25,10 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
   getCurrentWebviewWindow: () => webviewWindowMock,
 }));
 
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => webviewWindowMock,
+}));
+
 vi.mock("@/annotation/Stage", () => ({
   AnnotationStage: (props: Record<string, unknown>) => {
     annotationStageMock(props);
@@ -273,6 +277,36 @@ describe("PinRoute", () => {
 
     await waitFor(() => {
       expect(closePin).toHaveBeenCalledWith("test-id");
+    });
+  });
+
+  it("does not start a window drag on a plain click", async () => {
+    window.location.hash = "#/pin/test-id";
+
+    render(<PinRoute />);
+
+    const root = await screen.findByTestId("pin-root");
+    webviewWindowMock.startDragging.mockClear();
+
+    fireEvent.mouseDown(root, { button: 0, clientX: 100, clientY: 100 });
+    fireEvent.mouseUp(window, { clientX: 100, clientY: 100 });
+
+    expect(webviewWindowMock.startDragging).not.toHaveBeenCalled();
+  });
+
+  it("starts a native window drag once the pointer moves past the threshold", async () => {
+    window.location.hash = "#/pin/test-id";
+
+    render(<PinRoute />);
+
+    const root = await screen.findByTestId("pin-root");
+    webviewWindowMock.startDragging.mockClear();
+
+    fireEvent.mouseDown(root, { button: 0, clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(window, { clientX: 110, clientY: 100 });
+
+    await waitFor(() => {
+      expect(webviewWindowMock.startDragging).toHaveBeenCalledTimes(1);
     });
   });
 
