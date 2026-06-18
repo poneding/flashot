@@ -36,9 +36,9 @@ tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-thiserror = "1"
+thiserror = "2"
 anyhow = "1"
-dirs = "5"
+dirs = "6"
 tokio = { version = "1", features = [
   "sync",
   "rt-multi-thread",
@@ -53,30 +53,30 @@ parking_lot = "0.12"
 crossbeam-channel = "0.5"
 chrono = { version = "0.4", features = ["clock"] }
 xcap = "0.9"
-global-hotkey = "0.6"
+global-hotkey = "0.8"
 arboard = { version = "3", features = ["wayland-data-control"] }
-rfd = "0.14"
+rfd = "0.17"
 image = { version = "0.25", default-features = false, features = ["png"] }
 fontdb = "0.23.0"
-uuid = { version = "1.11", features = ["v4"] }
+uuid = { version = "1.23", features = ["v4"] }
 urlencoding = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-ashpd = "0.8"
+ashpd = "0.13"
 gdk = { version = "0.18", features = ["v3_24"] }
 gtk = { version = "0.18", features = ["v3_24"] }
-libloading = "0.8"
+libloading = "0.9"
 libwayshot-xcap = "0.3"
-xcb = "1.5"
+xcb = "1.7"
 zbus = "5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-core-graphics = "0.23"
-core-foundation = "0.9"
+core-graphics = "0.25"
+core-foundation = "0.10"
 objc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.58", features = [
+windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_UI_WindowsAndMessaging",
   "Win32_Graphics_Gdi",
@@ -87,7 +87,7 @@ windows = { version = "0.58", features = [
 
 [dev-dependencies]
 tempfile = "3"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [[bench]]
