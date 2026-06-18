@@ -2,9 +2,9 @@ import { useEffect, type RefObject } from "react";
 
 export function useDismissOnOutsideMouseDown<T extends HTMLElement>(
   open: boolean,
-  ref: RefObject<T>,
+  ref: RefObject<T | null>,
   onDismiss: () => void,
-  options?: { ignoreRef?: RefObject<HTMLElement> },
+  options?: { ignoreRef?: RefObject<HTMLElement | null> },
 ) {
   const ignoreRef = options?.ignoreRef;
 

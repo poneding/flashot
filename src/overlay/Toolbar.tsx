@@ -42,7 +42,7 @@ type ToolbarButtonProps = {
   tooltipLabel?: string;
   icon: ReactNode;
   onClick: ToolbarAction;
-  buttonRef?: RefObject<HTMLButtonElement>;
+  buttonRef?: RefObject<HTMLButtonElement | null>;
   disabled?: boolean;
   active?: boolean;
   tone?: "default" | "danger" | "primary" | "success";
