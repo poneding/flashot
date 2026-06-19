@@ -98,6 +98,7 @@ impl WindowMgr {
 
     pub fn end_session(&self, app: &AppHandle) {
         self.clear_session_state();
+        crate::set_capture_session_hotkeys(app, false);
         crate::app_activation::hide_overlay_windows(app);
         let _ = app.emit("capture:end", ());
     }
@@ -110,6 +111,7 @@ impl WindowMgr {
         // expects regardless of capture.
         let previous = self.take_previous_app();
         self.clear_session_state();
+        crate::set_capture_session_hotkeys(app, false);
         if !crate::app_activation::reactivate_then_hide_overlays_macos(app, &previous) {
             crate::app_activation::hide_overlay_windows(app);
         }
@@ -272,6 +274,25 @@ mod tests {
             body.contains("reactivate_then_hide_overlays_macos"),
             "macOS capture end must reactivate the previous frontmost app and hide overlays in one main-thread task, reactivate first",
         );
+    }
+
+    #[test]
+    fn capture_end_disarms_session_hotkeys_directly() {
+        let source = include_str!("window_mgr.rs").replace("\r\n", "\n");
+        for name in ["end_session", "end_session_deactivating_app"] {
+            let body = function_body(&source, name);
+            let cleanup_idx = body
+                .find("crate::set_capture_session_hotkeys(app, false);")
+                .unwrap_or_else(|| panic!("{name} must directly disarm session hotkeys"));
+            let emit_idx = body
+                .find("app.emit(\"capture:end\"")
+                .unwrap_or_else(|| panic!("{name} must emit capture:end"));
+
+            assert!(
+                cleanup_idx < emit_idx,
+                "{name} must release global session hotkeys before broadcasting capture:end",
+            );
+        }
     }
 
     fn function_body<'a>(source: &'a str, name: &str) -> &'a str {

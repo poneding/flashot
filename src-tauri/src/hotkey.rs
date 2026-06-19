@@ -103,9 +103,11 @@ impl HotkeyService {
             return Ok(());
         }
 
-        if let Some(old) = cur.take() {
-            let _ = self.mgr.unregister(old);
-        }
+        let Some(old) = cur.as_ref().cloned() else {
+            return Ok(());
+        };
+        self.mgr.unregister(old)?;
+        *cur = None;
         Ok(())
     }
 
@@ -127,11 +129,27 @@ impl HotkeyService {
             return Ok(());
         }
 
-        if let Some((toggle, copy)) = cur.take() {
-            let _ = self.mgr.unregister(toggle);
-            let _ = self.mgr.unregister(copy);
+        let Some((toggle, copy)) = cur.as_ref().cloned() else {
+            return Ok(());
+        };
+
+        let toggle_result = self.mgr.unregister(toggle).map_err(|e| e.to_string());
+        let copy_result = self.mgr.unregister(copy).map_err(|e| e.to_string());
+        match (toggle_result, copy_result) {
+            (Ok(()), Ok(())) => {
+                *cur = None;
+                Ok(())
+            }
+            (Err(toggle_error), Ok(())) => {
+                Err(anyhow!("failed to unregister color format hotkey: {toggle_error}"))
+            }
+            (Ok(()), Err(copy_error)) => {
+                Err(anyhow!("failed to unregister color copy hotkey: {copy_error}"))
+            }
+            (Err(toggle_error), Err(copy_error)) => Err(anyhow!(
+                "failed to unregister color picker hotkeys: format={toggle_error}; copy={copy_error}"
+            )),
         }
-        Ok(())
     }
 
     /// Returns the global event receiver. Subscribe once at startup;

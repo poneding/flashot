@@ -22,16 +22,19 @@ pub mod window_probe;
 use anyhow::{Context, Result};
 use pin_mgr::PinManager;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::thread::ThreadId;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Listener, Manager, WindowEvent};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use window_mgr::WindowMgr;
 
 static FRAME_REVISION_COUNTER: AtomicU64 = AtomicU64::new(0);
+static HOTKEY_THREAD_ID: OnceLock<ThreadId> = OnceLock::new();
 const AUTO_UPDATE_POLL_INTERVAL: Duration = Duration::from_secs(60);
 const MIN_UPDATE_CHECK_INTERVAL_HOURS: u32 = 1;
 const MAX_UPDATE_CHECK_INTERVAL_HOURS: u32 = 168;
+const HOTKEY_UPDATE_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -126,6 +129,7 @@ pub fn run() {
             );
 
             // Set up hotkey service
+            let _ = HOTKEY_THREAD_ID.set(std::thread::current().id());
             hotkey::initialize().context("Failed to create hotkey service")?;
 
             // Register configured hotkeys
@@ -211,12 +215,6 @@ pub fn run() {
                 ) {
                     tracing::warn!("tray menu update failed: {e}");
                 }
-            });
-
-            let app_for_capture_end = app.handle().clone();
-            app.listen("capture:end", move |_| {
-                set_capture_cancel_hotkey(&app_for_capture_end, false);
-                set_color_picker_hotkeys(&app_for_capture_end, false);
             });
 
             // Register capture trigger handler
@@ -459,14 +457,45 @@ fn capture_start_target(label: &str) -> tauri::EventTarget {
     tauri::EventTarget::webview_window(label)
 }
 
-fn set_capture_cancel_hotkey(app: &AppHandle, enabled: bool) {
-    if let Err(e) = app.run_on_main_thread(move || {
-        if let Err(e) = hotkey::set_capture_cancel_enabled(enabled) {
-            tracing::warn!("capture cancel hotkey update failed: {e}");
+fn run_hotkey_update(
+    app: &AppHandle,
+    action: &'static str,
+    update: impl FnOnce() -> Result<()> + Send + 'static,
+) {
+    if HOTKEY_THREAD_ID
+        .get()
+        .is_some_and(|thread_id| *thread_id == std::thread::current().id())
+    {
+        if let Err(e) = update() {
+            tracing::warn!("{action} failed: {e}");
         }
-    }) {
-        tracing::warn!("capture cancel hotkey dispatch failed: {e}");
+        return;
     }
+
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    if let Err(e) = app.run_on_main_thread(move || {
+        let _ = tx.send(update());
+    }) {
+        tracing::warn!("{action} dispatch failed: {e}");
+        return;
+    }
+
+    match rx.recv_timeout(HOTKEY_UPDATE_TIMEOUT) {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::warn!("{action} failed: {e}"),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            tracing::warn!("{action} did not complete within {:?}", HOTKEY_UPDATE_TIMEOUT);
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            tracing::warn!("{action} result channel disconnected");
+        }
+    }
+}
+
+fn set_capture_cancel_hotkey(app: &AppHandle, enabled: bool) {
+    run_hotkey_update(app, "capture cancel hotkey update", move || {
+        hotkey::set_capture_cancel_enabled(enabled)
+    });
 }
 
 /// Session-scoped X/C hotkeys for the color picker. macOS-only: capture
@@ -477,16 +506,17 @@ fn set_capture_cancel_hotkey(app: &AppHandle, enabled: bool) {
 fn set_color_picker_hotkeys(app: &AppHandle, enabled: bool) {
     #[cfg(target_os = "macos")]
     {
-        if let Err(e) = app.run_on_main_thread(move || {
-            if let Err(e) = hotkey::set_color_picker_enabled(enabled) {
-                tracing::warn!("color picker hotkey update failed: {e}");
-            }
-        }) {
-            tracing::warn!("color picker hotkey dispatch failed: {e}");
-        }
+        run_hotkey_update(app, "color picker hotkey update", move || {
+            hotkey::set_color_picker_enabled(enabled)
+        });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (app, enabled);
+}
+
+pub(crate) fn set_capture_session_hotkeys(app: &AppHandle, enabled: bool) {
+    set_capture_cancel_hotkey(app, enabled);
+    set_color_picker_hotkeys(app, enabled);
 }
 
 #[cfg(test)]
@@ -600,8 +630,7 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     // Begin session
     tracing::info!("run_capture: beginning session");
     let guard = mgr.begin(app.clone());
-    set_capture_cancel_hotkey(&app, true);
-    set_color_picker_hotkeys(&app, true);
+    set_capture_session_hotkeys(&app, true);
 
     // Record the app that was frontmost when the hotkey fired, BEFORE Flashot
     // activates itself for the overlay. Reactivating it on session end is what
