@@ -39,6 +39,14 @@ pnpm tauri dev        # Run full app in dev mode
 pnpm tauri build      # Build production bundle (.dmg, .msi, .AppImage)
 ```
 
+### Local CI Preflight
+
+```bash
+pnpm ci:local         # Run frontend checks, Rust checks, crop bench, and Linux/Windows smoke checks
+```
+
+Run `pnpm ci:local` before pushing changes, especially after dependency updates or edits under `src-tauri/src/capture/`, `src-tauri/src/window_probe/`, platform `cfg(...)` blocks, or Cargo manifests. It includes smoke checks for Linux-only `ashpd` screenshot APIs and Windows-only `windows` crate APIs, catching platform-gated compile errors that macOS-only `cargo check` misses.
+
 ## Architecture
 
 ### Capture Flow (Rust → Frontend → Rust)
@@ -164,6 +172,8 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push/PR:
 - `cargo check`, `cargo clippy -D warnings`, `cargo test`
 - `cargo bench --bench crop_bench` (only bench that works without display)
 - Runs on macOS, Windows, Linux (Ubuntu)
+
+Before pushing, run `pnpm ci:local` from the repository root. If it cannot run fully because of missing local tooling, document the exact skipped or blocked check in the handoff/commit notes instead of claiming CI parity.
 
 ## Git Commit Convention
 
