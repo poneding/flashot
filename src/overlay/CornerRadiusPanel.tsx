@@ -22,11 +22,11 @@ const DARK_SCROLLBAR_STYLE: CSSProperties = {
 };
 
 type Props = {
-  panelRef: RefObject<HTMLDivElement>;
+  panelRef: RefObject<HTMLDivElement | null>;
   value: number;
   onChange: (n: number) => void;
   onDismiss: () => void;
-  ignoreDismissRef?: RefObject<HTMLElement>;
+  ignoreDismissRef?: RefObject<HTMLElement | null>;
   style?: CSSProperties;
   locale?: Locale;
 };

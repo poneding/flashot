@@ -1,7 +1,4 @@
-import { exportAnnotationLayer } from "@/annotation/export";
-import { AnnotationStage } from "@/annotation/Stage";
 import { useAnnotation } from "@/annotation/store";
-import { Toolbar as AnnotationToolbar } from "@/annotation/Toolbar";
 import { createTranslator, type Locale } from "@/i18n";
 import { currentCursorPointInWindow } from "@/lib/cursor";
 import { cursorForHandle, hitTestHandle, rectContainsPoint } from "@/lib/geometry";
@@ -41,7 +38,29 @@ import { useStoredAccentColor, useStoredLanguage } from "@/settings/useStoredAcc
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { CursorIcon } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
+
+// The annotation editor (Stage/Toolbar/export) transitively imports Konva
+// (~870 KB). It only renders after the selection is committed, so we load it
+// lazily — keeping Konva out of every window's startup bundle (overlay shows
+// the selection surface faster; pin windows skip it entirely until edited).
+const AnnotationStage = lazy(() =>
+  import("@/annotation/Stage").then((m) => ({ default: m.AnnotationStage })),
+);
+const AnnotationToolbar = lazy(() =>
+  import("@/annotation/Toolbar").then((m) => ({ default: m.Toolbar })),
+);
+// Lazily resolve exportAnnotationLayer (shares the same dynamic chunk as the
+// editor above). Cached so repeated copy/save/pin don't re-import.
+let exportAnnotationLayerPromise: Promise<
+  (scaleFactor: number) => Promise<ArrayBuffer | null>
+> | null = null;
+const exportAnnotationLayer = (scaleFactor: number): Promise<ArrayBuffer | null> => {
+  exportAnnotationLayerPromise ??= import("@/annotation/export").then(
+    (m) => m.exportAnnotationLayer,
+  );
+  return exportAnnotationLayerPromise.then((fn) => fn(scaleFactor));
+};
 
 const ORIGIN_CURSOR_EPSILON = 1;
 const SCROLL_HINT_VISIBLE_MS = 650;
@@ -558,18 +577,20 @@ export function OverlayRoute() {
       )}
       {mode === "committed" && selection && monitorRect && monitorId != null && (
         <>
-          <AnnotationStage
-            selection={selection}
-            scaleFactor={scaleFactor}
-            frameUrl={frameUrl}
-            frameSourceRect={selection}
-            interacting={!!selectionInteraction}
-          />
-          <AnnotationToolbar
-            locale={locale}
-            selection={selection}
-            monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
-          />
+          <Suspense fallback={null}>
+            <AnnotationStage
+              selection={selection}
+              scaleFactor={scaleFactor}
+              frameUrl={frameUrl}
+              frameSourceRect={selection}
+              interacting={!!selectionInteraction}
+            />
+            <AnnotationToolbar
+              locale={locale}
+              selection={selection}
+              monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
+            />
+          </Suspense>
           <ScreenshotToolbar
             locale={locale}
             selection={selection}

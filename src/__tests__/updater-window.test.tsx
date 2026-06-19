@@ -12,7 +12,11 @@ vi.mock("@tauri-apps/api/app", () => ({
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: vi.fn(() => ({ close: vi.fn(), setSize: vi.fn() })),
-  LogicalSize: vi.fn((w: number, h: number) => ({ width: w, height: h })),
+  // Regular function (not arrow) so it stays constructable: the component
+  // does `new LogicalSize(...)`. Vitest 4+ rejects `new` on arrow-function mocks.
+  LogicalSize: vi.fn(function (w: number, h: number) {
+    return { width: w, height: h };
+  }),
 }));
 
 vi.mock("@tauri-apps/plugin-process", () => ({

@@ -1,7 +1,4 @@
-import { exportAnnotationLayer } from "@/annotation/export";
-import { AnnotationStage } from "@/annotation/Stage";
 import { useAnnotation } from "@/annotation/store";
-import { Toolbar as AnnotationToolbar } from "@/annotation/Toolbar";
 import { TooltipBubble } from "@/annotation/Tooltip";
 import { createTranslator, type Locale } from "@/i18n";
 import { ACCENT_COLOR_CSS_VAR, ACCENT_RGB_CSS_VAR } from "@/lib/colors";
@@ -15,14 +12,28 @@ import { useOverlay } from "@/overlay/state";
 import { useStoredAccentColor, useStoredLanguage } from "@/settings/useStoredAccentColor";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { appCacheDir } from "@tauri-apps/api/path";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { CheckIcon, CopyIcon, ImageIcon, SaveIcon, Scaling, SquarePen, XIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, lazy, useMemo, useRef, useState, Suspense, type CSSProperties, type ReactNode } from "react";
+
+// The annotation editor (Stage/Toolbar/export) transitively imports Konva
+// (~870 KB). It is only needed in edit mode, so we load it lazily — this keeps
+// Konva out of the pin window's startup bundle, so pinning a screenshot feels
+// instant. The dynamic chunks load on demand the first time the user edits.
+const AnnotationStage = lazy(() =>
+  import("@/annotation/Stage").then((m) => ({ default: m.AnnotationStage })),
+);
+const AnnotationToolbar = lazy(() =>
+  import("@/annotation/Toolbar").then((m) => ({ default: m.Toolbar })),
+);
 
 // Soft outer glow around the pinned image. The window itself reserves
 // PIN_SHADOW_PADDING px on each side (matched in commands.rs) so these
 // shadows have room to render without being clipped by the window edge.
 const PIN_SHADOW_PADDING = 24;
+// Pointer travel (CSS px) before a press on the drag surface turns into a
+// native window drag. Keeps plain clicks from nudging the window.
+const PIN_DRAG_THRESHOLD_PX = 3;
 const PIN_SCALE_MIN = 0.5;
 const PIN_SCALE_MAX = 3;
 const PIN_SCALE_STEP = 0.05;
@@ -156,6 +167,15 @@ export function PinRoute() {
   const [scale, setScale] = useState(1.0);
   const scaleRef = useRef(scale);
   const wheelRef = useRef({ remainder: 0, direction: 0 });
+  // Window-drag bookkeeping. We defer Tauri's startDragging() until the
+  // pointer actually moves past a small threshold. Calling it on mousedown
+  // is broken on macOS: the async IPC means the originating mouse-down
+  // NSEvent is gone by the time the native drag runs, so tao falls back to a
+  // synthetic event built from screen coords, snapping the window's top-left
+  // corner to the cursor. Starting the drag during a real mousemove hands
+  // macOS a genuine LeftMouseDragged event, so the native drag loop takes
+  // over cleanly. A pure click never crosses the threshold, so it stays put.
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const screenshotRef = useRef<HTMLImageElement>(null);
   const [controlsVisible, setControlsVisible] = useState(false);
   const [scaleMenuOpen, setScaleMenuOpen] = useState(false);
@@ -202,6 +222,40 @@ export function PinRoute() {
     document.body.classList.add("pin");
     return () => {
       document.body.classList.remove("pin");
+    };
+  }, []);
+
+  // Once the pointer moves past a small threshold after pressing on the
+  // drag surface, hand off to Tauri's native window drag. Doing it here (in a
+  // real mousemove) rather than on mousedown gives macOS a genuine drag event
+  // so the window follows smoothly instead of jumping. A click that never
+  // crosses the threshold clears the pending state on mouseup without moving.
+  useEffect(() => {
+    const handleMove = (event: MouseEvent) => {
+      const start = dragStartRef.current;
+      if (!start) return;
+      if (
+        Math.abs(event.clientX - start.x) < PIN_DRAG_THRESHOLD_PX &&
+        Math.abs(event.clientY - start.y) < PIN_DRAG_THRESHOLD_PX
+      ) {
+        return;
+      }
+      dragStartRef.current = null;
+      getCurrentWindow().startDragging().catch(() => {});
+    };
+
+    const cancelPending = () => {
+      dragStartRef.current = null;
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", cancelPending);
+    window.addEventListener("blur", cancelPending);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", cancelPending);
+      window.removeEventListener("blur", cancelPending);
     };
   }, []);
 
@@ -308,6 +362,7 @@ export function PinRoute() {
   }, []);
 
   const exportCurrentAnnotation = useCallback(async () => {
+    const { exportAnnotationLayer } = await import("@/annotation/export");
     return await exportAnnotationLayer(annotationStageScale);
   }, [annotationStageScale]);
 
@@ -487,13 +542,13 @@ export function PinRoute() {
     setAdjustmentsPanelOpen(false);
   };
 
-  const handleMouseDown = async () => {
-    try {
-      await getCurrentWebviewWindow().startDragging();
-    } catch {
-      // ignore
-    }
-  };
+  // Arm a potential window drag. The actual native drag only starts once the
+  // pointer crosses DRAG_THRESHOLD_PX (see the mousemove effect above), so a
+  // plain click never moves the window.
+  const handleMouseDown = useCallback((event: React.MouseEvent) => {
+    if (event.button !== 0) return;
+    dragStartRef.current = { x: event.clientX, y: event.clientY };
+  }, []);
 
   const containerStyle: CSSProperties = {
     position: "relative",
@@ -617,21 +672,25 @@ export function PinRoute() {
           />
         )}
         {editing && (
-          <AnnotationStage
-            selection={editorSelection}
-            scaleFactor={annotationStageScale}
-            frameUrl={imageUrl}
-            interacting={false}
-          />
+          <Suspense fallback={null}>
+            <AnnotationStage
+              selection={editorSelection}
+              scaleFactor={annotationStageScale}
+              frameUrl={imageUrl}
+              interacting={false}
+            />
+          </Suspense>
         )}
       </div>
       {editing && (
-        <AnnotationToolbar
-          locale={locale}
-          opaqueSurface
-          selection={editorToolbarSelection}
-          monitorRect={editorMonitorRect}
-        />
+        <Suspense fallback={null}>
+          <AnnotationToolbar
+            locale={locale}
+            opaqueSurface
+            selection={editorToolbarSelection}
+            monitorRect={editorMonitorRect}
+          />
+        </Suspense>
       )}
     </div>
   );

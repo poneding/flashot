@@ -25,6 +25,10 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
   getCurrentWebviewWindow: () => webviewWindowMock,
 }));
 
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => webviewWindowMock,
+}));
+
 vi.mock("@/annotation/Stage", () => ({
   AnnotationStage: (props: Record<string, unknown>) => {
     annotationStageMock(props);
@@ -276,6 +280,36 @@ describe("PinRoute", () => {
     });
   });
 
+  it("does not start a window drag on a plain click", async () => {
+    window.location.hash = "#/pin/test-id";
+
+    render(<PinRoute />);
+
+    const root = await screen.findByTestId("pin-root");
+    webviewWindowMock.startDragging.mockClear();
+
+    fireEvent.mouseDown(root, { button: 0, clientX: 100, clientY: 100 });
+    fireEvent.mouseUp(window, { clientX: 100, clientY: 100 });
+
+    expect(webviewWindowMock.startDragging).not.toHaveBeenCalled();
+  });
+
+  it("starts a native window drag once the pointer moves past the threshold", async () => {
+    window.location.hash = "#/pin/test-id";
+
+    render(<PinRoute />);
+
+    const root = await screen.findByTestId("pin-root");
+    webviewWindowMock.startDragging.mockClear();
+
+    fireEvent.mouseDown(root, { button: 0, clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(window, { clientX: 110, clientY: 100 });
+
+    await waitFor(() => {
+      expect(webviewWindowMock.startDragging).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("enters in-place edit mode with the annotation stage and toolbar", async () => {
     window.location.hash = "#/pin/test-id?annotation=1";
 
@@ -284,9 +318,12 @@ describe("PinRoute", () => {
     fireEvent.mouseEnter(await screen.findByTestId("pin-root"));
     fireEvent.click(screen.getByRole("button", { name: "Edit (E)" }));
 
-    expect(screen.getByTestId("pin-annotation-stage")).not.toBeNull();
-    expect(screen.getByTestId("pin-annotation-toolbar")).not.toBeNull();
-    expect(screen.getByTestId("pin-annotation-toolbar").getAttribute("data-opaque-surface")).toBe("true");
+    // Annotation components are lazy-loaded; await their first paint.
+    const stage = await screen.findByTestId("pin-annotation-stage");
+    const toolbar = await screen.findByTestId("pin-annotation-toolbar");
+    expect(stage).not.toBeNull();
+    expect(toolbar).not.toBeNull();
+    expect(toolbar.getAttribute("data-opaque-surface")).toBe("true");
     expect(screen.getByAltText("Pinned screenshot")).not.toBeNull();
     expect(screen.getByAltText("Pinned annotations")).not.toBeNull();
   });
@@ -373,8 +410,8 @@ describe("PinRoute", () => {
     const editButton = screen.getByRole("button", { name: "Edit (E)" });
 
     fireEvent.click(editButton);
-    expect(screen.getByTestId("pin-annotation-stage")).not.toBeNull();
-    expect(screen.getByTestId("pin-annotation-toolbar")).not.toBeNull();
+    expect(await screen.findByTestId("pin-annotation-stage")).not.toBeNull();
+    expect(await screen.findByTestId("pin-annotation-toolbar")).not.toBeNull();
 
     fireEvent.click(editButton);
 
@@ -395,7 +432,7 @@ describe("PinRoute", () => {
     fireEvent.mouseEnter(await screen.findByTestId("pin-root"));
     fireEvent.click(screen.getByRole("button", { name: "Edit (E)" }));
 
-    const toolbar = screen.getByTestId("pin-annotation-toolbar");
+    const toolbar = await screen.findByTestId("pin-annotation-toolbar");
     expect(toolbar.getAttribute("data-selection-x")).toBe("24");
     expect(toolbar.getAttribute("data-selection-y")).toBe("24");
     expect(toolbar.getAttribute("data-selection-width")).toBe("244");
@@ -538,7 +575,7 @@ describe("PinRoute", () => {
     await screen.findByAltText("Pinned screenshot");
 
     fireEvent.keyDown(window, { key: "e" });
-    expect(screen.getByTestId("pin-annotation-stage")).not.toBeNull();
+    expect(await screen.findByTestId("pin-annotation-stage")).not.toBeNull();
 
     fireEvent.keyDown(window, { key: "s", metaKey: true });
     await waitFor(() => {

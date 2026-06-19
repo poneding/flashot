@@ -247,11 +247,17 @@ describe("OverlayRoute", () => {
     });
   });
 
-  it("does not re-render the committed annotation stage while dragging image adjustment sliders", () => {
+  it("does not re-render the committed annotation stage while dragging image adjustment sliders", async () => {
     const selection = { x: 100, y: 120, width: 240, height: 160 };
     useOverlay.getState().commit(selection);
 
     render(<OverlayRoute />);
+    // The annotation stage is lazy-loaded; wait for its first render before
+    // snapshotting the call count, otherwise a deferred first paint would
+    // make the memoization assertion meaningless.
+    await waitFor(() => {
+      expect(annotationStageMock).toHaveBeenCalled();
+    });
     const renderCount = annotationStageMock.mock.calls.length;
 
     act(() => {

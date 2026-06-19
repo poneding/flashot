@@ -17,7 +17,7 @@ function Harness({
   value: number;
   onChange: (n: number) => void;
   onDismiss: () => void;
-  ignoreDismissRef?: RefObject<HTMLElement>;
+  ignoreDismissRef?: RefObject<HTMLElement | null>;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   return (

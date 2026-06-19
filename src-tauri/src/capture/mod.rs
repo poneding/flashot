@@ -13,6 +13,8 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{capture_all_monitors, enumerate_monitors};
 
+mod portal_uri;
+
 use anyhow::{bail, Context, Result};
 
 /// Capture a single monitor and crop to the given physical-pixel rect.

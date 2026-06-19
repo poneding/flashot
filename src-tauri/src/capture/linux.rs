@@ -146,12 +146,7 @@ fn capture_all_portal_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)>
             request_portal_screenshot(true)
         })
         .context("Failed to request portal screenshot")?;
-    let path = screenshot.uri().to_file_path().map_err(|_| {
-        anyhow!(
-            "Portal screenshot URI is not a local file: {}",
-            screenshot.uri()
-        )
-    })?;
+    let path = super::portal_uri::portal_screenshot_uri_to_path(screenshot.uri().as_str())?;
     let bytes = std::fs::read(&path)
         .with_context(|| format!("Failed to read portal screenshot {}", path.display()))?;
     let image = image::load_from_memory(&bytes)
