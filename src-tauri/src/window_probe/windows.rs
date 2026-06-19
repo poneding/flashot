@@ -4,8 +4,8 @@ use std::ffi::{c_void, OsString};
 use std::mem;
 use std::os::windows::ffi::OsStringExt;
 use std::path::Path;
-use windows::core::PWSTR;
-use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM, RECT, TRUE};
+use windows::core::{BOOL, PWSTR};
+use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT, TRUE};
 use windows::Win32::Graphics::Dwm::{
     DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS,
 };
