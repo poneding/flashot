@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc -b --noEmit",
+    "ci:local": "bash scripts/ci-local.sh",
     "docs:dev": "cd docs && pnpm dev",
     "docs:build": "cd docs && pnpm build",
     "docs:preview": "cd docs && pnpm preview"
