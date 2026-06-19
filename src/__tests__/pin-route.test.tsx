@@ -318,9 +318,12 @@ describe("PinRoute", () => {
     fireEvent.mouseEnter(await screen.findByTestId("pin-root"));
     fireEvent.click(screen.getByRole("button", { name: "Edit (E)" }));
 
-    expect(screen.getByTestId("pin-annotation-stage")).not.toBeNull();
-    expect(screen.getByTestId("pin-annotation-toolbar")).not.toBeNull();
-    expect(screen.getByTestId("pin-annotation-toolbar").getAttribute("data-opaque-surface")).toBe("true");
+    // Annotation components are lazy-loaded; await their first paint.
+    const stage = await screen.findByTestId("pin-annotation-stage");
+    const toolbar = await screen.findByTestId("pin-annotation-toolbar");
+    expect(stage).not.toBeNull();
+    expect(toolbar).not.toBeNull();
+    expect(toolbar.getAttribute("data-opaque-surface")).toBe("true");
     expect(screen.getByAltText("Pinned screenshot")).not.toBeNull();
     expect(screen.getByAltText("Pinned annotations")).not.toBeNull();
   });
@@ -407,8 +410,8 @@ describe("PinRoute", () => {
     const editButton = screen.getByRole("button", { name: "Edit (E)" });
 
     fireEvent.click(editButton);
-    expect(screen.getByTestId("pin-annotation-stage")).not.toBeNull();
-    expect(screen.getByTestId("pin-annotation-toolbar")).not.toBeNull();
+    expect(await screen.findByTestId("pin-annotation-stage")).not.toBeNull();
+    expect(await screen.findByTestId("pin-annotation-toolbar")).not.toBeNull();
 
     fireEvent.click(editButton);
 
@@ -429,7 +432,7 @@ describe("PinRoute", () => {
     fireEvent.mouseEnter(await screen.findByTestId("pin-root"));
     fireEvent.click(screen.getByRole("button", { name: "Edit (E)" }));
 
-    const toolbar = screen.getByTestId("pin-annotation-toolbar");
+    const toolbar = await screen.findByTestId("pin-annotation-toolbar");
     expect(toolbar.getAttribute("data-selection-x")).toBe("24");
     expect(toolbar.getAttribute("data-selection-y")).toBe("24");
     expect(toolbar.getAttribute("data-selection-width")).toBe("244");
@@ -572,7 +575,7 @@ describe("PinRoute", () => {
     await screen.findByAltText("Pinned screenshot");
 
     fireEvent.keyDown(window, { key: "e" });
-    expect(screen.getByTestId("pin-annotation-stage")).not.toBeNull();
+    expect(await screen.findByTestId("pin-annotation-stage")).not.toBeNull();
 
     fireEvent.keyDown(window, { key: "s", metaKey: true });
     await waitFor(() => {

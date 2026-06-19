@@ -1,7 +1,4 @@
-import { exportAnnotationLayer } from "@/annotation/export";
-import { AnnotationStage } from "@/annotation/Stage";
 import { useAnnotation } from "@/annotation/store";
-import { Toolbar as AnnotationToolbar } from "@/annotation/Toolbar";
 import { TooltipBubble } from "@/annotation/Tooltip";
 import { createTranslator, type Locale } from "@/i18n";
 import { ACCENT_COLOR_CSS_VAR, ACCENT_RGB_CSS_VAR } from "@/lib/colors";
@@ -17,7 +14,18 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { appCacheDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { CheckIcon, CopyIcon, ImageIcon, SaveIcon, Scaling, SquarePen, XIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, lazy, useMemo, useRef, useState, Suspense, type CSSProperties, type ReactNode } from "react";
+
+// The annotation editor (Stage/Toolbar/export) transitively imports Konva
+// (~870 KB). It is only needed in edit mode, so we load it lazily — this keeps
+// Konva out of the pin window's startup bundle, so pinning a screenshot feels
+// instant. The dynamic chunks load on demand the first time the user edits.
+const AnnotationStage = lazy(() =>
+  import("@/annotation/Stage").then((m) => ({ default: m.AnnotationStage })),
+);
+const AnnotationToolbar = lazy(() =>
+  import("@/annotation/Toolbar").then((m) => ({ default: m.Toolbar })),
+);
 
 // Soft outer glow around the pinned image. The window itself reserves
 // PIN_SHADOW_PADDING px on each side (matched in commands.rs) so these
@@ -354,6 +362,7 @@ export function PinRoute() {
   }, []);
 
   const exportCurrentAnnotation = useCallback(async () => {
+    const { exportAnnotationLayer } = await import("@/annotation/export");
     return await exportAnnotationLayer(annotationStageScale);
   }, [annotationStageScale]);
 
@@ -663,21 +672,25 @@ export function PinRoute() {
           />
         )}
         {editing && (
-          <AnnotationStage
-            selection={editorSelection}
-            scaleFactor={annotationStageScale}
-            frameUrl={imageUrl}
-            interacting={false}
-          />
+          <Suspense fallback={null}>
+            <AnnotationStage
+              selection={editorSelection}
+              scaleFactor={annotationStageScale}
+              frameUrl={imageUrl}
+              interacting={false}
+            />
+          </Suspense>
         )}
       </div>
       {editing && (
-        <AnnotationToolbar
-          locale={locale}
-          opaqueSurface
-          selection={editorToolbarSelection}
-          monitorRect={editorMonitorRect}
-        />
+        <Suspense fallback={null}>
+          <AnnotationToolbar
+            locale={locale}
+            opaqueSurface
+            selection={editorToolbarSelection}
+            monitorRect={editorMonitorRect}
+          />
+        </Suspense>
       )}
     </div>
   );

@@ -36,4 +36,25 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+
+  build: {
+    // Split heavy, rarely-changing vendors into stable chunks so they cache
+    // across windows/releases. konva (the annotation editor) is loaded lazily
+    // by the routes; naming it here keeps it as one cacheable unit instead of
+    // being folded into an unnamed shared chunk.
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes("node_modules/konva/")) return "konva";
+          if (
+            id.includes("node_modules/react/") ||
+            id.includes("node_modules/react-dom/") ||
+            id.includes("node_modules/scheduler/")
+          ) {
+            return "react-vendor";
+          }
+        },
+      },
+    },
+  },
 }));
