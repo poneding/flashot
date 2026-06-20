@@ -766,6 +766,7 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     // them — they stay where the user expects. The original frontmost app is
     // restored on session end. No-op off macOS.
     app_activation::activate_flashot_for_capture(&app);
+    overlay_window::bring_all_capture_overlays_to_front(&app);
 
     // Final cursor push after the loop: (a) backstop for monitors whose
     // overlay window was not found above (that branch skips the per-show
@@ -1620,6 +1621,27 @@ mod tests {
         assert!(
             body.contains("overlay_window::push_capture_cursor"),
             "run_capture must re-push the capture cursor after the overlay loop as the backstop for monitors whose per-show push was skipped",
+        );
+    }
+
+    #[test]
+    fn capture_reraises_overlays_after_macos_activation() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "run_capture");
+
+        let activate_idx = body
+            .find("app_activation::activate_flashot_for_capture(&app)")
+            .expect("capture must activate Flashot for cursor ownership");
+        let raise_idx = body
+            .find("overlay_window::bring_all_capture_overlays_to_front(&app)")
+            .expect("capture must re-raise overlays after activation");
+        let cursor_idx = body
+            .find("overlay_window::push_capture_cursor")
+            .expect("capture must push the cursor after final overlay ordering");
+
+        assert!(
+            activate_idx < raise_idx && raise_idx < cursor_idx,
+            "macOS activation can reorder native panels; overlays must be raised again before the final cursor push",
         );
     }
 

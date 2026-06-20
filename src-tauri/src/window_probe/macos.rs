@@ -59,17 +59,15 @@ fn window_rect_from_dict(dict: &CFDictionary) -> Option<WindowRect> {
     let title = read_string(dict, "kCGWindowName").unwrap_or_default();
     let app_name = read_string(dict, "kCGWindowOwnerName").unwrap_or_default();
     let pid = read_u32(dict, "kCGWindowOwnerPID").unwrap_or(0);
-    let layer = read_u32(dict, "kCGWindowLayer").unwrap_or(0);
+    let layer = read_i64(dict, "kCGWindowLayer").unwrap_or(NORMAL_WINDOW_LEVEL);
 
-    // Normal app windows live at layer 0. Flashot's own utility windows
-    // (Settings/About/Updater) are pinned to the floating level so they stay
-    // on top during capture (see `commands.rs::pin_utility_window_to_level`);
-    // include them so the user can snap-select them. Other non-normal layers
-    // (Dock, menu bar, capture overlays, pin windows at FLOATING+3, ...) are
-    // skipped — pinning them to floating deliberately moved them off layer 0.
-    let is_own_pinned_utility =
-        pid == std::process::id() && layer == crate::app_activation::FLOATING_WINDOW_LEVEL as u32;
-    if !(layer == 0 || is_own_pinned_utility)
+    // App content can legitimately live above the normal level: NSPanel-style
+    // utility windows, modal alerts/sheets, and pop-up/dropdown windows are all
+    // user-visible targets that should freeze and snap-select during capture.
+    // Keep the whitelist narrow so system chrome (Dock, menu bar, cursor,
+    // assistive overlays, Flashot pin windows at FLOATING+3, ...) stays out of
+    // window detection.
+    if !is_detectable_window_layer(layer)
         || rect.width <= 1
         || rect.height <= 1
         || app_name.is_empty()
@@ -99,6 +97,21 @@ fn read_bounds(dict: &CFDictionary) -> Option<Rect> {
     })
 }
 
+const NORMAL_WINDOW_LEVEL: i64 = 0;
+const FLOATING_WINDOW_LEVEL: i64 = 3;
+const MODAL_PANEL_WINDOW_LEVEL: i64 = 8;
+const POP_UP_MENU_WINDOW_LEVEL: i64 = 101;
+
+fn is_detectable_window_layer(layer: i64) -> bool {
+    matches!(
+        layer,
+        NORMAL_WINDOW_LEVEL
+            | FLOATING_WINDOW_LEVEL
+            | MODAL_PANEL_WINDOW_LEVEL
+            | POP_UP_MENU_WINDOW_LEVEL
+    )
+}
+
 fn read_string(dict: &CFDictionary, key: &str) -> Option<String> {
     let s = read_cf_value(dict, key)?.downcast::<CFString>()?;
     Some(s.to_string())
@@ -107,6 +120,11 @@ fn read_string(dict: &CFDictionary, key: &str) -> Option<String> {
 fn read_u32(dict: &CFDictionary, key: &str) -> Option<u32> {
     let n = read_cf_value(dict, key)?.downcast::<CFNumber>()?;
     n.to_i64().map(|x| x as u32)
+}
+
+fn read_i64(dict: &CFDictionary, key: &str) -> Option<i64> {
+    let n = read_cf_value(dict, key)?.downcast::<CFNumber>()?;
+    n.to_i64()
 }
 
 fn read_f64(dict: &CFDictionary, key: &str) -> Option<f64> {
@@ -190,7 +208,7 @@ mod tests {
             Some("Finder")
         );
         assert_eq!(read_u32(&dict, "kCGWindowOwnerPID"), Some(1234));
-        assert_eq!(read_u32(&dict, "kCGWindowLayer"), Some(0));
+        assert_eq!(read_i64(&dict, "kCGWindowLayer"), Some(0));
 
         let rect = read_bounds(&dict).expect("bounds should decode");
         assert_eq!(
@@ -226,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_normal_layers() {
+    fn rejects_system_chrome_layers() {
         let dict = window_dict(WindowDictInput {
             title: Some("Dock"),
             app_name: "Dock",
@@ -257,20 +275,57 @@ mod tests {
     }
 
     #[test]
-    fn rejects_other_apps_floating_windows() {
-        // A different app's floating panel must NOT be detected — only
-        // Flashot's own pinned utility windows opt in.
+    fn includes_other_apps_floating_panels() {
         let dict = window_dict(WindowDictInput {
             title: Some("Panel"),
             app_name: "OtherApp",
             pid: 5555,
-            layer: crate::app_activation::FLOATING_WINDOW_LEVEL as i32,
+            layer: FLOATING_WINDOW_LEVEL as i32,
             bounds: (120.0, 80.0, 300.0, 200.0),
         });
 
-        assert!(
-            window_rect_from_dict(&dict).is_none(),
-            "other apps' floating windows must stay filtered out"
-        );
+        let window = window_rect_from_dict(&dict).expect("floating panels are detected");
+        assert_eq!(window.app_name, "OtherApp");
+    }
+
+    #[test]
+    fn includes_macos_modal_panel_windows() {
+        let dict = window_dict(WindowDictInput {
+            title: Some("Alert"),
+            app_name: "OtherApp",
+            pid: 5555,
+            layer: MODAL_PANEL_WINDOW_LEVEL as i32,
+            bounds: (120.0, 80.0, 300.0, 200.0),
+        });
+
+        let window = window_rect_from_dict(&dict).expect("modal panels are detected");
+        assert_eq!(window.title, "Alert");
+    }
+
+    #[test]
+    fn includes_macos_pop_up_windows() {
+        let dict = window_dict(WindowDictInput {
+            title: Some("Menu"),
+            app_name: "OtherApp",
+            pid: 5555,
+            layer: POP_UP_MENU_WINDOW_LEVEL as i32,
+            bounds: (120.0, 80.0, 300.0, 200.0),
+        });
+
+        let window = window_rect_from_dict(&dict).expect("pop-up windows are detected");
+        assert_eq!(window.title, "Menu");
+    }
+
+    #[test]
+    fn rejects_flashot_pin_window_level() {
+        let dict = window_dict(WindowDictInput {
+            title: Some("Pin"),
+            app_name: "Flashot",
+            pid: std::process::id() as i32,
+            layer: (crate::app_activation::FLOATING_WINDOW_LEVEL + 3) as i32,
+            bounds: (120.0, 80.0, 300.0, 200.0),
+        });
+
+        assert!(window_rect_from_dict(&dict).is_none());
     }
 }
