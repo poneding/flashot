@@ -9,12 +9,12 @@ use crate::{
 use std::{
     path::Path,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
 };
 use tauri::{
-    window::Color, AppHandle, Emitter, Manager, State, Theme as TauriTheme, Url, WebviewWindow,
+    AppHandle, Emitter, Manager, State, Theme as TauriTheme, Url, WebviewWindow, window::Color,
 };
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_updater::UpdaterExt as _;
@@ -103,6 +103,70 @@ fn clamp_corner_radius(radius: u32) -> u32 {
     radius.min(MAX_CORNER_RADIUS)
 }
 
+struct CaptureCleanupGuard<'a> {
+    app: &'a AppHandle,
+    mgr: &'a WindowMgr,
+    armed: bool,
+}
+
+impl<'a> CaptureCleanupGuard<'a> {
+    fn end_deactivating_app(app: &'a AppHandle, mgr: &'a WindowMgr) -> Self {
+        Self {
+            app,
+            mgr,
+            armed: true,
+        }
+    }
+
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CaptureCleanupGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+
+        self.mgr.end_session_deactivating_app(self.app);
+    }
+}
+
+struct ScrollCaptureCleanupGuard<'a> {
+    app: &'a AppHandle,
+    mgr: &'a WindowMgr,
+    monitor_id: u32,
+    armed: bool,
+}
+
+impl<'a> ScrollCaptureCleanupGuard<'a> {
+    fn new(app: &'a AppHandle, mgr: &'a WindowMgr, monitor_id: u32) -> Self {
+        Self {
+            app,
+            mgr,
+            monitor_id,
+            armed: true,
+        }
+    }
+
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ScrollCaptureCleanupGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+
+        close_scroll_chrome(self.app, self.monitor_id);
+        let _ = self.mgr.take_scroll();
+        self.mgr.end_session_deactivating_app(self.app);
+    }
+}
+
 fn show_pin_window(window: &WebviewWindow) -> Result<(), String> {
     configure_pin_window_before_show(window)?;
     window
@@ -142,9 +206,7 @@ fn pin_utility_window_to_level(window: &WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
         let level = match window.label() {
-            "about" | "settings" | "updater" => {
-                Some(crate::app_activation::FLOATING_WINDOW_LEVEL)
-            }
+            "about" | "settings" | "updater" => Some(crate::app_activation::FLOATING_WINDOW_LEVEL),
             _ => None,
         };
         let Some(level) = level else { return };
@@ -239,8 +301,8 @@ fn bring_app_window_to_front(window: &WebviewWindow) -> Result<(), String> {
 #[cfg(target_os = "macos")]
 fn macos_is_main_thread() -> bool {
     use objc::{
-        runtime::{Class, Sel, BOOL, YES},
         Message,
+        runtime::{BOOL, Class, Sel, YES},
     };
 
     unsafe {
@@ -260,8 +322,8 @@ fn macos_is_main_thread() -> bool {
 #[cfg(target_os = "macos")]
 fn bring_macos_app_window_to_front(window: &WebviewWindow) -> Result<(), String> {
     use objc::{
-        runtime::{Class, Object, Sel, YES},
         Message,
+        runtime::{Class, Object, Sel, YES},
     };
 
     let ns_window = window.ns_window().map_err(|e| e.to_string())? as *mut Object;
@@ -319,8 +381,8 @@ fn configure_pin_window_before_show(window: &WebviewWindow) -> Result<(), String
 #[cfg(target_os = "macos")]
 fn configure_macos_pin_window_before_show(window: &WebviewWindow) -> Result<(), String> {
     use objc::{
-        runtime::{Object, Sel, NO},
         Message,
+        runtime::{NO, Object, Sel},
     };
 
     // NSWindowAnimationBehaviorNone. Keep the raw value local so the
@@ -369,6 +431,7 @@ pub async fn crop_and_copy(
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
+    let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr);
     let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
     let mut cropped = crop_rgba(
@@ -399,6 +462,7 @@ pub async fn crop_and_copy(
     clipboard::copy_image(final_image.rgba, final_image.width, final_image.height)
         .map_err(|e| e.to_string())?;
     mgr.end_session_deactivating_app(&app);
+    cleanup.disarm();
     Ok(())
 }
 
@@ -412,6 +476,7 @@ pub async fn crop_and_save(
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
+    let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr);
     let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
     let mut cropped = crop_rgba(
@@ -441,6 +506,7 @@ pub async fn crop_and_save(
     );
     let mut settings = settings_store::load().unwrap_or_default();
     mgr.end_session(&app);
+    cleanup.disarm();
     let path = saver::save_image_dialog(
         final_image.rgba,
         final_image.width,
@@ -453,11 +519,12 @@ pub async fn crop_and_save(
     mgr.restore_focus_to_previous_app(&app);
     let path = path.map_err(|e| e.to_string())?;
     if path.is_some()
-        && let Some(saved_path) = path.as_deref() {
-            saver::remember_last_save_dir(&mut settings, saved_path);
-            settings_store::save(&settings).map_err(|e| e.to_string())?;
-            let _ = app.emit("settings:changed", ());
-        }
+        && let Some(saved_path) = path.as_deref()
+    {
+        saver::remember_last_save_dir(&mut settings, saved_path);
+        settings_store::save(&settings).map_err(|e| e.to_string())?;
+        let _ = app.emit("settings:changed", ());
+    }
     Ok(path.map(|p| p.to_string_lossy().to_string()))
 }
 
@@ -522,13 +589,15 @@ fn apply_launch_at_login(
 fn update_endpoints(allow_beta: bool) -> Result<Vec<Url>, String> {
     let mut endpoints = Vec::new();
     if allow_beta {
-        endpoints.push(Url::parse(BETA_UPDATE_ENDPOINT).map_err(|e| {
-            format!("Invalid updater endpoint {BETA_UPDATE_ENDPOINT}: {e}")
-        })?);
+        endpoints.push(
+            Url::parse(BETA_UPDATE_ENDPOINT)
+                .map_err(|e| format!("Invalid updater endpoint {BETA_UPDATE_ENDPOINT}: {e}"))?,
+        );
     }
-    endpoints.push(Url::parse(STABLE_UPDATE_ENDPOINT).map_err(|e| {
-        format!("Invalid updater endpoint {STABLE_UPDATE_ENDPOINT}: {e}")
-    })?);
+    endpoints.push(
+        Url::parse(STABLE_UPDATE_ENDPOINT)
+            .map_err(|e| format!("Invalid updater endpoint {STABLE_UPDATE_ENDPOINT}: {e}"))?,
+    );
     Ok(endpoints)
 }
 
@@ -762,6 +831,7 @@ pub async fn pin_image(
     mgr: State<'_, Arc<WindowMgr>>,
     pin_mgr: State<'_, Arc<PinManager>>,
 ) -> Result<String, String> {
+    let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr);
     let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
     let mut cropped = crop_rgba(
@@ -778,13 +848,6 @@ pub async fn pin_image(
         cropped.height,
         adjustments.unwrap_or_default(),
     );
-    crate::mask::apply_rounded_corners(
-        &mut cropped.rgba,
-        cropped.width,
-        cropped.height,
-        corner_radius,
-        frame.scale_factor,
-    );
 
     let pin_id = create_pin_from_image(
         &app,
@@ -796,6 +859,7 @@ pub async fn pin_image(
         corner_radius,
     )?;
     mgr.end_session_deactivating_app(&app);
+    cleanup.disarm();
     Ok(pin_id)
 }
 
@@ -885,6 +949,7 @@ fn create_pin_from_image(
         original_width: display_rect.width,
         original_height: display_rect.height,
         current_scale: 1.0,
+        corner_radius,
     });
 
     Ok(pin_id)
@@ -958,9 +1023,10 @@ pub async fn update_pin_annotation(
                 .map_err(|e| format!("Failed to save annotation PNG: {e}"))?;
 
             if let Some(old_path) = paths.annotation_path.as_ref()
-                && old_path != &next_annotation_path {
-                    let _ = std::fs::remove_file(old_path);
-                }
+                && old_path != &next_annotation_path
+            {
+                let _ = std::fs::remove_file(old_path);
+            }
 
             pin_mgr
                 .update_annotation(&pin_id, Some(next_annotation_path))
@@ -994,6 +1060,12 @@ pub async fn save_pin(
         paths.annotation_path.as_deref(),
         annotation_png.as_deref(),
         adjustments.unwrap_or_default(),
+        paths.corner_radius,
+        pin_output_scale_factor(
+            paths.original_width,
+            paths.original_height,
+            &paths.image_path,
+        )?,
     )?;
     let mut settings = settings_store::load().unwrap_or_default();
     let path = saver::save_image_dialog(
@@ -1026,6 +1098,12 @@ pub async fn copy_pin(
         paths.annotation_path.as_deref(),
         annotation_png.as_deref(),
         adjustments.unwrap_or_default(),
+        paths.corner_radius,
+        pin_output_scale_factor(
+            paths.original_width,
+            paths.original_height,
+            &paths.image_path,
+        )?,
     )?;
 
     clipboard::copy_image(final_image.rgba, final_image.width, final_image.height)
@@ -1051,7 +1129,7 @@ fn merge_pin_annotation_layers(
         return Ok(annotation_png.to_vec());
     };
 
-    use image::{imageops, RgbaImage};
+    use image::{RgbaImage, imageops};
 
     let stored_png =
         std::fs::read(path).map_err(|e| format!("Failed to read pin annotation PNG: {e}"))?;
@@ -1099,6 +1177,8 @@ fn compose_pin_image(
     stored_annotation_path: Option<&Path>,
     annotation_png: Option<&[u8]>,
     adjustments: ImageAdjustments,
+    corner_radius: u32,
+    scale_factor: f32,
 ) -> Result<CroppedImage, String> {
     let mut composed = load_pin_image(image_path)?;
     crate::image_adjust::apply_image_adjustments(
@@ -1118,7 +1198,40 @@ fn compose_pin_image(
         composed = composite_annotation(&composed, png_data)?;
     }
 
+    crate::mask::apply_rounded_corners(
+        &mut composed.rgba,
+        composed.width,
+        composed.height,
+        corner_radius,
+        scale_factor,
+    );
+
     Ok(composed)
+}
+
+fn pin_output_scale_factor(
+    original_width: u32,
+    original_height: u32,
+    image_path: &Path,
+) -> Result<f32, String> {
+    let image = image::image_dimensions(image_path)
+        .map_err(|e| format!("Failed to read pin image dimensions: {e}"))?;
+    let width_scale = if original_width > 0 {
+        image.0 as f32 / original_width as f32
+    } else {
+        0.0
+    };
+    let height_scale = if original_height > 0 {
+        image.1 as f32 / original_height as f32
+    } else {
+        0.0
+    };
+    let scale = width_scale.max(height_scale);
+    Ok(if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    })
 }
 
 fn load_pin_image(path: &Path) -> Result<CroppedImage, String> {
@@ -1145,8 +1258,8 @@ fn save_pin_png(
 
 fn encode_pin_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
     use image::{
-        codecs::png::{CompressionType, FilterType, PngEncoder},
         ExtendedColorType, ImageEncoder,
+        codecs::png::{CompressionType, FilterType, PngEncoder},
     };
 
     let mut png = Vec::with_capacity(rgba.len() + height as usize);
@@ -1201,7 +1314,7 @@ fn composite_annotation(
     base: &CroppedImage,
     annotation_png: &[u8],
 ) -> Result<CroppedImage, String> {
-    use image::{imageops, ImageBuffer, RgbaImage};
+    use image::{ImageBuffer, RgbaImage, imageops};
 
     let mut base_img: RgbaImage = ImageBuffer::from_raw(base.width, base.height, base.rgba.clone())
         .ok_or("Failed to create base image buffer")?;
@@ -1533,6 +1646,7 @@ pub async fn scroll_pin(
     let (monitor_id, logical_rect) = mgr
         .scroll_ref(|s| (s.monitor_id, s.logical_rect))
         .ok_or("no active scroll session")?;
+    let cleanup = ScrollCaptureCleanupGuard::new(&app, &mgr, monitor_id);
     let img = materialize_scroll_image(&mgr).await?;
     let _ = mgr.take_scroll();
     close_scroll_chrome(&app, monitor_id);
@@ -1563,6 +1677,7 @@ pub async fn scroll_pin(
         0,
     );
     mgr.end_session_deactivating_app(&app);
+    cleanup.disarm();
     pin_id
 }
 
@@ -1585,6 +1700,7 @@ async fn materialize_scroll_image(
 #[tauri::command]
 pub async fn scroll_copy(app: AppHandle, mgr: State<'_, Arc<WindowMgr>>) -> Result<(), String> {
     let monitor_id = mgr.scroll_ref(|s| s.monitor_id);
+    let cleanup = monitor_id.map(|mid| ScrollCaptureCleanupGuard::new(&app, &mgr, mid));
     let img = materialize_scroll_image(&mgr).await?;
     let _ = mgr.take_scroll();
     if let Some(mid) = monitor_id {
@@ -1592,6 +1708,9 @@ pub async fn scroll_copy(app: AppHandle, mgr: State<'_, Arc<WindowMgr>>) -> Resu
     }
     clipboard::copy_image(img.rgba, img.width, img.height).map_err(|e| e.to_string())?;
     mgr.end_session_deactivating_app(&app);
+    if let Some(cleanup) = cleanup {
+        cleanup.disarm();
+    }
     Ok(())
 }
 
@@ -1601,18 +1720,32 @@ pub async fn scroll_save(
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
     let monitor_id = mgr.scroll_ref(|s| s.monitor_id);
+    let path_cleanup = monitor_id.map(|mid| ScrollCaptureCleanupGuard::new(&app, &mgr, mid));
     let mut settings = settings_store::load().unwrap_or_default();
-    let path = match saver::choose_save_path(&settings).map_err(|e| e.to_string())? {
-        Some(path) => path,
-        None => return Ok(None),
+    let path = match saver::choose_save_path(&settings) {
+        Ok(Some(path)) => path,
+        Ok(None) => {
+            if let Some(cleanup) = path_cleanup {
+                cleanup.disarm();
+            }
+            return Ok(None);
+        }
+        Err(e) => return Err(e.to_string()),
     };
 
+    if let Some(cleanup) = path_cleanup {
+        cleanup.disarm();
+    }
+    let cleanup = monitor_id.map(|mid| ScrollCaptureCleanupGuard::new(&app, &mgr, mid));
     let img = materialize_scroll_image(&mgr).await?;
     let _ = mgr.take_scroll();
     if let Some(mid) = monitor_id {
         close_scroll_chrome(&app, mid);
     }
     mgr.end_session_deactivating_app(&app);
+    if let Some(cleanup) = cleanup {
+        cleanup.disarm();
+    }
     saver::save_image_to_path(img.rgba, img.width, img.height, &path).map_err(|e| e.to_string())?;
     saver::remember_last_save_dir(&mut settings, &path);
     settings_store::save(&settings).map_err(|e| e.to_string())?;
@@ -1746,6 +1879,34 @@ mod tests {
     }
 
     #[test]
+    fn capture_output_commands_have_error_path_cleanup_guards() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        for name in ["crop_and_copy", "crop_and_save", "pin_image"] {
+            let body = function_body(&source, name);
+            assert!(
+                body.contains("CaptureCleanupGuard::end_deactivating_app(&app, &mgr)"),
+                "{name} must install a cleanup guard before fallible output work",
+            );
+            assert!(
+                body.contains("cleanup.disarm();"),
+                "{name} must disarm cleanup only after explicitly ending the session",
+            );
+        }
+
+        for name in ["scroll_pin", "scroll_copy", "scroll_save"] {
+            let body = function_body(&source, name);
+            assert!(
+                body.contains("ScrollCaptureCleanupGuard"),
+                "{name} must close scroll chrome and end capture if output fails",
+            );
+            assert!(
+                body.contains("cleanup.disarm();"),
+                "{name} must disarm scroll cleanup only after normal teardown",
+            );
+        }
+    }
+
+    #[test]
     fn end_text_input_session_rearms_color_picker_only_during_capture() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let body = function_body(&source, "end_text_input_session");
@@ -1812,8 +1973,8 @@ mod tests {
             "pin_image must accept a corner_radius parameter",
         );
         assert!(
-            pin_body.contains("apply_rounded_corners"),
-            "pin_image must call mask::apply_rounded_corners",
+            !pin_body.contains("apply_rounded_corners"),
+            "pin_image must keep the cached base unmasked so pin copy/save can mask after annotation compositing",
         );
         assert!(
             !pin_body.contains("composite_annotation"),
@@ -1840,12 +2001,9 @@ mod tests {
         let adjust_idx = pin_body
             .find("image_adjust::apply_image_adjustments")
             .expect("pin_image must apply image adjustments");
-        let mask_idx = pin_body
-            .find("apply_rounded_corners")
-            .expect("pin_image must still apply rounded corners");
         assert!(
-            adjust_idx < mask_idx,
-            "pin_image: image adjustments must be applied before the pin base image is masked",
+            adjust_idx < pin_body.find("create_pin_from_image").unwrap(),
+            "pin_image: image adjustments must be applied before creating the cached pin base",
         );
         assert!(
             !pin_body.contains("composite_annotation"),
@@ -2294,6 +2452,8 @@ mod tests {
             Some(&stored_annotation_path),
             Some(&new_annotation_png),
             ImageAdjustments::default(),
+            0,
+            1.0,
         )
         .unwrap();
 
@@ -2318,10 +2478,35 @@ mod tests {
                 brightness: 20,
                 ..ImageAdjustments::default()
             },
+            0,
+            1.0,
         )
         .unwrap();
 
         assert_eq!(composed.rgba, vec![151, 151, 151, 255]);
+    }
+
+    #[test]
+    fn pin_copy_applies_rounded_corners_after_annotation_layers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base_path = tmp.path().join("pin.png");
+        let base = [255, 255, 255, 255].repeat(100);
+        std::fs::write(&base_path, encode_pin_png(&base, 10, 10).unwrap()).unwrap();
+
+        let annotation = [255, 0, 0, 255].repeat(100);
+        let annotation_png = encode_pin_png(&annotation, 10, 10).unwrap();
+        let composed = compose_pin_image(
+            &base_path,
+            None,
+            Some(&annotation_png),
+            ImageAdjustments::default(),
+            4,
+            1.0,
+        )
+        .unwrap();
+
+        assert_eq!(composed.rgba[3], 0);
+        assert_eq!(composed.rgba[(5 * 10 + 5) * 4 + 3], 255);
     }
 
     #[test]

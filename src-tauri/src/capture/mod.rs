@@ -11,15 +11,23 @@ pub use windows::{capture_all_monitors, enumerate_monitors};
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
-pub use linux::{capture_all_monitors, enumerate_monitors};
+pub use linux::{capture_all_monitors, capture_monitor_region, enumerate_monitors};
 
 mod portal_uri;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
-/// Capture a single monitor and crop to the given physical-pixel rect.
-/// Used by scroll capture loop — returns just the selection bytes, no disk I/O.
+#[cfg(not(target_os = "linux"))]
 pub fn capture_monitor_region(
+    monitor_id: u32,
+    rect_physical: crate::types::Rect,
+) -> Result<Vec<u8>> {
+    capture_xcap_monitor_region(monitor_id, rect_physical)
+}
+
+/// Capture a single xcap monitor and crop to the given physical-pixel rect.
+/// Used by scroll capture loop — returns just the selection bytes, no disk I/O.
+pub(crate) fn capture_xcap_monitor_region(
     monitor_id: u32,
     rect_physical: crate::types::Rect,
 ) -> Result<Vec<u8>> {
@@ -36,9 +44,18 @@ pub fn capture_monitor_region(
     let img = mon.capture_image().context("Failed to capture monitor")?;
     let img_width = img.width();
     let img_height = img.height();
-    let rect_physical = clamp_capture_rect_to_image(rect_physical, img_width, img_height)?;
     let rgba = img.into_raw();
 
+    crop_physical_rect_from_rgba(&rgba, img_width, img_height, rect_physical)
+}
+
+pub(crate) fn crop_physical_rect_from_rgba(
+    rgba: &[u8],
+    img_width: u32,
+    img_height: u32,
+    rect_physical: crate::types::Rect,
+) -> Result<Vec<u8>> {
+    let rect_physical = clamp_capture_rect_to_image(rect_physical, img_width, img_height)?;
     let rect_x = rect_physical.x as u32;
     let rect_y = rect_physical.y as u32;
     let row_bytes = (rect_physical.width as usize) * 4;
@@ -47,7 +64,10 @@ pub fn capture_monitor_region(
         let y = rect_y + row;
         let start = (y * img_width + rect_x) as usize * 4;
         let end = start + row_bytes;
-        out.extend_from_slice(&rgba[start..end]);
+        let slice = rgba
+            .get(start..end)
+            .with_context(|| format!("capture rect row {row} is out of bounds"))?;
+        out.extend_from_slice(slice);
     }
     Ok(out)
 }

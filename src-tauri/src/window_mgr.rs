@@ -64,8 +64,8 @@ impl WindowMgr {
     }
 
     pub fn frame(&self, monitor_id: u32) -> Option<FrozenFrame> {
-        // Clone the rgba buffer out — caller cannot mutate the stored frame.
-        // We only call this from the crop command path, which is rare (one click).
+        // Clone the shared frame handle out — callers cannot mutate the stored
+        // frame, and this avoids copying the full display before cropping.
         self.inner
             .lock()
             .frames
@@ -183,7 +183,7 @@ mod tests {
     fn fake_frame(id: u32) -> FrozenFrame {
         FrozenFrame {
             monitor_id: id,
-            rgba: vec![0; 4],
+            rgba: vec![0; 4].into(),
             width: 1,
             height: 1,
             scale_factor: 1.0,
@@ -200,6 +200,18 @@ mod tests {
         mgr.store_frame(fake_frame(7));
         assert!(mgr.frame(7).is_some());
         assert!(mgr.frame(99).is_none());
+    }
+
+    #[test]
+    fn frame_retrieval_reuses_shared_rgba_buffer() {
+        let mgr = WindowMgr::new();
+        mgr.inner.lock().in_session = true;
+        mgr.store_frame(fake_frame(7));
+
+        let first = mgr.frame(7).expect("stored frame should exist");
+        let second = mgr.frame(7).expect("stored frame should exist");
+
+        assert!(Arc::ptr_eq(&first.rgba, &second.rgba));
     }
 
     #[test]

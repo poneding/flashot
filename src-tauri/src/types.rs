@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Rect {
@@ -46,7 +47,7 @@ pub struct ImageAdjustments {
 #[derive(Debug, Clone)]
 pub struct FrozenFrame {
     pub monitor_id: u32,
-    pub rgba: Vec<u8>,
+    pub rgba: Arc<[u8]>,
     pub width: u32,
     pub height: u32,
     pub scale_factor: f32,

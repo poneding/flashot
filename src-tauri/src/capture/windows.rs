@@ -1,5 +1,6 @@
 use crate::types::{FrozenFrame, MonitorInfo, Rect};
 use anyhow::{Context, Result};
+use std::sync::Arc;
 use xcap::Monitor;
 
 pub fn enumerate_monitors() -> Result<Vec<MonitorInfo>> {
@@ -18,7 +19,7 @@ pub fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
         let img = mon.capture_image().context("Failed to capture monitor")?;
         let frame_width = img.width();
         let frame_height = img.height();
-        let rgba = img.into_raw();
+        let rgba: Arc<[u8]> = img.into_raw().into();
         frames.push(FrozenFrame {
             monitor_id: info.id,
             rgba,
