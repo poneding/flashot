@@ -7,24 +7,49 @@ import { createTranslator, resolveLocale } from "@/i18n";
 import { applyAccentColor, SELECTION_COLOR } from "@/lib/colors";
 import { chooseDefaultSaveDir, getSettings, setSettings } from "@/lib/ipc";
 import type { Settings } from "@/lib/types";
+import { checkForUpdate, downloadAndInstall, type UpdateInfo, type UpdateProgress } from "@/lib/updater";
 import { AccentColorSelect } from "@/settings/AccentColorSelect";
 import { HotkeyRecorder } from "@/settings/HotkeyRecorder";
 import { LanguageSelect } from "@/settings/LanguageSelect";
 import { SettingsSection } from "@/settings/SettingsSection";
 import { ThemeSelect } from "@/settings/ThemeSelect";
-import { applyThemePreference } from "@/settings/useStoredAccentColor";
+import { useThemePreference } from "@/settings/useStoredAccentColor";
+import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { open } from "@tauri-apps/plugin-shell";
 import {
   AppWindowIcon,
+  ArrowDownCircleIcon,
+  ArrowUpCircleIcon,
+  CircleCheckIcon,
   CropIcon,
+  ExternalLinkIcon,
   FolderOpenIcon,
   InfoIcon,
-  MonitorIcon,
+  LoaderCircleIcon,
   type LucideIcon,
+  MonitorIcon,
+  XCircleIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type ShortcutSettingKey = "captureHotkey" | "fullscreenHotkey" | "activeWindowHotkey";
+type FlashotTab = "general" | "appearance" | "shortcuts" | "updates" | "about";
+type UpdaterState =
+  | "idle"
+  | "checking"
+  | "up-to-date"
+  | "available"
+  | "downloading"
+  | "restart"
+  | "error";
+
+const REPO_URL = "https://github.com/poneding/flashot";
+const AUTHOR_URL = "https://github.com/poneding";
+const infoFieldClassName = "font-mono text-xs text-muted-foreground";
 
 function platformModifier(platform = navigator.platform) {
   return /Mac|iPhone|iPad|iPod/.test(platform) ? "Cmd" : "Ctrl";
@@ -78,9 +103,13 @@ function normalizeUpdateCheckIntervalHours(value: number): number {
   return Math.min(168, Math.max(1, Math.round(value)));
 }
 
+function adaptivePathFieldWidth(value: string): string {
+  return `${Math.min(Math.max(value.length + 2, 22), 42)}ch`;
+}
+
 function ShortcutLabel({ icon: Icon, children }: { icon: LucideIcon; children: string }) {
   return (
-    <label className="flex min-w-0 items-center gap-2 text-sm font-medium">
+    <label className="flex min-w-0 items-center gap-2 text-xs font-medium">
       <Icon size={14} strokeWidth={1.55} aria-hidden="true" />
       <span className="truncate">{children}</span>
     </label>
@@ -175,11 +204,384 @@ function normalizeHotkeyForConflict(value: string, platform = navigator.platform
   return [...modifierOrder.filter((modifier) => modifiers.has(modifier)), key].join("+");
 }
 
-export function SettingsRoute() {
+function tabFromHash(defaultTab: FlashotTab): FlashotTab {
+  const hash = window.location.hash;
+  if (hash.startsWith("#/about") || hash.startsWith("#/flashot/about")) return "about";
+  if (hash.startsWith("#/updater") || hash.startsWith("#/flashot/updates")) return "updates";
+  if (hash.startsWith("#/flashot/appearance")) return "appearance";
+  if (hash.startsWith("#/flashot/shortcuts")) return "shortcuts";
+  if (hash.startsWith("#/settings") || hash.startsWith("#/flashot/general")) return "general";
+  return defaultTab;
+}
+
+function updateCheckRequestFromHash(): number {
+  const hash = window.location.hash;
+  if (!hash.startsWith("#/updater") && !hash.startsWith("#/flashot/updates")) return 0;
+  const query = hash.split("?")[1] ?? "";
+  const params = new URLSearchParams(query);
+  if (params.get("check") !== "1") return 0;
+  const request = Number(params.get("request"));
+  return Number.isFinite(request) && request > 0 ? request : 1;
+}
+
+function consumeUpdateCheckRequest() {
+  if (updateCheckRequestFromHash() <= 0) return;
+  window.history.replaceState(null, "", "#/flashot/updates");
+}
+
+function FlashotInfoField({
+  children,
+  dataAttribute,
+}: {
+  children: ReactNode;
+  dataAttribute?: string;
+}) {
+  const dataAttrs = dataAttribute ? { [dataAttribute]: true } : {};
+
+  return (
+    <p data-flashot-info-field {...dataAttrs} className={infoFieldClassName}>
+      {children}
+    </p>
+  );
+}
+
+function FlashotInfoLayout({
+  action,
+  bodyDataAttribute,
+  children,
+  iconAlt,
+  identityDataAttribute,
+  panelDataAttribute,
+  selectNone = false,
+  fields,
+}: {
+  action?: ReactNode;
+  bodyDataAttribute?: string;
+  children?: ReactNode;
+  iconAlt: string;
+  identityDataAttribute: string;
+  panelDataAttribute: string;
+  selectNone?: boolean;
+  fields: ReactNode;
+}) {
+  const bodyDataAttrs = bodyDataAttribute ? { [bodyDataAttribute]: true } : {};
+  const identityDataAttrs = { [identityDataAttribute]: true };
+  const panelDataAttrs = { [panelDataAttribute]: true };
+
+  return (
+    <div
+      data-flashot-info-panel
+      {...panelDataAttrs}
+      className={`flex h-full flex-col items-center justify-center gap-3 text-center${selectNone ? " select-none" : ""}`}
+    >
+      <div
+        data-flashot-info-identity
+        {...identityDataAttrs}
+        className="flex flex-col items-center gap-2"
+      >
+        <img
+          src="/app-logo.svg"
+          alt={iconAlt}
+          className="size-12 shrink-0"
+          draggable={false}
+        />
+        <h1 className="text-base font-semibold leading-tight">Flashot</h1>
+      </div>
+      <div
+        data-flashot-info-body
+        {...bodyDataAttrs}
+        className="flex w-full max-w-[260px] flex-col items-center justify-center gap-2"
+      >
+        <div data-flashot-info-fields className="flex flex-col items-center gap-1">
+          {fields}
+        </div>
+      </div>
+      {children}
+      {action ? <div data-flashot-info-action>{action}</div> : null}
+    </div>
+  );
+}
+
+function AboutPanel({ language }: { language: Settings["language"] }) {
+  const [version, setVersion] = useState<string | null>(null);
+  const t = createTranslator(resolveLocale(language));
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => setVersion(null));
+  }, []);
+
+  return (
+    <FlashotInfoLayout
+      action={(
+        <Button size="sm" className="min-w-[112px] gap-1.5" onClick={() => open(REPO_URL)}>
+          <ExternalLinkIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+          {t("about.repository")}
+        </Button>
+      )}
+      bodyDataAttribute="data-about-links"
+      iconAlt={t("about.appIconAlt")}
+      identityDataAttribute="data-about-identity"
+      panelDataAttribute="data-about-panel"
+      fields={(
+        <>
+          <FlashotInfoField dataAttribute="data-about-version">
+            {version ? t("about.version", { version }) : t("about.versionUnavailable")}
+          </FlashotInfoField>
+          <FlashotInfoField dataAttribute="data-about-author">
+            <span>{t("about.authorLabel")}</span>{" "}
+            <Button
+              size="sm"
+              variant="link"
+              className="h-auto px-0 py-0 align-baseline font-mono text-xs text-muted-foreground hover:text-primary"
+              onClick={() => open(AUTHOR_URL)}
+            >
+              {t("about.author")}
+            </Button>
+          </FlashotInfoField>
+        </>
+      )}
+    />
+  );
+}
+
+function UpdaterPanel({
+  autoCheckSignal,
+  language,
+  onAutoCheckConsumed,
+}: {
+  autoCheckSignal: number;
+  language: Settings["language"];
+  onAutoCheckConsumed?: () => void;
+}) {
+  const [state, setState] = useState<UpdaterState>("idle");
+  const t = createTranslator(resolveLocale(language));
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [progress, setProgress] = useState<UpdateProgress>({ downloaded: 0, total: null });
+  const [errorMsg, setErrorMsg] = useState("");
+  const [version, setVersion] = useState("");
+  const [allowBetaUpdates, setAllowBetaUpdates] = useState(false);
+  const lastAutoCheckSignal = useRef(0);
+
+  const doCheck = useCallback(async () => {
+    setState("checking");
+    setErrorMsg("");
+    setUpdateInfo(null);
+    setProgress({ downloaded: 0, total: null });
+    try {
+      const settings = await getSettings().catch(() => null);
+      const allowBeta = settings?.allowBetaUpdates ?? false;
+      setAllowBetaUpdates(allowBeta);
+
+      const info = await checkForUpdate({ allowBeta });
+      if (info) {
+        setUpdateInfo(info);
+        setState("available");
+      } else {
+        setState("up-to-date");
+      }
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : String(e));
+      setState("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => setVersion("unknown"));
+    getSettings()
+      .then((settings) => setAllowBetaUpdates(settings.allowBetaUpdates))
+      .catch(() => { });
+  }, []);
+
+  useEffect(() => {
+    if (autoCheckSignal <= lastAutoCheckSignal.current) return;
+    lastAutoCheckSignal.current = autoCheckSignal;
+    consumeUpdateCheckRequest();
+    onAutoCheckConsumed?.();
+    void doCheck();
+  }, [autoCheckSignal, doCheck, onAutoCheckConsumed]);
+
+  const handleDownload = async () => {
+    setState("downloading");
+    try {
+      await downloadAndInstall((p) => setProgress(p), { allowBeta: allowBetaUpdates });
+      setState("restart");
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : String(e));
+      setState("error");
+    }
+  };
+
+  const handleRestart = () => {
+    relaunch();
+  };
+
+  const betaStatus = t(allowBetaUpdates ? "updater.betaAllowed" : "updater.betaBlocked");
+  const updateAction = (() => {
+    if (state === "idle") {
+      return <Button size="sm" className="min-w-[112px]" onClick={doCheck}>{t("updater.checkNow")}</Button>;
+    }
+    if (state === "up-to-date") {
+      return <Button size="sm" className="min-w-[112px]" onClick={doCheck}>{t("updater.checkNow")}</Button>;
+    }
+    if (state === "available" && updateInfo) {
+      return <Button size="sm" className="min-w-[112px]" onClick={handleDownload}>{t("updater.downloadInstall")}</Button>;
+    }
+    if (state === "restart") {
+      return <Button size="sm" className="min-w-[112px]" onClick={handleRestart}>{t("updater.restartNow")}</Button>;
+    }
+    if (state === "error") {
+      return <Button size="sm" className="min-w-[112px]" onClick={doCheck}>{t("updater.retry")}</Button>;
+    }
+    return null;
+  })();
+
+  return (
+    <FlashotInfoLayout
+      action={updateAction}
+      iconAlt="Flashot"
+      identityDataAttribute="data-updater-identity"
+      panelDataAttribute="data-updater-panel"
+      selectNone
+      fields={(
+        <>
+          <FlashotInfoField dataAttribute="data-updater-version">
+            {version ? t("updater.version", { version }) : t("about.versionUnavailable")}
+          </FlashotInfoField>
+          <FlashotInfoField dataAttribute="data-updater-channel">
+            {betaStatus}
+          </FlashotInfoField>
+        </>
+      )}
+    >
+
+      {state === "checking" && (
+        <div className="flex w-full max-w-sm flex-col items-center gap-2 rounded-md bg-muted/40 px-3 py-3">
+          <LoaderCircleIcon size={24} className="shrink-0 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">{t("updater.checking")}</p>
+        </div>
+      )}
+
+      {state === "up-to-date" && (
+        <>
+          <div data-updater-result className="flex w-full max-w-sm flex-col items-center gap-2 rounded-md bg-muted/40 px-3 py-3">
+            <CircleCheckIcon size={24} className="shrink-0 text-green-500" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">{t("updater.upToDate")}</p>
+            </div>
+          </div>
+        </>
+      )}
+
+      {state === "available" && updateInfo && (
+        <>
+          <div data-updater-result className="flex w-full max-w-sm flex-col items-center gap-2 rounded-md bg-muted/40 px-3 py-3">
+            <ArrowUpCircleIcon size={24} className="shrink-0 text-blue-500" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">{t("updater.available")}</p>
+              <p className="text-xs text-muted-foreground">v{updateInfo.version}</p>
+            </div>
+          </div>
+          {updateInfo.body && (
+            <div className="max-h-[220px] w-full overflow-y-auto rounded-md bg-muted/50 p-2.5 text-left text-xs text-muted-foreground">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  h1: ({ children }) => <h1 className="mb-2 text-sm font-semibold text-foreground">{children}</h1>,
+                  h2: ({ children }) => <h2 className="mb-2 text-sm font-semibold text-foreground">{children}</h2>,
+                  h3: ({ children }) => <h3 className="mb-1.5 text-xs font-semibold text-foreground">{children}</h3>,
+                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                  ul: ({ children }) => <ul className="mb-2 list-disc space-y-1 pl-4 last:mb-0">{children}</ul>,
+                  ol: ({ children }) => <ol className="mb-2 list-decimal space-y-1 pl-4 last:mb-0">{children}</ol>,
+                  li: ({ children }) => <li className="pl-0.5">{children}</li>,
+                  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                  code: ({ children }) => <code className="rounded bg-background px-1 py-0.5 font-mono text-[11px] text-foreground">{children}</code>,
+                  a: ({ children, href }) => (
+                    <a
+                      className="font-medium text-primary underline-offset-2 hover:underline"
+                      href={href}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      {children}
+                    </a>
+                  ),
+                }}
+              >
+                {updateInfo.body}
+              </ReactMarkdown>
+            </div>
+          )}
+        </>
+      )}
+
+      {state === "downloading" && (
+        <>
+          <div className="flex w-full max-w-sm flex-col items-center gap-2 rounded-md bg-muted/40 px-3 py-3">
+            <ArrowDownCircleIcon size={24} className="shrink-0 text-blue-500" />
+            <p className="text-sm font-semibold">{t("updater.downloading")}</p>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            {progress.total ? (
+              <div
+                className="h-full rounded-full bg-blue-500 transition-[width] duration-300"
+                style={{ width: `${Math.round((progress.downloaded / progress.total) * 100)}%` }}
+              />
+            ) : (
+              <div className="h-full w-1/3 animate-pulse rounded-full bg-blue-500" />
+            )}
+          </div>
+          {progress.total && (
+            <p className="text-xs text-muted-foreground">
+              {Math.round((progress.downloaded / progress.total) * 100)}%
+            </p>
+          )}
+        </>
+      )}
+
+      {state === "restart" && (
+        <>
+          <div data-updater-result className="flex w-full max-w-sm flex-col items-center gap-2 rounded-md bg-muted/40 px-3 py-3">
+            <CircleCheckIcon size={24} className="shrink-0 text-green-500" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">{t("updater.readyRestart")}</p>
+              <p className="text-xs text-muted-foreground">{t("updater.restartDescription")}</p>
+            </div>
+          </div>
+        </>
+      )}
+
+      {state === "error" && (
+        <>
+          <div data-updater-result className="flex w-full max-w-sm flex-col items-center gap-2 rounded-md bg-muted/40 px-3 py-3">
+            <XCircleIcon size={24} className="shrink-0 text-red-500" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">{t("updater.error")}</p>
+              <p className="break-words text-xs text-muted-foreground">{errorMsg}</p>
+            </div>
+          </div>
+        </>
+      )}
+    </FlashotInfoLayout>
+  );
+}
+
+export function FlashotRoute({ initialTab = "general" }: { initialTab?: FlashotTab }) {
   const [s, setS] = useState<Settings>(() => initialSettings());
-  const [saved, setSaved] = useState(false);
+  const [activeTab, setActiveTab] = useState<FlashotTab>(() => tabFromHash(initialTab));
+  const [updateCheckSignal, setUpdateCheckSignal] = useState(() => updateCheckRequestFromHash());
+  const consumeAutoUpdateCheck = useCallback(() => {
+    setUpdateCheckSignal(0);
+  }, []);
   const t = createTranslator(resolveLocale(s.language));
-  const windowTitle = t("settings.title");
+  const windowTitle = "Flashot";
+  const tabTriggerClass = "text-xs data-[active]:border-border data-[active]:text-primary dark:data-[active]:text-primary";
+  const commitSettings = (updater: (current: Settings) => Settings) => {
+    setS((current) => {
+      const next = updater(current);
+      void setSettings(next).catch(() => { });
+      return next;
+    });
+  };
   const shortcutRows: Array<{
     key: ShortcutSettingKey;
     icon: LucideIcon;
@@ -190,19 +592,19 @@ export function SettingsRoute() {
         key: "captureHotkey",
         icon: CropIcon,
         label: t("settings.shortcut.region"),
-        onChange: (captureHotkey) => setS({ ...s, captureHotkey }),
+        onChange: (captureHotkey) => commitSettings((current) => ({ ...current, captureHotkey })),
       },
       {
         key: "fullscreenHotkey",
         icon: MonitorIcon,
         label: t("settings.shortcut.screen"),
-        onChange: (fullscreenHotkey) => setS({ ...s, fullscreenHotkey }),
+        onChange: (fullscreenHotkey) => commitSettings((current) => ({ ...current, fullscreenHotkey })),
       },
       {
         key: "activeWindowHotkey",
         icon: AppWindowIcon,
         label: t("settings.shortcut.window"),
-        onChange: (activeWindowHotkey) => setS({ ...s, activeWindowHotkey }),
+        onChange: (activeWindowHotkey) => commitSettings((current) => ({ ...current, activeWindowHotkey })),
       },
     ];
   const conflicts = shortcutConflictLabels(
@@ -223,9 +625,7 @@ export function SettingsRoute() {
       .catch(() => { });
   }, []);
 
-  useEffect(() => {
-    applyThemePreference(s.theme);
-  }, [s.theme]);
+  useThemePreference(s.theme);
 
   useEffect(() => {
     applyAccentColor(s.accentColor);
@@ -240,53 +640,78 @@ export function SettingsRoute() {
     }
   }, [windowTitle]);
 
-  const save = async () => {
-    await setSettings(s);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1200);
-  };
+  useEffect(() => {
+    const syncTabFromHash = () => {
+      setActiveTab(tabFromHash(initialTab));
+      const request = updateCheckRequestFromHash();
+      if (request > 0) {
+        setUpdateCheckSignal(request);
+      }
+    };
+    window.addEventListener("hashchange", syncTabFromHash);
+    return () => window.removeEventListener("hashchange", syncTabFromHash);
+  }, [initialTab]);
 
   const changeDefaultSaveDir = async () => {
     const dir = await chooseDefaultSaveDir(s.defaultSaveDir);
     if (dir) {
-      setS((current) => ({ ...current, defaultSaveDir: dir }));
+      commitSettings((current) => ({ ...current, defaultSaveDir: dir }));
     }
   };
 
   const setAutoCheckUpdates = (autoCheckUpdates: boolean) => {
-    setS((current) => ({
+    commitSettings((current) => ({
       ...current,
       autoCheckUpdates,
       allowBetaUpdates: autoCheckUpdates ? current.allowBetaUpdates : false,
     }));
   };
 
+  const resetShortcut = (key: ShortcutSettingKey) => {
+    const defaults = defaultSettings();
+    commitSettings((current) => ({ ...current, [key]: defaults[key] }));
+  };
+
   return (
-    <UtilityWindowShell windowName="settings" contentClassName="max-w-lg h-full flex flex-col">
-      <Tabs defaultValue="general" className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <TabsList className="grid w-full grid-cols-3 shrink-0">
-          <TabsTrigger value="general">{t("settings.general.title")}</TabsTrigger>
-          <TabsTrigger value="appearance">{t("settings.appearance.title")}</TabsTrigger>
-          <TabsTrigger value="shortcuts">{t("settings.shortcuts.title")}</TabsTrigger>
+    <UtilityWindowShell
+      windowName="flashot"
+      className="overflow-hidden"
+      contentClassName="max-w-[500px] h-full flex flex-col"
+    >
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(value as FlashotTab)}
+        className="flex-1 flex flex-col min-h-0 gap-0 overflow-hidden"
+      >
+        <TabsList className="grid !h-7 w-full shrink-0 grid-cols-5 rounded-md p-0.5">
+          <TabsTrigger value="general" className={tabTriggerClass}>{t("settings.general.title")}</TabsTrigger>
+          <TabsTrigger value="appearance" className={tabTriggerClass}>{t("settings.appearance.title")}</TabsTrigger>
+          <TabsTrigger value="shortcuts" className={tabTriggerClass}>{t("settings.shortcuts.title")}</TabsTrigger>
+          <TabsTrigger value="updates" className={tabTriggerClass}>{t("flashot.tabs.updates")}</TabsTrigger>
+          <TabsTrigger value="about" className={tabTriggerClass}>{t("flashot.tabs.about")}</TabsTrigger>
         </TabsList>
 
-        <div className="flex-1 mt-4 overflow-y-auto min-h-0">
-          <TabsContent value="general" className="space-y-5 m-0">
+        <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+          <TabsContent value="general" className="m-0 space-y-3">
             <SettingsSection title={t("settings.general.title")}>
               <div
                 data-default-save-row
-                className="flex min-h-9 items-center justify-between gap-3"
+                className="flex min-h-8 items-center justify-between gap-2"
               >
-                <label className="shrink-0 text-sm font-medium" htmlFor="default-save-dir">
+                <label className="shrink-0 text-xs font-medium" htmlFor="default-save-dir">
                   {t("settings.defaultSaveDir.label")}
                 </label>
-                <div data-default-save-field className="relative min-w-0 flex-1">
+                <div
+                  data-default-save-field
+                  className="relative min-w-[180px] max-w-[320px] flex-[1_1_auto]"
+                  style={{ width: adaptivePathFieldWidth(s.defaultSaveDir) }}
+                >
                   <input
                     aria-label={t("settings.defaultSaveDir.label")}
                     disabled
                     id="default-save-dir"
                     readOnly
-                    className="h-8 w-full rounded-md border border-input bg-muted/30 pl-2.5 pr-8 font-mono text-xs text-muted-foreground opacity-100 outline-none disabled:cursor-default disabled:opacity-100"
+                    className="h-7 w-full rounded-md border border-input bg-muted/30 pl-2 pr-8 font-mono text-xs text-muted-foreground opacity-100 outline-none disabled:cursor-default disabled:opacity-100"
                     title={s.defaultSaveDir}
                     type="text"
                     value={s.defaultSaveDir}
@@ -305,17 +730,17 @@ export function SettingsRoute() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex min-h-8 items-center gap-2">
                 <Checkbox
                   id="launch-at-login"
                   aria-label={t("settings.launchAtLogin.label")}
                   checked={s.launchAtLogin}
-                  onCheckedChange={(launchAtLogin) => setS({ ...s, launchAtLogin })}
+                  onCheckedChange={(launchAtLogin) => commitSettings((current) => ({ ...current, launchAtLogin }))}
                 />
-                <label className="text-sm font-medium" htmlFor="launch-at-login">{t("settings.launchAtLogin.label")}</label>
+                <label className="text-xs font-medium" htmlFor="launch-at-login">{t("settings.launchAtLogin.label")}</label>
               </div>
 
-              <div className="flex min-h-9 items-center justify-between gap-3">
+              <div className="flex min-h-8 items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2">
                   <Checkbox
                     id="auto-check-updates"
@@ -323,20 +748,20 @@ export function SettingsRoute() {
                     checked={s.autoCheckUpdates}
                     onCheckedChange={setAutoCheckUpdates}
                   />
-                  <label className="truncate text-sm font-medium" htmlFor="auto-check-updates">{t("settings.autoCheckUpdates.label")}</label>
+                  <label className="truncate text-xs font-medium" htmlFor="auto-check-updates">{t("settings.autoCheckUpdates.label")}</label>
                 </div>
                 {s.autoCheckUpdates && (
                   <label className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
                     <span>{t("settings.updateCheckInterval.prefix")}</span>
                     <input
                       aria-label={t("settings.updateCheckInterval.inputLabel")}
-                      className="h-6 w-12 rounded-md border border-input bg-background px-1 text-center text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+                      className="h-6 w-11 rounded-md border border-input bg-background px-1 text-center text-xs text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
                       max={168}
                       min={1}
-                      onChange={(event) => setS({
-                        ...s,
+                      onChange={(event) => commitSettings((current) => ({
+                        ...current,
                         updateCheckIntervalHours: normalizeUpdateCheckIntervalHours(Number(event.currentTarget.value)),
-                      })}
+                      }))}
                       step={1}
                       type="number"
                       value={s.updateCheckIntervalHours}
@@ -347,26 +772,26 @@ export function SettingsRoute() {
               </div>
 
               {s.autoCheckUpdates && (
-                <div className="flex items-center gap-2">
+                <div className="flex min-h-8 items-center gap-2">
                   <Checkbox
                     id="allow-beta-updates"
                     aria-label={t("settings.allowBetaUpdates.label")}
                     checked={s.allowBetaUpdates}
-                    onCheckedChange={(allowBetaUpdates) => setS({ ...s, allowBetaUpdates })}
+                    onCheckedChange={(allowBetaUpdates) => commitSettings((current) => ({ ...current, allowBetaUpdates }))}
                   />
-                  <label className="text-sm font-medium" htmlFor="allow-beta-updates">{t("settings.allowBetaUpdates.label")}</label>
+                  <label className="text-xs font-medium" htmlFor="allow-beta-updates">{t("settings.allowBetaUpdates.label")}</label>
                 </div>
               )}
             </SettingsSection>
           </TabsContent>
 
-          <TabsContent value="appearance" className="space-y-5 m-0">
+          <TabsContent value="appearance" className="m-0 space-y-3">
             <SettingsSection title={t("settings.appearance.title")}>
-              <div className="flex items-center justify-between gap-3">
-                <label className="text-sm font-medium" htmlFor="settings-language">{t("settings.language.label")}</label>
+              <div className="flex min-h-8 items-center justify-between gap-2">
+                <label className="text-xs font-medium" htmlFor="settings-language">{t("settings.language.label")}</label>
                 <LanguageSelect
                   value={s.language}
-                  onChange={(language) => setS({ ...s, language })}
+                  onChange={(language) => commitSettings((current) => ({ ...current, language }))}
                   ariaLabel={t("settings.language.label")}
                   labels={{
                     en: t("settings.language.en"),
@@ -376,11 +801,11 @@ export function SettingsRoute() {
                 />
               </div>
 
-              <div className="flex items-center justify-between gap-3">
-                <label className="text-sm font-medium">{t("settings.theme.label")}</label>
+              <div className="flex min-h-8 items-center justify-between gap-2">
+                <label className="text-xs font-medium">{t("settings.theme.label")}</label>
                 <ThemeSelect
                   value={s.theme}
-                  onChange={(theme) => setS({ ...s, theme })}
+                  onChange={(theme) => commitSettings((current) => ({ ...current, theme }))}
                   labels={{
                     system: t("settings.theme.system"),
                     light: t("settings.theme.light"),
@@ -389,11 +814,11 @@ export function SettingsRoute() {
                 />
               </div>
 
-              <div className="flex items-center justify-between gap-3">
-                <label className="text-sm font-medium">{t("settings.accentColor.label")}</label>
+              <div className="flex min-h-8 items-center justify-between gap-2">
+                <label className="text-xs font-medium">{t("settings.accentColor.label")}</label>
                 <AccentColorSelect
                   value={s.accentColor}
-                  onChange={(accentColor) => setS({ ...s, accentColor })}
+                  onChange={(accentColor) => commitSettings((current) => ({ ...current, accentColor }))}
                   ariaLabel={t("settings.accentColor.label")}
                   optionLabel={(name) => t("settings.accentColor.option", { name })}
                   colorNames={{
@@ -409,9 +834,9 @@ export function SettingsRoute() {
             </SettingsSection>
           </TabsContent>
 
-          <TabsContent value="shortcuts" className="space-y-5 m-0">
+          <TabsContent value="shortcuts" className="m-0 space-y-3">
             <SettingsSection title={t("settings.shortcuts.title")}>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {shortcutRows.map((row) => {
                   const conflictLabels = conflicts[row.key];
                   const conflictMessage = conflictLabels?.length
@@ -424,7 +849,7 @@ export function SettingsRoute() {
                     <div
                       key={row.key}
                       data-shortcut-row={row.key}
-                      className="flex min-h-9 items-center justify-between gap-3"
+                      className="flex min-h-8 items-center justify-between gap-2"
                     >
                       <ShortcutLabel icon={row.icon}>{row.label}</ShortcutLabel>
                       <div className="flex shrink-0 items-center gap-2">
@@ -434,7 +859,9 @@ export function SettingsRoute() {
                           changeLabel={t("settings.hotkey.change")}
                           clearLabel={t("settings.hotkey.clear", { label: row.label })}
                           inputLabel={t("settings.hotkey.inputLabel", { label: row.label })}
+                          onReset={() => resetShortcut(row.key)}
                           recordingLabel={t("settings.hotkey.recording")}
+                          resetLabel={t("settings.hotkey.reset", { label: row.label })}
                         />
                         {conflictMessage ? <ShortcutConflictIndicator message={conflictMessage} /> : null}
                       </div>
@@ -444,13 +871,22 @@ export function SettingsRoute() {
               </div>
             </SettingsSection>
           </TabsContent>
+          <TabsContent value="updates" className="m-0 h-full">
+            <UpdaterPanel
+              autoCheckSignal={updateCheckSignal}
+              language={s.language}
+              onAutoCheckConsumed={consumeAutoUpdateCheck}
+            />
+          </TabsContent>
+          <TabsContent value="about" className="m-0 h-full">
+            {activeTab === "about" ? <AboutPanel language={s.language} /> : null}
+          </TabsContent>
         </div>
       </Tabs>
-
-      <div className="flex justify-end gap-2 pt-4 mt-auto border-t">
-        <Button variant="outline" onClick={() => setS(defaultSettings())}>{t("settings.reset")}</Button>
-        <Button onClick={save}>{saved ? t("settings.saved") : t("settings.save")}</Button>
-      </div>
     </UtilityWindowShell>
   );
+}
+
+export function SettingsRoute() {
+  return <FlashotRoute initialTab="general" />;
 }

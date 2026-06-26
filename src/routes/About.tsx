@@ -1,43 +1,5 @@
-import { getVersion } from "@tauri-apps/api/app";
-import { open } from "@tauri-apps/plugin-shell";
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { UtilityWindowShell } from "@/components/UtilityWindowShell";
-import { createTranslator } from "@/i18n";
-import { useStoredAppearance, useStoredLanguage } from "@/settings/useStoredAccentColor";
-
-const REPO_URL = "https://github.com/poneding/flashot";
+import { FlashotRoute } from "@/routes/Settings";
 
 export function AboutRoute() {
-  const [version, setVersion] = useState<string | null>(null);
-  useStoredAppearance();
-  const t = createTranslator(useStoredLanguage());
-
-  useEffect(() => {
-    getVersion().then(setVersion).catch(() => setVersion(null));
-  }, []);
-
-  return (
-    <UtilityWindowShell
-      windowName="about"
-      className="overflow-hidden"
-      contentClassName="flex flex-col items-center justify-center gap-4 text-center"
-    >
-      <div className="flex flex-col items-center gap-2">
-        <h1 className="text-2xl font-semibold">Flashot</h1>
-        <img
-          src="/app-logo.svg"
-          alt={t("about.appIconAlt")}
-          className="size-16"
-          draggable={false}
-        />
-        <p className="font-mono text-sm text-muted-foreground">
-          {version ? t("about.version", { version }) : t("about.versionUnavailable")}
-        </p>
-      </div>
-      <Button onClick={() => open(REPO_URL)}>
-        {t("about.repository")}
-      </Button>
-    </UtilityWindowShell>
-  );
+  return <FlashotRoute initialTab="about" />;
 }

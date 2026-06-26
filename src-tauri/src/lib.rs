@@ -82,6 +82,9 @@ pub fn run() {
 
             let app = window.app_handle().clone();
             let settings = settings_store::load().unwrap_or_default();
+            if settings.theme == settings_store::Theme::System {
+                commands::refresh_open_utility_windows_appearance(&app, &settings);
+            }
             if let Err(e) = tray::update_menu(
                 &app,
                 &settings.capture_hotkey,

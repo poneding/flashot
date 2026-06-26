@@ -43,20 +43,18 @@ pub struct UpdateProgress {
     pub total: Option<u64>,
 }
 
-const ABOUT_WINDOW_WIDTH: f64 = 360.0;
-const ABOUT_WINDOW_HEIGHT: f64 = 300.0;
-const SETTINGS_WINDOW_WIDTH: f64 = 560.0;
-const SETTINGS_WINDOW_HEIGHT: f64 = 560.0;
-const UPDATER_WINDOW_WIDTH: f64 = 360.0;
-const UPDATER_WINDOW_HEIGHT: f64 = 280.0;
+const FLASHOT_WINDOW_WIDTH: f64 = 500.0;
+const FLASHOT_WINDOW_HEIGHT: f64 = 432.0;
 const STABLE_UPDATE_ENDPOINT: &str =
     "https://github.com/poneding/flashot/releases/latest/download/latest.json";
 const BETA_UPDATE_ENDPOINT: &str =
     "https://raw.githubusercontent.com/poneding/flashot/beta/latest.json";
 const UPDATER_PROGRESS_EVENT: &str = "updater:progress";
 const MAX_CORNER_RADIUS: u32 = 60;
+static FLASHOT_ROUTE_REQUEST_SEQ: AtomicU64 = AtomicU64::new(1);
 const UTILITY_WINDOW_LIGHT_BACKGROUND: Color = Color(255, 255, 255, 255);
-const UTILITY_WINDOW_DARK_BACKGROUND: Color = Color(11, 17, 30, 255);
+const UTILITY_WINDOW_DARK_BACKGROUND: Color = Color(30, 30, 30, 255);
+const UTILITY_WINDOW_LABELS: &[&str] = &["flashot", "settings", "about", "updater"];
 const UTILITY_WINDOW_DARK_INIT_SCRIPT: &str = r#"
 (() => {
   try {
@@ -206,7 +204,9 @@ fn pin_utility_window_to_level(window: &WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
         let level = match window.label() {
-            "about" | "settings" | "updater" => Some(crate::app_activation::FLOATING_WINDOW_LEVEL),
+            "about" | "settings" | "updater" | "flashot" => {
+                Some(crate::app_activation::FLOATING_WINDOW_LEVEL)
+            }
             _ => None,
         };
         let Some(level) = level else { return };
@@ -276,6 +276,18 @@ fn apply_utility_window_appearance(
     window
         .set_background_color(Some(utility_window_background_color(effective_theme)))
         .map_err(|e| format!("Failed to set utility window background: {e}"))
+}
+
+pub(crate) fn refresh_open_utility_windows_appearance(app: &AppHandle, settings: &Settings) {
+    let theme = utility_window_theme_for_settings(settings);
+    for label in UTILITY_WINDOW_LABELS {
+        let Some(window) = app.get_webview_window(label) else {
+            continue;
+        };
+        if let Err(error) = apply_utility_window_appearance(&window, theme) {
+            tracing::warn!("failed to refresh utility window {label} appearance: {error}");
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -549,6 +561,7 @@ pub fn set_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
     let autolaunch = app.autolaunch();
     apply_launch_at_login(&*autolaunch, settings.launch_at_login)?;
     settings_store::save(&settings).map_err(|e| e.to_string())?;
+    refresh_open_utility_windows_appearance(&app, &settings);
     let _ = app.emit("settings:changed", ());
     Ok(())
 }
@@ -670,17 +683,34 @@ pub async fn download_and_install_update(app: AppHandle, allow_beta: bool) -> Re
 
 #[tauri::command]
 pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
-    let (theme, language) = stored_utility_window_preferences();
-    let title = crate::i18n::native_text(language).settings_title;
-    if let Some(w) = app.get_webview_window("settings") {
+    open_flashot_window(app, "general", false)
+}
+
+fn flashot_window_hash(tab: &str, check_updates: bool) -> String {
+    if check_updates {
+        let request = FLASHOT_ROUTE_REQUEST_SEQ.fetch_add(1, Ordering::Relaxed);
+        format!("#/flashot/{tab}?check=1&request={request}")
+    } else {
+        format!("#/flashot/{tab}")
+    }
+}
+
+fn open_flashot_window(app: AppHandle, tab: &str, check_updates: bool) -> Result<(), String> {
+    let (theme, _) = stored_utility_window_preferences();
+    let title = "Flashot";
+    let hash = flashot_window_hash(tab, check_updates);
+    if let Some(w) = app.get_webview_window("flashot") {
         w.set_title(title)
             .map_err(|e| format!("Failed to set utility window title: {e}"))?;
+        let script = format!("window.location.hash = {hash:?};");
+        w.eval(script)
+            .map_err(|e| format!("Failed to select Flashot tab: {e}"))?;
         show_utility_window(&w, theme)?;
         return Ok(());
     }
-    let url = tauri::WebviewUrl::App("index.html#/settings".into());
-    let (width, height) = settings_window_size();
-    let window = tauri::WebviewWindowBuilder::new(&app, "settings", url)
+    let url = tauri::WebviewUrl::App(format!("index.html{hash}").into());
+    let (width, height) = flashot_window_size();
+    let window = tauri::WebviewWindowBuilder::new(&app, "flashot", url)
         .title(title)
         .inner_size(width, height)
         .resizable(false)
@@ -728,61 +758,16 @@ pub fn end_text_input_session(
 
 #[tauri::command]
 pub fn open_about_window(app: AppHandle) -> Result<(), String> {
-    let (theme, language) = stored_utility_window_preferences();
-    let title = crate::i18n::native_text(language).about_title;
-    if let Some(w) = app.get_webview_window("about") {
-        w.set_title(title)
-            .map_err(|e| format!("Failed to set utility window title: {e}"))?;
-        show_utility_window(&w, theme)?;
-        return Ok(());
-    }
-    let url = tauri::WebviewUrl::App("index.html#/about".into());
-    let (width, height) = about_window_size();
-    let window = tauri::WebviewWindowBuilder::new(&app, "about", url)
-        .title(title)
-        .inner_size(width, height)
-        .resizable(false)
-        .visible(false)
-        .theme(theme)
-        .background_color(utility_window_initial_background(theme))
-        .initialization_script(utility_window_init_script(theme))
-        .build()
-        .map_err(|e| e.to_string())?;
-    show_utility_window(&window, theme)?;
-    Ok(())
+    open_flashot_window(app, "about", false)
 }
 
 #[tauri::command]
 pub fn open_updater_window(app: AppHandle) -> Result<(), String> {
-    let (theme, language) = stored_utility_window_preferences();
-    let title = crate::i18n::native_text(language).updates_title;
-    if let Some(w) = app.get_webview_window("updater") {
-        w.set_title(title)
-            .map_err(|e| format!("Failed to set utility window title: {e}"))?;
-        show_utility_window(&w, theme)?;
-        return Ok(());
-    }
-    let url = tauri::WebviewUrl::App("index.html#/updater".into());
-    let window = tauri::WebviewWindowBuilder::new(&app, "updater", url)
-        .title(title)
-        .inner_size(UPDATER_WINDOW_WIDTH, UPDATER_WINDOW_HEIGHT)
-        .resizable(false)
-        .visible(false)
-        .theme(theme)
-        .background_color(utility_window_initial_background(theme))
-        .initialization_script(utility_window_init_script(theme))
-        .build()
-        .map_err(|e| e.to_string())?;
-    show_utility_window(&window, theme)?;
-    Ok(())
+    open_flashot_window(app, "updates", true)
 }
 
-fn about_window_size() -> (f64, f64) {
-    (ABOUT_WINDOW_WIDTH, ABOUT_WINDOW_HEIGHT)
-}
-
-fn settings_window_size() -> (f64, f64) {
-    (SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
+fn flashot_window_size() -> (f64, f64) {
+    (FLASHOT_WINDOW_WIDTH, FLASHOT_WINDOW_HEIGHT)
 }
 
 #[tauri::command]
@@ -2720,13 +2705,19 @@ mod tests {
     }
 
     #[test]
-    fn about_window_has_vertical_room_for_content() {
-        assert_eq!(about_window_size(), (360.0, 300.0));
+    fn flashot_window_uses_unified_tabbed_size() {
+        assert_eq!(flashot_window_size(), (500.0, 432.0));
     }
 
     #[test]
-    fn settings_window_has_vertical_room_for_quick_shot_shortcuts() {
-        assert_eq!(settings_window_size(), (560.0, 560.0));
+    fn updater_menu_opens_updates_tab_with_check_signal() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "open_updater_window");
+
+        assert!(
+            body.contains("open_flashot_window(app, \"updates\", true)"),
+            "open_updater_window must request an immediate update check",
+        );
     }
 
     #[test]
@@ -2744,45 +2735,33 @@ mod tests {
     #[test]
     fn utility_windows_start_hidden_with_theme_bootstrap() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
-        for name in [
-            "open_settings_window",
-            "open_about_window",
-            "open_updater_window",
-        ] {
-            let body = function_body(&source, name);
-            assert!(
-                body.contains(".visible(false)"),
-                "{name} must stay hidden until its background is configured",
-            );
-            assert!(
-                body.contains(".theme(theme)"),
-                "{name} must apply the saved window theme before showing",
-            );
-            assert!(
-                body.contains(".background_color(utility_window_initial_background(theme))"),
-                "{name} must configure the native/webview first-frame background",
-            );
-            assert!(
-                body.contains(".initialization_script(utility_window_init_script(theme))"),
-                "{name} must bootstrap the document theme before React mounts",
-            );
-        }
+        let body = function_body(&source, "open_flashot_window");
+        assert!(
+            body.contains(".visible(false)"),
+            "open_flashot_window must stay hidden until its background is configured",
+        );
+        assert!(
+            body.contains(".theme(theme)"),
+            "open_flashot_window must apply the saved window theme before showing",
+        );
+        assert!(
+            body.contains(".background_color(utility_window_initial_background(theme))"),
+            "open_flashot_window must configure the native/webview first-frame background",
+        );
+        assert!(
+            body.contains(".initialization_script(utility_window_init_script(theme))"),
+            "open_flashot_window must bootstrap the document theme before React mounts",
+        );
     }
 
     #[test]
     fn reopened_menu_windows_are_explicitly_brought_to_front() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
-        for name in [
-            "open_settings_window",
-            "open_about_window",
-            "open_updater_window",
-        ] {
-            let body = function_body(&source, name);
-            assert!(
-                body.contains("show_utility_window(&w, theme)?;"),
-                "{name} must raise an already-open window instead of only focusing it",
-            );
-        }
+        let body = function_body(&source, "open_flashot_window");
+        assert!(
+            body.contains("show_utility_window(&w, theme)?;"),
+            "open_flashot_window must raise an already-open window instead of only focusing it",
+        );
     }
 
     #[test]
@@ -2864,10 +2843,15 @@ mod tests {
 
         let apply_idx = body.find("apply_launch_at_login").unwrap();
         let save_idx = body.find("settings_store::save").unwrap();
+        let refresh_idx = body.find("refresh_open_utility_windows_appearance").unwrap();
 
         assert!(
             apply_idx < save_idx,
             "login startup must be applied before settings are persisted",
+        );
+        assert!(
+            refresh_idx > save_idx,
+            "set_settings must refresh open utility window chrome after persisting theme",
         );
     }
 

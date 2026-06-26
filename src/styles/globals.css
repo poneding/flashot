@@ -34,28 +34,29 @@
     --ring: 38 92% 50%;
   }
   .dark {
-    --background: 222 47% 8%;
+    /* macOS dark title bar / window background (~#1E1E1E) */
+    --background: 0 0% 12%;
     --foreground: 0 0% 98%;
     --accent: 38 92% 50%;
     --flashot-accent: #F59E0B;
     --flashot-accent-rgb: 245, 158, 11;
     --flashot-accent-soft: rgba(245, 158, 11, 0.06);
-    --border: 217 19% 27%;
+    --border: 0 0% 22%;
     /* shadcn token extensions */
-    --card: 222 47% 11%;
+    --card: 0 0% 14%;
     --card-foreground: 0 0% 98%;
-    --popover: 222 47% 11%;
+    --popover: 0 0% 14%;
     --popover-foreground: 0 0% 98%;
     --primary: 38 92% 50%;
-    --primary-foreground: 222 47% 8%;
-    --secondary: 217 19% 27%;
+    --primary-foreground: 0 0% 12%;
+    --secondary: 0 0% 18%;
     --secondary-foreground: 0 0% 98%;
-    --muted: 217 19% 27%;
-    --muted-foreground: 215 20% 65%;
+    --muted: 0 0% 17%;
+    --muted-foreground: 0 0% 63%;
     --accent-foreground: 0 0% 98%;
     --destructive: 0 62% 30%;
     --destructive-foreground: 0 0% 98%;
-    --input: 217 19% 27%;
+    --input: 0 0% 22%;
     --ring: 38 92% 50%;
   }
   html, body, #root { height: 100%; }

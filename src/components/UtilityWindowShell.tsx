@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-type UtilityWindowName = "settings" | "about" | "updater";
+type UtilityWindowName = "settings" | "about" | "updater" | "flashot";
 
 export function UtilityWindowShell({
   windowName,
@@ -18,7 +18,7 @@ export function UtilityWindowShell({
   return (
     <main
       data-utility-window-shell={windowName}
-      className={cn("h-full bg-background p-6 text-foreground", className)}
+      className={cn("h-full bg-background p-4 text-foreground", className)}
     >
       <div
         data-utility-window-content

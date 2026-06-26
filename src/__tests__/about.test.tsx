@@ -1,8 +1,9 @@
 /** @vitest-environment jsdom */
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AboutRoute } from "@/routes/About";
 import { getSettings } from "@/lib/ipc";
+import { open } from "@tauri-apps/plugin-shell";
 
 vi.mock("@tauri-apps/api/app", () => ({
   getVersion: vi.fn().mockResolvedValue("0.1.0"),
@@ -46,8 +47,13 @@ describe("AboutRoute", () => {
     render(<AboutRoute />);
 
     expect(screen.getByRole("heading", { name: "Flashot" })).toBeTruthy();
-    await waitFor(() => expect(screen.getByText("Version 0.1.0")).toBeTruthy());
-    expect(screen.getByRole("button", { name: "GitHub Repository" })).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Version: 0.1.0")).toBeTruthy());
+    expect(screen.getByText("Author:")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pone Ding" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Author: Pone Ding" })).toBeNull();
+    expect(screen.getByRole("button", { name: "GitHub" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "GitHub" }).querySelector("svg")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Source Code" })).toBeNull();
   });
 
   it("renders About copy in Traditional Chinese", async () => {
@@ -70,28 +76,59 @@ describe("AboutRoute", () => {
 
     render(<AboutRoute />);
 
-    await waitFor(() => expect(screen.getByText("版本 0.1.0")).toBeTruthy());
-    expect(screen.getByRole("button", { name: "GitHub 存放庫" })).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("版本：0.1.0")).toBeTruthy());
+    expect(screen.getByText("作者：")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pone Ding" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "作者：Pone Ding" })).toBeNull();
+    expect(screen.getByRole("button", { name: "GitHub" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "原始碼" })).toBeNull();
     expect(screen.getByRole("img", { name: "Flashot 應用程式圖示" })).toBeTruthy();
   });
 
-  it("shows the app icon below the title and renders the version in mono", async () => {
+  it("uses the same centered vertical identity layout as the updater", async () => {
     const { container } = render(<AboutRoute />);
 
-    const heading = screen.getByRole("heading", { name: "Flashot" });
     const icon = screen.getByRole("img", { name: "Flashot app icon" });
-    const version = await screen.findByText("Version 0.1.0");
+    const version = await screen.findByText("Version: 0.1.0");
+    const panel = container.querySelector("[data-about-panel]");
+    const identity = container.querySelector("[data-about-identity]");
+    const links = container.querySelector("[data-about-links]");
+    const fields = container.querySelector("[data-flashot-info-fields]");
+    const action = container.querySelector("[data-flashot-info-action]");
+    const versionLine = container.querySelector("[data-about-version]");
+    const authorLine = container.querySelector("[data-about-author]");
 
     expect(icon.getAttribute("src")).toBe("/app-logo.svg");
-    expect(heading.compareDocumentPosition(icon)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(container.querySelector(".font-mono")).toBe(version);
+    expect(icon.className).toContain("size-12");
+    expect(container.querySelector("[data-flashot-info-panel]")).toBe(panel);
+    expect(container.querySelector("[data-flashot-info-identity]")).toBe(identity);
+    expect(panel?.className).toContain("items-center");
+    expect(panel?.className).toContain("justify-center");
+    expect(identity?.className).toContain("flex-col");
+    expect(links?.className).toContain("flex-col");
+    expect(fields?.className).toContain("gap-1");
+    expect(fields?.querySelectorAll("[data-flashot-info-field]")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Pone Ding" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "GitHub" }).querySelector("svg")).toBeTruthy();
+    expect(action?.contains(screen.getByRole("button", { name: "GitHub" }))).toBe(true);
+    expect(versionLine).toBe(version);
+    expect(authorLine?.className).toBe(versionLine?.className);
   });
 
   it("uses the shared utility window shell", async () => {
     const { container } = render(<AboutRoute />);
 
-    expect(container.querySelector('[data-utility-window-shell="about"]')).not.toBeNull();
-    await screen.findByText("Version 0.1.0");
+    expect(container.querySelector('[data-utility-window-shell="flashot"]')).not.toBeNull();
+    expect(screen.getByRole("tab", { name: "About" }).getAttribute("data-active")).not.toBeNull();
+    await screen.findByText("Version: 0.1.0");
+  });
+
+  it("opens the author profile from the about tab", async () => {
+    render(<AboutRoute />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Pone Ding" }));
+
+    expect(open).toHaveBeenCalledWith("https://github.com/poneding");
   });
 
   it("keeps the compact about window from showing a vertical scrollbar", async () => {
@@ -102,7 +139,7 @@ describe("AboutRoute", () => {
     expect(main?.className).toContain("h-full");
     expect(main?.className).toContain("overflow-hidden");
     expect(main?.className).not.toContain("min-h-full");
-    await screen.findByText("Version 0.1.0");
+    await screen.findByText("Version: 0.1.0");
   });
   it("applies the saved accent color for primary controls", async () => {
     render(<AboutRoute />);
