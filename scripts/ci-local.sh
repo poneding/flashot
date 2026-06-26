@@ -39,7 +39,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-ashpd = { version = "0.13", features = ["screenshot"] }
+ashpd = { version = "=0.13.11", features = ["screenshot"] }
 urlencoding = "2"
 TOML
 cat >"$LINUX_SMOKE/src/lib.rs" <<RS
