@@ -1,29 +1,10 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { useReleasableFrameSource } from "@/lib/frame-source";
 import {
   PREVIEW_IMAGE_ADJUSTMENTS_FILTER_ID,
   frozenLayerFilterForImageAdjustments,
   normalizeImageAdjustments,
 } from "@/overlay/imageAdjustments";
 import { useOverlay } from "@/overlay/state";
-
-const ASSET_LOCALHOST_PREFIX = "asset://localhost/";
-
-function decodeAssetPath(path: string) {
-  if (!path.includes("%")) return path;
-  try {
-    return decodeURIComponent(path);
-  } catch {
-    return path;
-  }
-}
-
-function frameSourceFromUrl(url: string) {
-  if (!url.startsWith(ASSET_LOCALHOST_PREFIX)) return url;
-
-  // Backend sessions currently emit asset://localhost/<absolute path>.
-  // convertFileSrc encodes that path into a source WebView can load reliably.
-  return convertFileSrc(decodeAssetPath(url.slice(ASSET_LOCALHOST_PREFIX.length)));
-}
 
 function formatFilterNumber(value: number): string {
   return Number(value.toFixed(4)).toString();
@@ -71,14 +52,16 @@ export function FrozenLayer() {
   const imageAdjustments = useOverlay((s) => s.imageAdjustments);
   const monitorRect = useOverlay((s) => s.monitorRect);
   const selection = useOverlay((s) => s.selection);
+  const hiddenForScroll = mode === "scrollStarting" || mode === "scrolling";
+  const source = useReleasableFrameSource(url && !hiddenForScroll ? url : null);
 
   if (!url) return null;
   // In scrolling mode the user needs to see the live underlying app so they
   // can scroll it. Hide the frozen screenshot — the SelectionBox outline still
   // marks where the capture region is.
-  if (mode === "scrollStarting" || mode === "scrolling") return null;
+  if (hiddenForScroll) return null;
+  if (!source) return null;
 
-  const source = frameSourceFromUrl(url);
   const normalized = normalizeImageAdjustments(imageAdjustments);
   const showPreviewLayer = Boolean(
     normalized.grayscale ||

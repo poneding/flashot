@@ -952,7 +952,7 @@ fn frame_asset_url(cache_dir: &std::path::Path, monitor_id: u32, revision: u128)
     format!("asset://localhost/{}", path.to_string_lossy())
 }
 
-fn remove_stale_frame_files(cache_dir: &std::path::Path) -> Result<()> {
+pub(crate) fn remove_stale_frame_files(cache_dir: &std::path::Path) -> Result<()> {
     for entry in std::fs::read_dir(cache_dir).context("Failed to read cache directory")? {
         let entry = entry.context("Failed to read cache directory entry")?;
         let file_name = entry.file_name();

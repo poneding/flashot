@@ -4,7 +4,7 @@ use crate::types::FrozenFrame;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Active capture session. While `Some(_)`, the overlay is showing.
 /// Drop guarantees `end_capture` runs (RAII invariant from spec §6.4).
@@ -101,6 +101,7 @@ impl WindowMgr {
         crate::set_capture_session_hotkeys(app, false);
         crate::app_activation::hide_overlay_windows(app);
         let _ = app.emit("capture:end", ());
+        cleanup_frame_files(app);
     }
 
     pub fn end_session_deactivating_app(&self, app: &AppHandle) {
@@ -116,6 +117,7 @@ impl WindowMgr {
             crate::app_activation::hide_overlay_windows(app);
         }
         let _ = app.emit("capture:end", ());
+        cleanup_frame_files(app);
     }
 
     /// Reactivate the previously-frontmost app WITHOUT hiding overlays first.
@@ -150,6 +152,16 @@ impl WindowMgr {
 
     fn end(&self, app: &AppHandle) {
         self.end_session_deactivating_app(app);
+    }
+}
+
+fn cleanup_frame_files(app: &AppHandle) {
+    let Ok(cache_dir) = app.path().app_cache_dir() else {
+        return;
+    };
+
+    if let Err(e) = crate::remove_stale_frame_files(&cache_dir) {
+        tracing::warn!("failed to remove capture frame files: {e}");
     }
 }
 

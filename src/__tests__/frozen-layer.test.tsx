@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { clearMocks, mockConvertFileSrc } from "@tauri-apps/api/mocks";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FrozenLayer } from "@/overlay/FrozenLayer";
 import { useOverlay } from "@/overlay/state";
 import type { CaptureStartPayload } from "@/lib/types";
@@ -15,9 +15,31 @@ const capture: CaptureStartPayload = {
   cornerRadius: 0,
 };
 
+const originalCreateObjectURL = URL.createObjectURL;
+const originalRevokeObjectURL = URL.revokeObjectURL;
+
 describe("FrozenLayer", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let createObjectURLMock: ReturnType<typeof vi.fn>;
+  let revokeObjectURLMock: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     mockConvertFileSrc("macos");
+    fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: vi.fn().mockResolvedValue(new Blob(["png"], { type: "image/png" })),
+    });
+    createObjectURLMock = vi.fn().mockReturnValue("blob:flashot-frame");
+    revokeObjectURLMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURLMock,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURLMock,
+    });
     useOverlay.getState().end();
     useOverlay.getState().start(capture);
   });
@@ -25,18 +47,42 @@ describe("FrozenLayer", () => {
   afterEach(() => {
     cleanup();
     clearMocks();
+    vi.unstubAllGlobals();
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: originalCreateObjectURL,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: originalRevokeObjectURL,
+    });
     useOverlay.getState().end();
   });
 
-  it("converts legacy asset urls into webview-loadable frame sources", () => {
+  it("loads legacy asset urls through releasable blob sources", async () => {
     const { container } = render(<FrozenLayer />);
 
-    expect(container.querySelector("img")?.getAttribute("src")).toBe(
+    await waitFor(() => {
+      expect(container.querySelector("img")?.getAttribute("src")).toBe("blob:flashot-frame");
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
       "asset://localhost/%2FUsers%2Fdp%2FLibrary%2FCaches%2Fdev.flashot.app%2Fframe_3.png",
+      expect.objectContaining({ cache: "no-store" }),
     );
   });
 
-  it("applies image adjustment previews through an adjusted overlay layer", () => {
+  it("revokes blob sources when the frozen layer unmounts", async () => {
+    const { container, unmount } = render(<FrozenLayer />);
+
+    await waitFor(() => {
+      expect(container.querySelector("img")?.getAttribute("src")).toBe("blob:flashot-frame");
+    });
+    unmount();
+
+    expect(revokeObjectURLMock).toHaveBeenCalledWith("blob:flashot-frame");
+  });
+
+  it("applies image adjustment previews through an adjusted overlay layer", async () => {
     useOverlay.getState().setImageAdjustments({
       grayscale: true,
       brightness: 25,
@@ -45,6 +91,10 @@ describe("FrozenLayer", () => {
     });
 
     const { container } = render(<FrozenLayer />);
+
+    await waitFor(() => {
+      expect(container.querySelector<HTMLImageElement>("img[data-frozen-layer]")).not.toBeNull();
+    });
     const baseImage = container.querySelector<HTMLImageElement>("img[data-frozen-layer]");
     const previewImage = container.querySelector("svg[data-adjusted-frozen-layer] image");
 
@@ -56,12 +106,16 @@ describe("FrozenLayer", () => {
     expect(container.querySelector("feConvolveMatrix")).toBeNull();
   });
 
-  it("limits the adjusted preview layer to the committed selection", () => {
+  it("limits the adjusted preview layer to the committed selection", async () => {
     const selection = { x: 100, y: 120, width: 240, height: 160 };
     useOverlay.getState().commit(selection);
     useOverlay.getState().setImageAdjustments({ brightness: 40 });
 
     const { container } = render(<FrozenLayer />);
+
+    await waitFor(() => {
+      expect(container.querySelector("svg[data-adjusted-frozen-layer]")).not.toBeNull();
+    });
     const preview = container.querySelector<SVGSVGElement>("svg[data-adjusted-frozen-layer]");
     const image = preview?.querySelector("image");
     const filter = preview?.querySelector("filter");
