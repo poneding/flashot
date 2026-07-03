@@ -8,6 +8,7 @@ use windows::core::{BOOL, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT, TRUE};
 use windows::Win32::Graphics::Dwm::{
     DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS,
+    DWMWA_VISIBLE_FRAME_BORDER_THICKNESS,
 };
 use windows::Win32::System::ProcessStatus::GetModuleBaseNameW;
 use windows::Win32::System::Threading::{
@@ -157,7 +158,8 @@ unsafe fn read_visible_rect(hwnd: HWND) -> Option<RECT> {
         .is_ok()
             && !is_empty_rect(&rect)
         {
-            return Some(rect);
+            // Windows 11 can still draw a thin DWM border outside the extended frame.
+            return Some(inset_rect(rect, read_visible_frame_border_thickness(hwnd)));
         }
 
         if GetWindowRect(hwnd, &mut rect).is_ok() && !is_empty_rect(&rect) {
@@ -165,6 +167,41 @@ unsafe fn read_visible_rect(hwnd: HWND) -> Option<RECT> {
         } else {
             None
         }
+    }
+}
+
+unsafe fn read_visible_frame_border_thickness(hwnd: HWND) -> i32 {
+    unsafe {
+        let mut thickness = 0u32;
+        if DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_VISIBLE_FRAME_BORDER_THICKNESS,
+            &mut thickness as *mut u32 as *mut c_void,
+            mem::size_of::<u32>() as u32,
+        )
+        .is_err()
+        {
+            return 0;
+        }
+
+        thickness.min(i32::MAX as u32) as i32
+    }
+}
+
+fn inset_rect(rect: RECT, inset: i32) -> RECT {
+    if inset <= 0 {
+        return rect;
+    }
+
+    let max_inset_x = (rect.right - rect.left).max(0) / 2;
+    let max_inset_y = (rect.bottom - rect.top).max(0) / 2;
+    let inset = inset.min(max_inset_x).min(max_inset_y);
+
+    RECT {
+        left: rect.left + inset,
+        top: rect.top + inset,
+        right: rect.right - inset,
+        bottom: rect.bottom - inset,
     }
 }
 
@@ -385,5 +422,35 @@ mod tests {
             WINDOW_EX_STYLE::default(),
             true,
         ));
+    }
+
+    #[test]
+    fn insets_dwm_visible_frame_border_without_inverting_rect() {
+        let rect = inset_rect(
+            RECT {
+                left: 10,
+                top: 20,
+                right: 110,
+                bottom: 70,
+            },
+            2,
+        );
+
+        assert_eq!(
+            (rect.left, rect.top, rect.right, rect.bottom),
+            (12, 22, 108, 68)
+        );
+
+        let tiny = inset_rect(
+            RECT {
+                left: 0,
+                top: 0,
+                right: 3,
+                bottom: 3,
+            },
+            5,
+        );
+
+        assert_eq!((tiny.left, tiny.top, tiny.right, tiny.bottom), (1, 1, 2, 2));
     }
 }
