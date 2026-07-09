@@ -1429,6 +1429,28 @@ fn logical_selection_for_monitor(phys_rect: Rect, scale_factor: f64) -> Rect {
     }
 }
 
+/// Convert a monitor rect to logical (CSS) units for window placement.
+///
+/// On Windows the process is Per-Monitor-DPI-Aware V2, so `MonitorInfo.rect`
+/// is physical; Tauri window placement expects logical units, so divide by the
+/// scale factor. On macOS/Linux the rect is already logical, so this is the
+/// identity.
+#[cfg(target_os = "windows")]
+fn monitor_logical_rect(rect: Rect, scale_factor: f64) -> Rect {
+    let scale = scale_factor.max(1.0);
+    Rect {
+        x: (rect.x as f64 / scale).round() as i32,
+        y: (rect.y as f64 / scale).round() as i32,
+        width: (rect.width as f64 / scale).round().max(1.0) as u32,
+        height: (rect.height as f64 / scale).round().max(1.0) as u32,
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn monitor_logical_rect(rect: Rect, _scale_factor: f64) -> Rect {
+    rect
+}
+
 /// Label of the always-on-top chrome window that hosts the live scroll
 /// preview for `monitor_id`. Shared with `scroll_session`, which targets its
 /// progress events at exactly this window.
@@ -1454,12 +1476,17 @@ fn spawn_scroll_chrome(
         .ok_or("monitor not found for chrome window")?;
 
     let gap = 12.0;
+    // On Windows monitor geometry is physical; the chrome is placed and sized
+    // in logical (CSS) units, and the selection is already logical. Convert the
+    // monitor rect to logical so the chrome anchors correctly on scaled
+    // displays. On macOS/Linux the rect is already logical (identity convert).
+    let mon_rect = monitor_logical_rect(mon.rect, mon.scale_factor as f64);
     let logical_selection = logical_selection_for_monitor(phys_rect, mon.scale_factor as f64);
-    let (chrome_w, chrome_h) = scroll_chrome_size(logical_selection, mon.rect, gap);
+    let (chrome_w, chrome_h) = scroll_chrome_size(logical_selection, mon_rect, gap);
     if app.get_webview_window(&chrome_label).is_some() {
         return Ok((chrome_w, chrome_h));
     }
-    let pos = scroll_chrome_position(logical_selection, mon.rect, (chrome_w, chrome_h), gap);
+    let pos = scroll_chrome_position(logical_selection, mon_rect, (chrome_w, chrome_h), gap);
 
     tauri::WebviewWindowBuilder::new(
         app,
@@ -1913,6 +1940,44 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn monitor_logical_rect_divides_physical_geometry_on_windows() {
+        // Windows monitors report physical geometry; the scroll chrome is
+        // placed in logical units, so a scaled monitor must be divided down.
+        let logical = monitor_logical_rect(
+            Rect {
+                x: 2880,
+                y: 0,
+                width: 2880,
+                height: 1620,
+            },
+            1.5,
+        );
+
+        assert_eq!(
+            (logical.x, logical.y, logical.width, logical.height),
+            (1920, 0, 1920, 1080)
+        );
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn monitor_logical_rect_is_identity_off_windows() {
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width: 1512,
+            height: 982,
+        };
+
+        assert_eq!(
+            monitor_logical_rect(rect, 2.0).width,
+            rect.width,
+            "macOS/Linux monitor geometry is already logical",
+        );
+    }
+
     #[test]
     fn scroll_chrome_position_prefers_right_lower_side() {
         let pos = scroll_chrome_position(
@@ -2069,7 +2134,7 @@ mod tests {
         let body = function_body(&source, "spawn_scroll_chrome");
 
         assert!(
-            body.contains("scroll_chrome_size(logical_selection, mon.rect, gap)"),
+            body.contains("scroll_chrome_size(logical_selection, mon_rect, gap)"),
             "scroll preview chrome should derive its aspect-fitted height from the selected region",
         );
         assert!(
