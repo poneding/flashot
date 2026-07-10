@@ -446,14 +446,16 @@ pub async fn crop_and_copy(
     let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr);
     let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let scale_factor = frame.scale_factor;
     let mut cropped = crop_rgba(
         &frame.rgba,
         frame.width,
         frame.height,
         rect,
-        frame.scale_factor,
+        scale_factor,
     )
     .ok_or("crop failed")?;
+    drop(frame);
     crate::image_adjust::apply_image_adjustments(
         &mut cropped.rgba,
         cropped.width,
@@ -469,7 +471,7 @@ pub async fn crop_and_copy(
         final_image.width,
         final_image.height,
         corner_radius,
-        frame.scale_factor,
+        scale_factor,
     );
     clipboard::copy_image(final_image.rgba, final_image.width, final_image.height)
         .map_err(|e| e.to_string())?;
@@ -491,14 +493,16 @@ pub async fn crop_and_save(
     let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr);
     let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let scale_factor = frame.scale_factor;
     let mut cropped = crop_rgba(
         &frame.rgba,
         frame.width,
         frame.height,
         rect,
-        frame.scale_factor,
+        scale_factor,
     )
     .ok_or("crop failed")?;
+    drop(frame);
     crate::image_adjust::apply_image_adjustments(
         &mut cropped.rgba,
         cropped.width,
@@ -514,7 +518,7 @@ pub async fn crop_and_save(
         final_image.width,
         final_image.height,
         corner_radius,
-        frame.scale_factor,
+        scale_factor,
     );
     let mut settings = settings_store::load().unwrap_or_default();
     mgr.end_session(&app);
@@ -819,14 +823,16 @@ pub async fn pin_image(
     let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr);
     let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let scale_factor = frame.scale_factor;
     let mut cropped = crop_rgba(
         &frame.rgba,
         frame.width,
         frame.height,
         rect,
-        frame.scale_factor,
+        scale_factor,
     )
     .ok_or("crop failed")?;
+    drop(frame);
     crate::image_adjust::apply_image_adjustments(
         &mut cropped.rgba,
         cropped.width,
@@ -1346,6 +1352,7 @@ pub async fn start_scroll_session(
     // 1. Derive scale and physical rect from the frozen frame we already have.
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
     let scale = frame.scale_factor.max(1.0);
+    drop(frame);
     let phys_rect = Rect {
         x: (rect.x as f32 * scale).round() as i32,
         y: (rect.y as f32 * scale).round() as i32,

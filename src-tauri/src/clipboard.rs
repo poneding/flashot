@@ -4,6 +4,24 @@ use image::{ImageBuffer, Rgba};
 use std::{thread, time::Duration};
 
 pub fn copy_image(rgba: Vec<u8>, width: u32, height: u32) -> Result<()> {
+    // arboard's macOS `set_image` hands a full-frame `Box<[u8]>` to
+    // `CGDataProviderCreateWithData`/`NSImage` and calls `writeObjects` on the
+    // general pasteboard. That path autoreleases the previous pasteboard image;
+    // Tauri commands run on tokio worker threads whose NSAutoreleasePool never
+    // drains, so each copy stranded the prior copy's full-frame Box in the Rust
+    // heap (visible as a per-copy leak the size of the selection). Draining an
+    // explicit pool around the write releases the previous image every time.
+    #[cfg(target_os = "macos")]
+    {
+        objc::rc::autoreleasepool(|| copy_image_inner(rgba, width, height))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        copy_image_inner(rgba, width, height)
+    }
+}
+
+fn copy_image_inner(rgba: Vec<u8>, width: u32, height: u32) -> Result<()> {
     let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
         ImageBuffer::from_raw(width, height, rgba).context("Invalid image dimensions")?;
 

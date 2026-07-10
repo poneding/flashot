@@ -16,7 +16,7 @@ pub struct WindowMgr {
 #[derive(Default)]
 struct Inner {
     /// Frozen frames keyed by monitor_id, alive only during a session.
-    frames: HashMap<u32, FrozenFrame>,
+    frames: HashMap<u32, Arc<FrozenFrame>>,
     in_session: bool,
     scroll: Option<ScrollState>,
     /// The app that was frontmost when the session started. Restoring focus
@@ -60,24 +60,12 @@ impl WindowMgr {
     }
 
     pub fn store_frame(&self, frame: FrozenFrame) {
-        self.inner.lock().frames.insert(frame.monitor_id, frame);
+        let id = frame.monitor_id;
+        self.inner.lock().frames.insert(id, Arc::new(frame));
     }
 
-    pub fn frame(&self, monitor_id: u32) -> Option<FrozenFrame> {
-        // Clone the shared frame handle out — callers cannot mutate the stored
-        // frame, and this avoids copying the full display before cropping.
-        self.inner
-            .lock()
-            .frames
-            .get(&monitor_id)
-            .map(|f| FrozenFrame {
-                monitor_id: f.monitor_id,
-                rgba: f.rgba.clone(),
-                width: f.width,
-                height: f.height,
-                scale_factor: f.scale_factor,
-                icc_profile: f.icc_profile.clone(),
-            })
+    pub fn frame(&self, monitor_id: u32) -> Option<Arc<FrozenFrame>> {
+        self.inner.lock().frames.get(&monitor_id).cloned()
     }
 
     pub fn in_session(&self) -> bool {
@@ -177,6 +165,12 @@ impl SessionGuard {
         self.mgr.end(&self.app);
         self.ended = true;
     }
+
+    /// Disarm the guard without ending the session. The session remains active
+    /// and must be ended later by calling `WindowMgr::end_session*` directly.
+    pub fn disarm(mut self) {
+        self.ended = true;
+    }
 }
 
 impl Drop for SessionGuard {
@@ -195,7 +189,7 @@ mod tests {
     fn fake_frame(id: u32) -> FrozenFrame {
         FrozenFrame {
             monitor_id: id,
-            rgba: vec![0; 4].into(),
+            rgba: vec![0; 4],
             width: 1,
             height: 1,
             scale_factor: 1.0,
@@ -223,7 +217,7 @@ mod tests {
         let first = mgr.frame(7).expect("stored frame should exist");
         let second = mgr.frame(7).expect("stored frame should exist");
 
-        assert!(Arc::ptr_eq(&first.rgba, &second.rgba));
+        assert!(Arc::ptr_eq(&first, &second));
     }
 
     #[test]

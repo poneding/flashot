@@ -695,16 +695,17 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
 
     // Process each monitor
     tracing::info!("run_capture: processing {} monitors", monitors.len());
-    for (mon, frame) in monitors.iter().zip(frames.iter()) {
+    for (mon, frame) in monitors.iter().zip(frames) {
         tracing::info!("run_capture: processing monitor {}", mon.id);
-        tracing::info!("run_capture: storing frame for monitor {}", mon.id);
-        mgr.store_frame(frame.clone());
 
-        // Save frame as PNG
+        // Save frame as PNG before storing (store_frame moves ownership)
         let frame_path = frame_asset_path(&cache_dir, mon.id, frame_revision);
         tracing::info!("run_capture: saving frame to {:?}", frame_path);
-        save_frame_as_png(frame, &frame_path).context("Failed to save frame as PNG")?;
+        save_frame_as_png(&frame, &frame_path).context("Failed to save frame as PNG")?;
         tracing::info!("run_capture: frame saved successfully");
+
+        tracing::info!("run_capture: storing frame for monitor {}", mon.id);
+        mgr.store_frame(frame);
 
         // Convert to asset:// URL
         let asset_url = frame_asset_url(&cache_dir, mon.id, frame_revision);
@@ -789,9 +790,10 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         tracing::warn!("run_capture: failed to schedule capture cursor push: {e}");
     }
 
-    // Leak the guard - it will be cleaned up when commands complete
-    tracing::info!("run_capture: leaking guard, capture setup complete");
-    std::mem::forget(guard);
+    // Disarm the guard so it drops without ending the session. The session
+    // will be ended later by crop_and_copy / crop_and_save / cancel_capture.
+    tracing::info!("run_capture: disarming guard, capture setup complete");
+    guard.disarm();
 
     Ok(())
 }
@@ -997,10 +999,14 @@ fn encode_frame_as_png(frame: &types::FrozenFrame) -> Result<Vec<u8>> {
     };
 
     let mut png = Vec::new();
+    // Fast zlib compression (not Uncompressed): a 5K frame is ~59 MB raw, and an
+    // uncompressed PNG of that size stalls/fails the overlay's asset fetch in the
+    // WebView. Fast keeps encode latency low while cutting the file to ~15 MB so
+    // the frozen frame loads reliably.
     let mut encoder = PngEncoder::new_with_quality(
         &mut png,
-        CompressionType::Uncompressed,
-        FilterType::NoFilter,
+        CompressionType::Fast,
+        FilterType::Sub,
     );
     if let Some(profile) = frame.icc_profile.as_ref() {
         encoder
@@ -1425,7 +1431,7 @@ mod tests {
             .expect("active display frame should be found by monitor id");
 
         assert_eq!(frame.monitor_id, 2);
-        assert_eq!(frame.rgba.as_ref(), &[2, 2, 2, 255]);
+        assert_eq!(frame.rgba.as_slice(), &[2, 2, 2, 255]);
     }
 
     #[test]
@@ -1829,7 +1835,7 @@ mod tests {
             .expect("png should decode")
             .to_rgba8();
         assert_eq!(decoded.dimensions(), (2, 1));
-        assert_eq!(decoded.into_raw(), frame.rgba.as_ref());
+        assert_eq!(decoded.into_raw(), frame.rgba.as_slice());
     }
 
     #[test]
