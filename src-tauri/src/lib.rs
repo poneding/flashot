@@ -14,6 +14,7 @@ pub mod scroll_session;
 pub mod scroll_stitch;
 pub mod settings_store;
 pub mod tray;
+pub mod tray_menu_icons;
 pub mod tray_template_icon;
 pub mod types;
 pub mod window_mgr;
