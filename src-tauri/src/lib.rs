@@ -23,16 +23,19 @@ pub mod window_probe;
 use anyhow::{Context, Result};
 use pin_mgr::PinManager;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::thread::ThreadId;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Listener, Manager, WindowEvent};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use window_mgr::WindowMgr;
 
 static FRAME_REVISION_COUNTER: AtomicU64 = AtomicU64::new(0);
+static HOTKEY_THREAD_ID: OnceLock<ThreadId> = OnceLock::new();
 const AUTO_UPDATE_POLL_INTERVAL: Duration = Duration::from_secs(60);
 const MIN_UPDATE_CHECK_INTERVAL_HOURS: u32 = 1;
 const MAX_UPDATE_CHECK_INTERVAL_HOURS: u32 = 168;
+const HOTKEY_UPDATE_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -57,21 +60,20 @@ pub fn run() {
                 let label = window.label();
                 if let Some(pin_id) = label.strip_prefix("pin-")
                     && let Some(pin_mgr) = window.app_handle().try_state::<Arc<PinManager>>()
-                        && let Some(entry) = pin_mgr.remove_pin(pin_id) {
-                            if let Err(e) = std::fs::remove_file(&entry.image_path) {
-                                tracing::warn!(
-                                    "failed to remove pin PNG {:?}: {e}",
-                                    entry.image_path
-                                );
-                            }
-                            if let Some(annotation_path) = entry.annotation_path
-                                && let Err(e) = std::fs::remove_file(&annotation_path) {
-                                    tracing::warn!(
-                                        "failed to remove pin annotation PNG {:?}: {e}",
-                                        annotation_path
-                                    );
-                                }
-                        }
+                    && let Some(entry) = pin_mgr.remove_pin(pin_id)
+                {
+                    if let Err(e) = std::fs::remove_file(&entry.image_path) {
+                        tracing::warn!("failed to remove pin PNG {:?}: {e}", entry.image_path);
+                    }
+                    if let Some(annotation_path) = entry.annotation_path
+                        && let Err(e) = std::fs::remove_file(&annotation_path)
+                    {
+                        tracing::warn!(
+                            "failed to remove pin annotation PNG {:?}: {e}",
+                            annotation_path
+                        );
+                    }
+                }
                 return;
             }
 
@@ -81,6 +83,9 @@ pub fn run() {
 
             let app = window.app_handle().clone();
             let settings = settings_store::load().unwrap_or_default();
+            if settings.theme == settings_store::Theme::System {
+                commands::refresh_open_utility_windows_appearance(&app, &settings);
+            }
             if let Err(e) = tray::update_menu(
                 &app,
                 &settings.capture_hotkey,
@@ -104,9 +109,10 @@ pub fn run() {
             // Clean up any stale pin PNGs from previous sessions (PinManager always
             // starts empty, so any leftover files are orphaned).
             if let Ok(cache_dir) = app.path().app_cache_dir()
-                && let Err(e) = remove_stale_pin_files(&cache_dir) {
-                    tracing::warn!("failed to clean stale pin files: {e}");
-                }
+                && let Err(e) = remove_stale_pin_files(&cache_dir)
+            {
+                tracing::warn!("failed to clean stale pin files: {e}");
+            }
 
             let settings = settings_store::load().unwrap_or_default();
 
@@ -127,6 +133,7 @@ pub fn run() {
             );
 
             // Set up hotkey service
+            let _ = HOTKEY_THREAD_ID.set(std::thread::current().id());
             hotkey::initialize().context("Failed to create hotkey service")?;
 
             // Register configured hotkeys
@@ -138,49 +145,46 @@ pub fn run() {
             let mgr_for_hotkey = mgr.clone();
 
             // Spawn hotkey event loop
-            std::thread::spawn(move || loop {
-                if let Ok(event) = receiver.recv() {
-                    match hotkey::action_for_event(
-                        event.id,
-                        hotkey::current_ids(),
-                        mgr_for_hotkey.in_session(),
-                    ) {
-                        Some(hotkey::HotkeyAction::TriggerCapture) => {
-                            let _ = app_handle.emit("capture:trigger", ());
+            std::thread::spawn(move || {
+                loop {
+                    if let Ok(event) = receiver.recv() {
+                        if event.state() != global_hotkey::HotKeyState::Pressed {
+                            continue;
                         }
-                        Some(hotkey::HotkeyAction::CopyActiveDisplay) => {
-                            spawn_quick_shot(
-                                app_handle.clone(),
-                                mgr_for_hotkey.clone(),
-                                QuickShotKind::ActiveDisplay,
-                            );
+                        match hotkey::action_for_event(
+                            event.id,
+                            hotkey::current_ids(),
+                            mgr_for_hotkey.in_session(),
+                        ) {
+                            Some(hotkey::HotkeyAction::TriggerCapture) => {
+                                let _ = app_handle.emit("capture:trigger", ());
+                            }
+                            Some(hotkey::HotkeyAction::CopyActiveDisplay) => {
+                                spawn_quick_shot(
+                                    app_handle.clone(),
+                                    mgr_for_hotkey.clone(),
+                                    QuickShotKind::ActiveDisplay,
+                                );
+                            }
+                            Some(hotkey::HotkeyAction::CopyActiveWindow) => {
+                                spawn_quick_shot(
+                                    app_handle.clone(),
+                                    mgr_for_hotkey.clone(),
+                                    QuickShotKind::ActiveWindow,
+                                );
+                            }
+                            Some(hotkey::HotkeyAction::CancelCapture) => {
+                                mgr_for_hotkey.end_session_deactivating_app(&app_handle);
+                            }
+                            Some(hotkey::HotkeyAction::ColorFormatToggle) => {
+                                let _ =
+                                    app_handle.emit("capture:color-format-toggle-requested", ());
+                            }
+                            Some(hotkey::HotkeyAction::ColorCopy) => {
+                                let _ = app_handle.emit("capture:color-copy-requested", ());
+                            }
+                            None => {}
                         }
-                        Some(hotkey::HotkeyAction::CopyActiveWindow) => {
-                            spawn_quick_shot(
-                                app_handle.clone(),
-                                mgr_for_hotkey.clone(),
-                                QuickShotKind::ActiveWindow,
-                            );
-                        }
-                        Some(hotkey::HotkeyAction::CancelCapture) => {
-                            mgr_for_hotkey.end_session_deactivating_app(&app_handle);
-                        }
-                        // Unlike the actions above, the color picker arms must
-                        // ignore key-release events: macOS delivers both Pressed
-                        // and Released, and the format toggle is not idempotent.
-                        Some(hotkey::HotkeyAction::ColorFormatToggle)
-                            if event.state() == global_hotkey::HotKeyState::Pressed =>
-                        {
-                            let _ = app_handle.emit("capture:color-format-toggle-requested", ());
-                        }
-                        Some(hotkey::HotkeyAction::ColorCopy)
-                            if event.state() == global_hotkey::HotKeyState::Pressed =>
-                        {
-                            let _ = app_handle.emit("capture:color-copy-requested", ());
-                        }
-                        Some(hotkey::HotkeyAction::ColorFormatToggle)
-                        | Some(hotkey::HotkeyAction::ColorCopy) => {}
-                        None => {}
                     }
                 }
             });
@@ -212,12 +216,6 @@ pub fn run() {
                 ) {
                     tracing::warn!("tray menu update failed: {e}");
                 }
-            });
-
-            let app_for_capture_end = app.handle().clone();
-            app.listen("capture:end", move |_| {
-                set_capture_cancel_hotkey(&app_for_capture_end, false);
-                set_color_picker_hotkeys(&app_for_capture_end, false);
             });
 
             // Register capture trigger handler
@@ -365,12 +363,17 @@ fn auto_update_check_due(settings: &settings_store::Settings, now: i64) -> bool 
     };
 
     let interval_seconds =
-        normalized_update_check_interval_hours(settings.update_check_interval_hours) as i64 * 60 * 60;
+        normalized_update_check_interval_hours(settings.update_check_interval_hours) as i64
+            * 60
+            * 60;
     now.saturating_sub(last_check) >= interval_seconds
 }
 
 fn normalized_update_check_interval_hours(hours: u32) -> u32 {
-    hours.clamp(MIN_UPDATE_CHECK_INTERVAL_HOURS, MAX_UPDATE_CHECK_INTERVAL_HOURS)
+    hours.clamp(
+        MIN_UPDATE_CHECK_INTERVAL_HOURS,
+        MAX_UPDATE_CHECK_INTERVAL_HOURS,
+    )
 }
 
 fn current_unix_timestamp() -> i64 {
@@ -519,14 +522,48 @@ fn capture_start_target(label: &str) -> tauri::EventTarget {
     tauri::EventTarget::webview_window(label)
 }
 
-fn set_capture_cancel_hotkey(app: &AppHandle, enabled: bool) {
-    if let Err(e) = app.run_on_main_thread(move || {
-        if let Err(e) = hotkey::set_capture_cancel_enabled(enabled) {
-            tracing::warn!("capture cancel hotkey update failed: {e}");
+fn run_hotkey_update(
+    app: &AppHandle,
+    action: &'static str,
+    update: impl FnOnce() -> Result<()> + Send + 'static,
+) {
+    if HOTKEY_THREAD_ID
+        .get()
+        .is_some_and(|thread_id| *thread_id == std::thread::current().id())
+    {
+        if let Err(e) = update() {
+            tracing::warn!("{action} failed: {e}");
         }
-    }) {
-        tracing::warn!("capture cancel hotkey dispatch failed: {e}");
+        return;
     }
+
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    if let Err(e) = app.run_on_main_thread(move || {
+        let _ = tx.send(update());
+    }) {
+        tracing::warn!("{action} dispatch failed: {e}");
+        return;
+    }
+
+    match rx.recv_timeout(HOTKEY_UPDATE_TIMEOUT) {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::warn!("{action} failed: {e}"),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            tracing::warn!(
+                "{action} did not complete within {:?}",
+                HOTKEY_UPDATE_TIMEOUT
+            );
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            tracing::warn!("{action} result channel disconnected");
+        }
+    }
+}
+
+fn set_capture_cancel_hotkey(app: &AppHandle, enabled: bool) {
+    run_hotkey_update(app, "capture cancel hotkey update", move || {
+        hotkey::set_capture_cancel_enabled(enabled)
+    });
 }
 
 /// Session-scoped X/C hotkeys for the color picker. macOS-only: capture
@@ -537,16 +574,17 @@ fn set_capture_cancel_hotkey(app: &AppHandle, enabled: bool) {
 fn set_color_picker_hotkeys(app: &AppHandle, enabled: bool) {
     #[cfg(target_os = "macos")]
     {
-        if let Err(e) = app.run_on_main_thread(move || {
-            if let Err(e) = hotkey::set_color_picker_enabled(enabled) {
-                tracing::warn!("color picker hotkey update failed: {e}");
-            }
-        }) {
-            tracing::warn!("color picker hotkey dispatch failed: {e}");
-        }
+        run_hotkey_update(app, "color picker hotkey update", move || {
+            hotkey::set_color_picker_enabled(enabled)
+        });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (app, enabled);
+}
+
+pub(crate) fn set_capture_session_hotkeys(app: &AppHandle, enabled: bool) {
+    set_capture_cancel_hotkey(app, enabled);
+    set_color_picker_hotkeys(app, enabled);
 }
 
 #[cfg(test)]
@@ -660,8 +698,7 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     // Begin session
     tracing::info!("run_capture: beginning session");
     let guard = mgr.begin(app.clone());
-    set_capture_cancel_hotkey(&app, true);
-    set_color_picker_hotkeys(&app, true);
+    set_capture_session_hotkeys(&app, true);
 
     // Record the app that was frontmost when the hotkey fired, BEFORE Flashot
     // activates itself for the overlay. Reactivating it on session end is what
@@ -718,16 +755,17 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
 
     // Process each monitor
     tracing::info!("run_capture: processing {} monitors", monitors.len());
-    for (mon, frame) in monitors.iter().zip(frames.iter()) {
+    for (mon, frame) in monitors.iter().zip(frames) {
         tracing::info!("run_capture: processing monitor {}", mon.id);
-        tracing::info!("run_capture: storing frame for monitor {}", mon.id);
-        mgr.store_frame(frame.clone());
 
-        // Save frame as PNG
+        // Save frame as PNG before storing (store_frame moves ownership)
         let frame_path = frame_asset_path(&cache_dir, mon.id, frame_revision);
         tracing::info!("run_capture: saving frame to {:?}", frame_path);
-        save_frame_as_png(frame, &frame_path).context("Failed to save frame as PNG")?;
+        save_frame_as_png(&frame, &frame_path).context("Failed to save frame as PNG")?;
         tracing::info!("run_capture: frame saved successfully");
+
+        tracing::info!("run_capture: storing frame for monitor {}", mon.id);
+        mgr.store_frame(frame);
 
         // Convert to asset:// URL
         let asset_url = frame_asset_url(&cache_dir, mon.id, frame_revision);
@@ -736,61 +774,66 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         // Show overlay window
         let label = overlay_label(mon.id);
         tracing::info!("run_capture: showing overlay window: {}", label);
-        match app.get_webview_window(&label) { Some(window) => {
-            window
-                .set_ignore_cursor_events(false)
-                .context("Failed to enable cursor events")?;
-            overlay_window::show_capture_overlay(&window)
-                .context("Failed to show overlay window")?;
-            if overlay_window::capture_overlay_should_take_focus()
-                && let Err(e) = window.set_focus() {
+        match app.get_webview_window(&label) {
+            Some(window) => {
+                window
+                    .set_ignore_cursor_events(false)
+                    .context("Failed to enable cursor events")?;
+                overlay_window::show_capture_overlay(&window)
+                    .context("Failed to show overlay window")?;
+                if overlay_window::capture_overlay_should_take_focus()
+                    && let Err(e) = window.set_focus()
+                {
                     tracing::warn!("run_capture: failed to focus overlay window {label}: {e}");
                 }
-            tracing::info!("run_capture: overlay window shown");
+                tracing::info!("run_capture: overlay window shown");
 
-            // Filter windows overlapping this monitor. Window rects and the
-            // monitor rect are physical on Windows; the overlay webview measures
-            // in logical CSS px, so convert both to logical before emitting.
-            let local_windows: Vec<_> = windows
-                .iter()
-                .filter(|w| rects_overlap(&w.rect, &mon.rect))
-                .map(|w| types::WindowRect {
-                    rect: overlay_logical_rect(
-                        translate_to_monitor(&w.rect, &mon.rect),
-                        mon.scale_factor,
-                    ),
-                    title: w.title.clone(),
-                    app_name: w.app_name.clone(),
-                    pid: w.pid,
-                })
-                .collect();
-            tracing::info!(
-                "run_capture: {} windows overlap monitor {}",
-                local_windows.len(),
-                mon.id
-            );
+                // Filter windows overlapping this monitor. Window rects and the
+                // monitor rect are physical on Windows; the overlay webview
+                // measures in logical CSS px, so convert both to logical before
+                // emitting.
+                let local_windows: Vec<_> = windows
+                    .iter()
+                    .filter(|w| rects_overlap(&w.rect, &mon.rect))
+                    .map(|w| types::WindowRect {
+                        rect: overlay_logical_rect(
+                            translate_to_monitor(&w.rect, &mon.rect),
+                            mon.scale_factor,
+                        ),
+                        title: w.title.clone(),
+                        app_name: w.app_name.clone(),
+                        pid: w.pid,
+                    })
+                    .collect();
+                tracing::info!(
+                    "run_capture: {} windows overlap monitor {}",
+                    local_windows.len(),
+                    mon.id
+                );
 
-            let corner_radius = settings_store::load()
-                .map(|s| s.corner_radius.min(60))
-                .unwrap_or(0);
-            tracing::info!("run_capture: emitting capture:start event");
-            app.emit_to(
-                capture_start_target(&label),
-                "capture:start",
-                CaptureStartPayload {
-                    monitor_id: mon.id,
-                    frame_url: asset_url,
-                    monitor_rect: overlay_logical_rect(mon.rect, mon.scale_factor),
-                    scale_factor: mon.scale_factor,
-                    corner_radius,
-                    windows: local_windows,
-                },
-            )
-            .context("Failed to emit capture:start event")?;
-            tracing::info!("run_capture: capture:start event emitted");
-        } _ => {
-            tracing::warn!("run_capture: overlay window {} not found", label);
-        }}
+                let corner_radius = settings_store::load()
+                    .map(|s| s.corner_radius.min(60))
+                    .unwrap_or(0);
+                tracing::info!("run_capture: emitting capture:start event");
+                app.emit_to(
+                    capture_start_target(&label),
+                    "capture:start",
+                    CaptureStartPayload {
+                        monitor_id: mon.id,
+                        frame_url: asset_url,
+                        monitor_rect: overlay_logical_rect(mon.rect, mon.scale_factor),
+                        scale_factor: mon.scale_factor,
+                        corner_radius,
+                        windows: local_windows,
+                    },
+                )
+                .context("Failed to emit capture:start event")?;
+                tracing::info!("run_capture: capture:start event emitted");
+            }
+            _ => {
+                tracing::warn!("run_capture: overlay window {} not found", label);
+            }
+        }
     }
 
     // Activate Flashot so the overlay cursor is honored: macOS only displays
@@ -802,6 +845,7 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     // them — they stay where the user expects. The original frontmost app is
     // restored on session end. No-op off macOS.
     app_activation::activate_flashot_for_capture(&app);
+    overlay_window::bring_all_capture_overlays_to_front(&app);
 
     // Final cursor push after the loop: (a) backstop for monitors whose
     // overlay window was not found above (that branch skips the per-show
@@ -812,9 +856,10 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         tracing::warn!("run_capture: failed to schedule capture cursor push: {e}");
     }
 
-    // Leak the guard - it will be cleaned up when commands complete
-    tracing::info!("run_capture: leaking guard, capture setup complete");
-    std::mem::forget(guard);
+    // Disarm the guard so it drops without ending the session. The session
+    // will be ended later by crop_and_copy / crop_and_save / cancel_capture.
+    tracing::info!("run_capture: disarming guard, capture setup complete");
+    guard.disarm();
 
     Ok(())
 }
@@ -881,7 +926,7 @@ async fn copy_active_display_to_clipboard(app: AppHandle, mgr: Arc<WindowMgr>) -
         })
         .context("No frame available for active display quick shot")?;
 
-    clipboard::copy_image(frame.rgba.clone(), frame.width, frame.height)
+    clipboard::copy_image(frame.rgba.to_vec(), frame.width, frame.height)
         .context("Failed to copy active display quick shot to clipboard")?;
     if let Some(target) = target {
         show_quick_shot_flash(&app, target.monitor, target.rect, mgr)
@@ -977,7 +1022,7 @@ fn frame_asset_url(cache_dir: &std::path::Path, monitor_id: u32, revision: u128)
     format!("asset://localhost/{}", path.to_string_lossy())
 }
 
-fn remove_stale_frame_files(cache_dir: &std::path::Path) -> Result<()> {
+pub(crate) fn remove_stale_frame_files(cache_dir: &std::path::Path) -> Result<()> {
     for entry in std::fs::read_dir(cache_dir).context("Failed to read cache directory")? {
         let entry = entry.context("Failed to read cache directory entry")?;
         let file_name = entry.file_name();
@@ -1017,15 +1062,19 @@ fn save_frame_as_png(frame: &types::FrozenFrame, path: &std::path::Path) -> Resu
 
 fn encode_frame_as_png(frame: &types::FrozenFrame) -> Result<Vec<u8>> {
     use image::{
-        codecs::png::{CompressionType, FilterType, PngEncoder},
         ExtendedColorType, ImageEncoder,
+        codecs::png::{CompressionType, FilterType, PngEncoder},
     };
 
     let mut png = Vec::new();
+    // Fast zlib compression (not Uncompressed): a 5K frame is ~59 MB raw, and an
+    // uncompressed PNG of that size stalls/fails the overlay's asset fetch in the
+    // WebView. Fast keeps encode latency low while cutting the file to ~15 MB so
+    // the frozen frame loads reliably.
     let mut encoder = PngEncoder::new_with_quality(
         &mut png,
-        CompressionType::Uncompressed,
-        FilterType::NoFilter,
+        CompressionType::Fast,
+        FilterType::Sub,
     );
     if let Some(profile) = frame.icc_profile.as_ref() {
         encoder
@@ -1450,7 +1499,7 @@ mod tests {
             .expect("active display frame should be found by monitor id");
 
         assert_eq!(frame.monitor_id, 2);
-        assert_eq!(frame.rgba, vec![2, 2, 2, 255]);
+        assert_eq!(frame.rgba.as_slice(), &[2, 2, 2, 255]);
     }
 
     #[test]
@@ -1722,6 +1771,27 @@ mod tests {
     }
 
     #[test]
+    fn capture_reraises_overlays_after_macos_activation() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "run_capture");
+
+        let activate_idx = body
+            .find("app_activation::activate_flashot_for_capture(&app)")
+            .expect("capture must activate Flashot for cursor ownership");
+        let raise_idx = body
+            .find("overlay_window::bring_all_capture_overlays_to_front(&app)")
+            .expect("capture must re-raise overlays after activation");
+        let cursor_idx = body
+            .find("overlay_window::push_capture_cursor")
+            .expect("capture must push the cursor after final overlay ordering");
+
+        assert!(
+            activate_idx < raise_idx && raise_idx < cursor_idx,
+            "macOS activation can reorder native panels; overlays must be raised again before the final cursor push",
+        );
+    }
+
+    #[test]
     fn capture_overlay_windows_start_unfocused() {
         let source = include_str!("lib.rs").replace("\r\n", "\n");
         let body = function_body(&source, "ensure_overlays_for_monitors");
@@ -1751,32 +1821,18 @@ mod tests {
     }
 
     #[test]
-    fn color_picker_hotkey_arms_only_fire_on_key_press() {
+    fn global_hotkey_actions_only_fire_on_key_press() {
         let source = include_str!("lib.rs").replace("\r\n", "\n");
-        let toggle_start = source
-            .find("Some(hotkey::HotkeyAction::ColorFormatToggle)")
+        let start = source.find("receiver.recv()").unwrap();
+        let end = source[start..]
+            .find("});\n\n            let app_for_settings")
+            .map(|idx| start + idx)
             .unwrap();
-        let copy_start = source[toggle_start..]
-            .find("Some(hotkey::HotkeyAction::ColorCopy)")
-            .map(|idx| toggle_start + idx)
-            .unwrap();
-        let end = source[copy_start..]
-            .find("None => {}")
-            .map(|idx| copy_start + idx)
-            .unwrap();
-        let toggle_arm = &source[toggle_start..copy_start];
-        let copy_arm = &source[copy_start..end];
+        let body = &source[start..end];
 
         assert!(
-            toggle_arm.contains("HotKeyState::Pressed"),
-            "macOS fires Pressed and Released per keystroke; an unfiltered format \
-             toggle double-fires and visually no-ops, so the arm must keep the \
-             Pressed filter",
-        );
-        assert!(
-            copy_arm.contains("HotKeyState::Pressed"),
-            "macOS fires Pressed and Released per keystroke; the copy arm must \
-             keep the Pressed filter so each tap copies once",
+            body.contains("event.state() != global_hotkey::HotKeyState::Pressed"),
+            "macOS fires Pressed and Released per keystroke; the hotkey loop must drop release events before routing actions",
         );
     }
 
@@ -1907,12 +1963,12 @@ mod tests {
             .expect("png should decode")
             .to_rgba8();
         assert_eq!(decoded.dimensions(), (2, 1));
-        assert_eq!(decoded.into_raw(), frame.rgba);
+        assert_eq!(decoded.into_raw(), frame.rgba.as_slice());
     }
 
     #[test]
     fn overlay_frame_png_preserves_icc_profile() {
-        use image::{codecs::png::PngDecoder, ImageDecoder};
+        use image::{ImageDecoder, codecs::png::PngDecoder};
 
         let profile = b"test-display-profile".to_vec();
         let frame = types::FrozenFrame {

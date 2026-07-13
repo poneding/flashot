@@ -1,7 +1,7 @@
 use crate::types::Rect;
 use anyhow::{anyhow, Result};
 use std::sync::mpsc;
-use tauri::WebviewWindow;
+use tauri::{AppHandle, Manager, WebviewWindow};
 
 pub fn configure_capture_overlay(
     window: &WebviewWindow,
@@ -17,6 +17,19 @@ pub fn bring_capture_overlay_to_front(window: &WebviewWindow) -> Result<()> {
     run_on_window_main_thread(window, "bring capture overlay to front", |window| {
         bring_platform_overlay_to_front(window)
     })
+}
+
+pub fn bring_all_capture_overlays_to_front(app: &AppHandle) {
+    for (_label, window) in app.webview_windows() {
+        let label = window.label();
+        if label.starts_with("overlay-chrome-") || !label.starts_with("overlay-") {
+            continue;
+        }
+
+        if let Err(e) = bring_capture_overlay_to_front(&window) {
+            tracing::warn!("failed to bring capture overlay {label} to front: {e}");
+        }
+    }
 }
 
 pub fn show_capture_overlay(window: &WebviewWindow) -> Result<()> {
@@ -164,6 +177,10 @@ fn bring_platform_overlay_to_front(window: &WebviewWindow) -> Result<()> {
         // Flashot. Activating the app can reorder already-open utility
         // windows like Settings, About, or Updater.
         let ns_window = &*ns_window;
+        ns_window.send_message::<_, ()>(
+            Sel::register("setLevel:"),
+            (capture_overlay_window_level(),),
+        )?;
         ns_window.send_message::<_, ()>(Sel::register("orderFrontRegardless"), ())?;
     }
 
@@ -747,6 +764,10 @@ mod tests {
         assert!(
             body.contains("orderFrontRegardless"),
             "capture overlays should still be visually raised above the screen",
+        );
+        assert!(
+            body.contains("setLevel:") && body.contains("capture_overlay_window_level()"),
+            "capture overlays must reassert their maximum window level whenever they are raised",
         );
         assert!(
             !body.contains("activateIgnoringOtherApps:") && !body.contains("activateWithOptions:"),

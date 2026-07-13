@@ -294,6 +294,7 @@ describe("AnnotationStage selection movement", () => {
     };
     useAnnotation.getState().addObject(annotatedRect);
     useAnnotation.getState().addObject(lensLikeObject);
+    useAnnotation.getState().setActiveTool("magnifier");
 
     render(<AnnotationStage selection={selection} scaleFactor={2} frameUrl={capture.frameUrl} />);
 

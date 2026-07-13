@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 describe("Tabs", () => {
   it("uses Tailwind 3 compatible shadcn active tab styles", () => {
@@ -23,6 +23,8 @@ describe("Tabs", () => {
     expect(activeTab.className).toContain("data-[active]:bg-background");
     expect(activeTab.className).toContain("data-[active]:text-foreground");
     expect(activeTab.className).toContain("data-[active]:shadow-sm");
+    expect(activeTab.className).toContain("dark:data-[active]:bg-background");
+    expect(activeTab.className).not.toContain("dark:data-[active]:bg-input/30");
     expect(activeTab.className).not.toContain("data-active:bg-background");
   });
 });

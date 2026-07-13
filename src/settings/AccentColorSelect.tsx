@@ -34,19 +34,19 @@ export function AccentColorSelect({
             key={option.value}
             type="button"
             variant="outline"
-            size="icon-sm"
+            size="icon-xs"
             aria-label={optionLabel(name)}
             title={name}
             aria-pressed={selected}
             className={cn(
               "rounded-full p-0",
-              selected && "border-foreground ring-2 ring-foreground/20",
+              selected && "border-primary ring-2 ring-primary/25",
             )}
             onClick={() => onChange(option.value)}
           >
             <span
               aria-hidden="true"
-              className="size-4 rounded-full border border-black/10"
+              className="size-3 rounded-full border border-black/10"
               style={{ backgroundColor: option.value }}
             />
           </Button>

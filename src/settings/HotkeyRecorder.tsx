@@ -1,4 +1,4 @@
-import { XIcon } from "lucide-react";
+import { PenIcon, Undo2Icon, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 
@@ -22,6 +22,8 @@ export function HotkeyRecorder({
   recordingLabel = "Press keys...",
   inputLabel = "Shortcut",
   clearLabel = "Clear shortcut",
+  resetLabel,
+  onReset,
 }: {
   value: string;
   onChange: (s: string) => void;
@@ -29,6 +31,8 @@ export function HotkeyRecorder({
   recordingLabel?: string;
   inputLabel?: string;
   clearLabel?: string;
+  resetLabel?: string;
+  onReset?: () => void;
 }) {
   const [recording, setRecording] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -76,11 +80,11 @@ export function HotkeyRecorder({
   };
 
   return (
-    <div className="flex shrink-0 items-center gap-2">
-      <div data-hotkey-field className="relative h-8 w-36 shrink-0">
+    <div className="flex shrink-0 items-center gap-1.5">
+      <div data-hotkey-field className="relative h-7 w-36 shrink-0">
         <input
           aria-label={inputLabel}
-          className="h-8 w-36 rounded-md border border-input bg-background pl-2 pr-8 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="h-7 w-36 rounded-md border border-input bg-background pl-2 pr-14 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           inputMode="text"
           onBlur={() => setEditing(false)}
           onChange={(event) => updateManualValue(event.currentTarget.value)}
@@ -94,6 +98,19 @@ export function HotkeyRecorder({
           type="text"
           value={displayValue}
         />
+        {onReset && resetLabel ? (
+          <Button
+            aria-label={resetLabel}
+            className="absolute right-7 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            onClick={onReset}
+            title={resetLabel}
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+          >
+            <Undo2Icon aria-hidden="true" size={14} strokeWidth={1.8} />
+          </Button>
+        ) : null}
         <Button
           aria-label={clearLabel}
           className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
@@ -106,8 +123,17 @@ export function HotkeyRecorder({
           <XIcon aria-hidden="true" />
         </Button>
       </div>
-      <Button onClick={startRecord} disabled={recording} variant="outline" size="sm">
-        {recording ? recordingLabel : changeLabel}
+      <Button
+        aria-label={recording ? recordingLabel : changeLabel}
+        className="text-muted-foreground hover:text-foreground"
+        disabled={recording}
+        onClick={startRecord}
+        title={recording ? recordingLabel : changeLabel}
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+      >
+        <PenIcon aria-hidden="true" size={14} strokeWidth={1.8} />
       </Button>
     </div>
   );

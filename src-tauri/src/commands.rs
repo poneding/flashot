@@ -9,12 +9,12 @@ use crate::{
 use std::{
     path::Path,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
 };
 use tauri::{
-    window::Color, AppHandle, Emitter, Manager, State, Theme as TauriTheme, Url, WebviewWindow,
+    AppHandle, Emitter, Manager, State, Theme as TauriTheme, Url, WebviewWindow, window::Color,
 };
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_updater::UpdaterExt as _;
@@ -43,20 +43,18 @@ pub struct UpdateProgress {
     pub total: Option<u64>,
 }
 
-const ABOUT_WINDOW_WIDTH: f64 = 360.0;
-const ABOUT_WINDOW_HEIGHT: f64 = 300.0;
-const SETTINGS_WINDOW_WIDTH: f64 = 560.0;
-const SETTINGS_WINDOW_HEIGHT: f64 = 560.0;
-const UPDATER_WINDOW_WIDTH: f64 = 360.0;
-const UPDATER_WINDOW_HEIGHT: f64 = 280.0;
+const FLASHOT_WINDOW_WIDTH: f64 = 500.0;
+const FLASHOT_WINDOW_HEIGHT: f64 = 432.0;
 const STABLE_UPDATE_ENDPOINT: &str =
     "https://github.com/poneding/flashot/releases/latest/download/latest.json";
 const BETA_UPDATE_ENDPOINT: &str =
     "https://raw.githubusercontent.com/poneding/flashot/beta/latest.json";
 const UPDATER_PROGRESS_EVENT: &str = "updater:progress";
 const MAX_CORNER_RADIUS: u32 = 60;
+static FLASHOT_ROUTE_REQUEST_SEQ: AtomicU64 = AtomicU64::new(1);
 const UTILITY_WINDOW_LIGHT_BACKGROUND: Color = Color(255, 255, 255, 255);
-const UTILITY_WINDOW_DARK_BACKGROUND: Color = Color(11, 17, 30, 255);
+const UTILITY_WINDOW_DARK_BACKGROUND: Color = Color(30, 30, 30, 255);
+const UTILITY_WINDOW_LABELS: &[&str] = &["flashot", "settings", "about", "updater"];
 const UTILITY_WINDOW_DARK_INIT_SCRIPT: &str = r#"
 (() => {
   try {
@@ -103,6 +101,70 @@ fn clamp_corner_radius(radius: u32) -> u32 {
     radius.min(MAX_CORNER_RADIUS)
 }
 
+struct CaptureCleanupGuard<'a> {
+    app: &'a AppHandle,
+    mgr: &'a WindowMgr,
+    armed: bool,
+}
+
+impl<'a> CaptureCleanupGuard<'a> {
+    fn end_deactivating_app(app: &'a AppHandle, mgr: &'a WindowMgr) -> Self {
+        Self {
+            app,
+            mgr,
+            armed: true,
+        }
+    }
+
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CaptureCleanupGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+
+        self.mgr.end_session_deactivating_app(self.app);
+    }
+}
+
+struct ScrollCaptureCleanupGuard<'a> {
+    app: &'a AppHandle,
+    mgr: &'a WindowMgr,
+    monitor_id: u32,
+    armed: bool,
+}
+
+impl<'a> ScrollCaptureCleanupGuard<'a> {
+    fn new(app: &'a AppHandle, mgr: &'a WindowMgr, monitor_id: u32) -> Self {
+        Self {
+            app,
+            mgr,
+            monitor_id,
+            armed: true,
+        }
+    }
+
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ScrollCaptureCleanupGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+
+        close_scroll_chrome(self.app, self.monitor_id);
+        let _ = self.mgr.take_scroll();
+        self.mgr.end_session_deactivating_app(self.app);
+    }
+}
+
 fn show_pin_window(window: &WebviewWindow) -> Result<(), String> {
     configure_pin_window_before_show(window)?;
     window
@@ -142,7 +204,7 @@ fn pin_utility_window_to_level(window: &WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
         let level = match window.label() {
-            "about" | "settings" | "updater" => {
+            "about" | "settings" | "updater" | "flashot" => {
                 Some(crate::app_activation::FLOATING_WINDOW_LEVEL)
             }
             _ => None,
@@ -216,6 +278,18 @@ fn apply_utility_window_appearance(
         .map_err(|e| format!("Failed to set utility window background: {e}"))
 }
 
+pub(crate) fn refresh_open_utility_windows_appearance(app: &AppHandle, settings: &Settings) {
+    let theme = utility_window_theme_for_settings(settings);
+    for label in UTILITY_WINDOW_LABELS {
+        let Some(window) = app.get_webview_window(label) else {
+            continue;
+        };
+        if let Err(error) = apply_utility_window_appearance(&window, theme) {
+            tracing::warn!("failed to refresh utility window {label} appearance: {error}");
+        }
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn bring_app_window_to_front(window: &WebviewWindow) -> Result<(), String> {
     if macos_is_main_thread() {
@@ -239,8 +313,8 @@ fn bring_app_window_to_front(window: &WebviewWindow) -> Result<(), String> {
 #[cfg(target_os = "macos")]
 fn macos_is_main_thread() -> bool {
     use objc::{
-        runtime::{Class, Sel, BOOL, YES},
         Message,
+        runtime::{BOOL, Class, Sel, YES},
     };
 
     unsafe {
@@ -260,8 +334,8 @@ fn macos_is_main_thread() -> bool {
 #[cfg(target_os = "macos")]
 fn bring_macos_app_window_to_front(window: &WebviewWindow) -> Result<(), String> {
     use objc::{
-        runtime::{Class, Object, Sel, YES},
         Message,
+        runtime::{Class, Object, Sel, YES},
     };
 
     let ns_window = window.ns_window().map_err(|e| e.to_string())? as *mut Object;
@@ -319,8 +393,8 @@ fn configure_pin_window_before_show(window: &WebviewWindow) -> Result<(), String
 #[cfg(target_os = "macos")]
 fn configure_macos_pin_window_before_show(window: &WebviewWindow) -> Result<(), String> {
     use objc::{
-        runtime::{Object, Sel, NO},
         Message,
+        runtime::{NO, Object, Sel},
     };
 
     // NSWindowAnimationBehaviorNone. Keep the raw value local so the
@@ -369,16 +443,19 @@ pub async fn crop_and_copy(
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
+    let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr);
     let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let scale_factor = frame.scale_factor;
     let mut cropped = crop_rgba(
         &frame.rgba,
         frame.width,
         frame.height,
         rect,
-        frame.scale_factor,
+        scale_factor,
     )
     .ok_or("crop failed")?;
+    drop(frame);
     crate::image_adjust::apply_image_adjustments(
         &mut cropped.rgba,
         cropped.width,
@@ -394,11 +471,12 @@ pub async fn crop_and_copy(
         final_image.width,
         final_image.height,
         corner_radius,
-        frame.scale_factor,
+        scale_factor,
     );
     clipboard::copy_image(final_image.rgba, final_image.width, final_image.height)
         .map_err(|e| e.to_string())?;
     mgr.end_session_deactivating_app(&app);
+    cleanup.disarm();
     Ok(())
 }
 
@@ -412,16 +490,19 @@ pub async fn crop_and_save(
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
+    let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr);
     let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let scale_factor = frame.scale_factor;
     let mut cropped = crop_rgba(
         &frame.rgba,
         frame.width,
         frame.height,
         rect,
-        frame.scale_factor,
+        scale_factor,
     )
     .ok_or("crop failed")?;
+    drop(frame);
     crate::image_adjust::apply_image_adjustments(
         &mut cropped.rgba,
         cropped.width,
@@ -437,10 +518,11 @@ pub async fn crop_and_save(
         final_image.width,
         final_image.height,
         corner_radius,
-        frame.scale_factor,
+        scale_factor,
     );
     let mut settings = settings_store::load().unwrap_or_default();
     mgr.end_session(&app);
+    cleanup.disarm();
     let path = saver::save_image_dialog(
         final_image.rgba,
         final_image.width,
@@ -453,11 +535,12 @@ pub async fn crop_and_save(
     mgr.restore_focus_to_previous_app(&app);
     let path = path.map_err(|e| e.to_string())?;
     if path.is_some()
-        && let Some(saved_path) = path.as_deref() {
-            saver::remember_last_save_dir(&mut settings, saved_path);
-            settings_store::save(&settings).map_err(|e| e.to_string())?;
-            let _ = app.emit("settings:changed", ());
-        }
+        && let Some(saved_path) = path.as_deref()
+    {
+        saver::remember_last_save_dir(&mut settings, saved_path);
+        settings_store::save(&settings).map_err(|e| e.to_string())?;
+        let _ = app.emit("settings:changed", ());
+    }
     Ok(path.map(|p| p.to_string_lossy().to_string()))
 }
 
@@ -482,6 +565,7 @@ pub fn set_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
     let autolaunch = app.autolaunch();
     apply_launch_at_login(&*autolaunch, settings.launch_at_login)?;
     settings_store::save(&settings).map_err(|e| e.to_string())?;
+    refresh_open_utility_windows_appearance(&app, &settings);
     let _ = app.emit("settings:changed", ());
     Ok(())
 }
@@ -522,13 +606,15 @@ fn apply_launch_at_login(
 fn update_endpoints(allow_beta: bool) -> Result<Vec<Url>, String> {
     let mut endpoints = Vec::new();
     if allow_beta {
-        endpoints.push(Url::parse(BETA_UPDATE_ENDPOINT).map_err(|e| {
-            format!("Invalid updater endpoint {BETA_UPDATE_ENDPOINT}: {e}")
-        })?);
+        endpoints.push(
+            Url::parse(BETA_UPDATE_ENDPOINT)
+                .map_err(|e| format!("Invalid updater endpoint {BETA_UPDATE_ENDPOINT}: {e}"))?,
+        );
     }
-    endpoints.push(Url::parse(STABLE_UPDATE_ENDPOINT).map_err(|e| {
-        format!("Invalid updater endpoint {STABLE_UPDATE_ENDPOINT}: {e}")
-    })?);
+    endpoints.push(
+        Url::parse(STABLE_UPDATE_ENDPOINT)
+            .map_err(|e| format!("Invalid updater endpoint {STABLE_UPDATE_ENDPOINT}: {e}"))?,
+    );
     Ok(endpoints)
 }
 
@@ -601,17 +687,34 @@ pub async fn download_and_install_update(app: AppHandle, allow_beta: bool) -> Re
 
 #[tauri::command]
 pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
-    let (theme, language) = stored_utility_window_preferences();
-    let title = crate::i18n::native_text(language).settings_title;
-    if let Some(w) = app.get_webview_window("settings") {
+    open_flashot_window(app, "general", false)
+}
+
+fn flashot_window_hash(tab: &str, check_updates: bool) -> String {
+    if check_updates {
+        let request = FLASHOT_ROUTE_REQUEST_SEQ.fetch_add(1, Ordering::Relaxed);
+        format!("#/flashot/{tab}?check=1&request={request}")
+    } else {
+        format!("#/flashot/{tab}")
+    }
+}
+
+fn open_flashot_window(app: AppHandle, tab: &str, check_updates: bool) -> Result<(), String> {
+    let (theme, _) = stored_utility_window_preferences();
+    let title = "Flashot";
+    let hash = flashot_window_hash(tab, check_updates);
+    if let Some(w) = app.get_webview_window("flashot") {
         w.set_title(title)
             .map_err(|e| format!("Failed to set utility window title: {e}"))?;
+        let script = format!("window.location.hash = {hash:?};");
+        w.eval(script)
+            .map_err(|e| format!("Failed to select Flashot tab: {e}"))?;
         show_utility_window(&w, theme)?;
         return Ok(());
     }
-    let url = tauri::WebviewUrl::App("index.html#/settings".into());
-    let (width, height) = settings_window_size();
-    let window = tauri::WebviewWindowBuilder::new(&app, "settings", url)
+    let url = tauri::WebviewUrl::App(format!("index.html{hash}").into());
+    let (width, height) = flashot_window_size();
+    let window = tauri::WebviewWindowBuilder::new(&app, "flashot", url)
         .title(title)
         .inner_size(width, height)
         .resizable(false)
@@ -659,61 +762,16 @@ pub fn end_text_input_session(
 
 #[tauri::command]
 pub fn open_about_window(app: AppHandle) -> Result<(), String> {
-    let (theme, language) = stored_utility_window_preferences();
-    let title = crate::i18n::native_text(language).about_title;
-    if let Some(w) = app.get_webview_window("about") {
-        w.set_title(title)
-            .map_err(|e| format!("Failed to set utility window title: {e}"))?;
-        show_utility_window(&w, theme)?;
-        return Ok(());
-    }
-    let url = tauri::WebviewUrl::App("index.html#/about".into());
-    let (width, height) = about_window_size();
-    let window = tauri::WebviewWindowBuilder::new(&app, "about", url)
-        .title(title)
-        .inner_size(width, height)
-        .resizable(false)
-        .visible(false)
-        .theme(theme)
-        .background_color(utility_window_initial_background(theme))
-        .initialization_script(utility_window_init_script(theme))
-        .build()
-        .map_err(|e| e.to_string())?;
-    show_utility_window(&window, theme)?;
-    Ok(())
+    open_flashot_window(app, "about", false)
 }
 
 #[tauri::command]
 pub fn open_updater_window(app: AppHandle) -> Result<(), String> {
-    let (theme, language) = stored_utility_window_preferences();
-    let title = crate::i18n::native_text(language).updates_title;
-    if let Some(w) = app.get_webview_window("updater") {
-        w.set_title(title)
-            .map_err(|e| format!("Failed to set utility window title: {e}"))?;
-        show_utility_window(&w, theme)?;
-        return Ok(());
-    }
-    let url = tauri::WebviewUrl::App("index.html#/updater".into());
-    let window = tauri::WebviewWindowBuilder::new(&app, "updater", url)
-        .title(title)
-        .inner_size(UPDATER_WINDOW_WIDTH, UPDATER_WINDOW_HEIGHT)
-        .resizable(false)
-        .visible(false)
-        .theme(theme)
-        .background_color(utility_window_initial_background(theme))
-        .initialization_script(utility_window_init_script(theme))
-        .build()
-        .map_err(|e| e.to_string())?;
-    show_utility_window(&window, theme)?;
-    Ok(())
+    open_flashot_window(app, "updates", true)
 }
 
-fn about_window_size() -> (f64, f64) {
-    (ABOUT_WINDOW_WIDTH, ABOUT_WINDOW_HEIGHT)
-}
-
-fn settings_window_size() -> (f64, f64) {
-    (SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
+fn flashot_window_size() -> (f64, f64) {
+    (FLASHOT_WINDOW_WIDTH, FLASHOT_WINDOW_HEIGHT)
 }
 
 #[tauri::command]
@@ -762,28 +820,24 @@ pub async fn pin_image(
     mgr: State<'_, Arc<WindowMgr>>,
     pin_mgr: State<'_, Arc<PinManager>>,
 ) -> Result<String, String> {
+    let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr);
     let corner_radius = clamp_corner_radius(corner_radius);
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let scale_factor = frame.scale_factor;
     let mut cropped = crop_rgba(
         &frame.rgba,
         frame.width,
         frame.height,
         rect,
-        frame.scale_factor,
+        scale_factor,
     )
     .ok_or("crop failed")?;
+    drop(frame);
     crate::image_adjust::apply_image_adjustments(
         &mut cropped.rgba,
         cropped.width,
         cropped.height,
         adjustments.unwrap_or_default(),
-    );
-    crate::mask::apply_rounded_corners(
-        &mut cropped.rgba,
-        cropped.width,
-        cropped.height,
-        corner_radius,
-        frame.scale_factor,
     );
 
     let pin_id = create_pin_from_image(
@@ -796,6 +850,7 @@ pub async fn pin_image(
         corner_radius,
     )?;
     mgr.end_session_deactivating_app(&app);
+    cleanup.disarm();
     Ok(pin_id)
 }
 
@@ -885,6 +940,7 @@ fn create_pin_from_image(
         original_width: display_rect.width,
         original_height: display_rect.height,
         current_scale: 1.0,
+        corner_radius,
     });
 
     Ok(pin_id)
@@ -958,9 +1014,10 @@ pub async fn update_pin_annotation(
                 .map_err(|e| format!("Failed to save annotation PNG: {e}"))?;
 
             if let Some(old_path) = paths.annotation_path.as_ref()
-                && old_path != &next_annotation_path {
-                    let _ = std::fs::remove_file(old_path);
-                }
+                && old_path != &next_annotation_path
+            {
+                let _ = std::fs::remove_file(old_path);
+            }
 
             pin_mgr
                 .update_annotation(&pin_id, Some(next_annotation_path))
@@ -994,6 +1051,12 @@ pub async fn save_pin(
         paths.annotation_path.as_deref(),
         annotation_png.as_deref(),
         adjustments.unwrap_or_default(),
+        paths.corner_radius,
+        pin_output_scale_factor(
+            paths.original_width,
+            paths.original_height,
+            &paths.image_path,
+        )?,
     )?;
     let mut settings = settings_store::load().unwrap_or_default();
     let path = saver::save_image_dialog(
@@ -1026,6 +1089,12 @@ pub async fn copy_pin(
         paths.annotation_path.as_deref(),
         annotation_png.as_deref(),
         adjustments.unwrap_or_default(),
+        paths.corner_radius,
+        pin_output_scale_factor(
+            paths.original_width,
+            paths.original_height,
+            &paths.image_path,
+        )?,
     )?;
 
     clipboard::copy_image(final_image.rgba, final_image.width, final_image.height)
@@ -1051,7 +1120,7 @@ fn merge_pin_annotation_layers(
         return Ok(annotation_png.to_vec());
     };
 
-    use image::{imageops, RgbaImage};
+    use image::{RgbaImage, imageops};
 
     let stored_png =
         std::fs::read(path).map_err(|e| format!("Failed to read pin annotation PNG: {e}"))?;
@@ -1099,6 +1168,8 @@ fn compose_pin_image(
     stored_annotation_path: Option<&Path>,
     annotation_png: Option<&[u8]>,
     adjustments: ImageAdjustments,
+    corner_radius: u32,
+    scale_factor: f32,
 ) -> Result<CroppedImage, String> {
     let mut composed = load_pin_image(image_path)?;
     crate::image_adjust::apply_image_adjustments(
@@ -1118,7 +1189,40 @@ fn compose_pin_image(
         composed = composite_annotation(&composed, png_data)?;
     }
 
+    crate::mask::apply_rounded_corners(
+        &mut composed.rgba,
+        composed.width,
+        composed.height,
+        corner_radius,
+        scale_factor,
+    );
+
     Ok(composed)
+}
+
+fn pin_output_scale_factor(
+    original_width: u32,
+    original_height: u32,
+    image_path: &Path,
+) -> Result<f32, String> {
+    let image = image::image_dimensions(image_path)
+        .map_err(|e| format!("Failed to read pin image dimensions: {e}"))?;
+    let width_scale = if original_width > 0 {
+        image.0 as f32 / original_width as f32
+    } else {
+        0.0
+    };
+    let height_scale = if original_height > 0 {
+        image.1 as f32 / original_height as f32
+    } else {
+        0.0
+    };
+    let scale = width_scale.max(height_scale);
+    Ok(if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    })
 }
 
 fn load_pin_image(path: &Path) -> Result<CroppedImage, String> {
@@ -1145,8 +1249,8 @@ fn save_pin_png(
 
 fn encode_pin_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
     use image::{
-        codecs::png::{CompressionType, FilterType, PngEncoder},
         ExtendedColorType, ImageEncoder,
+        codecs::png::{CompressionType, FilterType, PngEncoder},
     };
 
     let mut png = Vec::with_capacity(rgba.len() + height as usize);
@@ -1201,7 +1305,7 @@ fn composite_annotation(
     base: &CroppedImage,
     annotation_png: &[u8],
 ) -> Result<CroppedImage, String> {
-    use image::{imageops, ImageBuffer, RgbaImage};
+    use image::{ImageBuffer, RgbaImage, imageops};
 
     let mut base_img: RgbaImage = ImageBuffer::from_raw(base.width, base.height, base.rgba.clone())
         .ok_or("Failed to create base image buffer")?;
@@ -1248,6 +1352,7 @@ pub async fn start_scroll_session(
     // 1. Derive scale and physical rect from the frozen frame we already have.
     let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
     let scale = frame.scale_factor.max(1.0);
+    drop(frame);
     let phys_rect = Rect {
         x: (rect.x as f32 * scale).round() as i32,
         y: (rect.y as f32 * scale).round() as i32,
@@ -1560,6 +1665,7 @@ pub async fn scroll_pin(
     let (monitor_id, logical_rect) = mgr
         .scroll_ref(|s| (s.monitor_id, s.logical_rect))
         .ok_or("no active scroll session")?;
+    let cleanup = ScrollCaptureCleanupGuard::new(&app, &mgr, monitor_id);
     let img = materialize_scroll_image(&mgr).await?;
     let _ = mgr.take_scroll();
     close_scroll_chrome(&app, monitor_id);
@@ -1590,6 +1696,7 @@ pub async fn scroll_pin(
         0,
     );
     mgr.end_session_deactivating_app(&app);
+    cleanup.disarm();
     pin_id
 }
 
@@ -1612,6 +1719,7 @@ async fn materialize_scroll_image(
 #[tauri::command]
 pub async fn scroll_copy(app: AppHandle, mgr: State<'_, Arc<WindowMgr>>) -> Result<(), String> {
     let monitor_id = mgr.scroll_ref(|s| s.monitor_id);
+    let cleanup = monitor_id.map(|mid| ScrollCaptureCleanupGuard::new(&app, &mgr, mid));
     let img = materialize_scroll_image(&mgr).await?;
     let _ = mgr.take_scroll();
     if let Some(mid) = monitor_id {
@@ -1619,6 +1727,9 @@ pub async fn scroll_copy(app: AppHandle, mgr: State<'_, Arc<WindowMgr>>) -> Resu
     }
     clipboard::copy_image(img.rgba, img.width, img.height).map_err(|e| e.to_string())?;
     mgr.end_session_deactivating_app(&app);
+    if let Some(cleanup) = cleanup {
+        cleanup.disarm();
+    }
     Ok(())
 }
 
@@ -1628,18 +1739,32 @@ pub async fn scroll_save(
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
     let monitor_id = mgr.scroll_ref(|s| s.monitor_id);
+    let path_cleanup = monitor_id.map(|mid| ScrollCaptureCleanupGuard::new(&app, &mgr, mid));
     let mut settings = settings_store::load().unwrap_or_default();
-    let path = match saver::choose_save_path(&settings).map_err(|e| e.to_string())? {
-        Some(path) => path,
-        None => return Ok(None),
+    let path = match saver::choose_save_path(&settings) {
+        Ok(Some(path)) => path,
+        Ok(None) => {
+            if let Some(cleanup) = path_cleanup {
+                cleanup.disarm();
+            }
+            return Ok(None);
+        }
+        Err(e) => return Err(e.to_string()),
     };
 
+    if let Some(cleanup) = path_cleanup {
+        cleanup.disarm();
+    }
+    let cleanup = monitor_id.map(|mid| ScrollCaptureCleanupGuard::new(&app, &mgr, mid));
     let img = materialize_scroll_image(&mgr).await?;
     let _ = mgr.take_scroll();
     if let Some(mid) = monitor_id {
         close_scroll_chrome(&app, mid);
     }
     mgr.end_session_deactivating_app(&app);
+    if let Some(cleanup) = cleanup {
+        cleanup.disarm();
+    }
     saver::save_image_to_path(img.rgba, img.width, img.height, &path).map_err(|e| e.to_string())?;
     saver::remember_last_save_dir(&mut settings, &path);
     settings_store::save(&settings).map_err(|e| e.to_string())?;
@@ -1773,6 +1898,34 @@ mod tests {
     }
 
     #[test]
+    fn capture_output_commands_have_error_path_cleanup_guards() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        for name in ["crop_and_copy", "crop_and_save", "pin_image"] {
+            let body = function_body(&source, name);
+            assert!(
+                body.contains("CaptureCleanupGuard::end_deactivating_app(&app, &mgr)"),
+                "{name} must install a cleanup guard before fallible output work",
+            );
+            assert!(
+                body.contains("cleanup.disarm();"),
+                "{name} must disarm cleanup only after explicitly ending the session",
+            );
+        }
+
+        for name in ["scroll_pin", "scroll_copy", "scroll_save"] {
+            let body = function_body(&source, name);
+            assert!(
+                body.contains("ScrollCaptureCleanupGuard"),
+                "{name} must close scroll chrome and end capture if output fails",
+            );
+            assert!(
+                body.contains("cleanup.disarm();"),
+                "{name} must disarm scroll cleanup only after normal teardown",
+            );
+        }
+    }
+
+    #[test]
     fn end_text_input_session_rearms_color_picker_only_during_capture() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let body = function_body(&source, "end_text_input_session");
@@ -1839,8 +1992,8 @@ mod tests {
             "pin_image must accept a corner_radius parameter",
         );
         assert!(
-            pin_body.contains("apply_rounded_corners"),
-            "pin_image must call mask::apply_rounded_corners",
+            !pin_body.contains("apply_rounded_corners"),
+            "pin_image must keep the cached base unmasked so pin copy/save can mask after annotation compositing",
         );
         assert!(
             !pin_body.contains("composite_annotation"),
@@ -1867,12 +2020,9 @@ mod tests {
         let adjust_idx = pin_body
             .find("image_adjust::apply_image_adjustments")
             .expect("pin_image must apply image adjustments");
-        let mask_idx = pin_body
-            .find("apply_rounded_corners")
-            .expect("pin_image must still apply rounded corners");
         assert!(
-            adjust_idx < mask_idx,
-            "pin_image: image adjustments must be applied before the pin base image is masked",
+            adjust_idx < pin_body.find("create_pin_from_image").unwrap(),
+            "pin_image: image adjustments must be applied before creating the cached pin base",
         );
         assert!(
             !pin_body.contains("composite_annotation"),
@@ -2359,6 +2509,8 @@ mod tests {
             Some(&stored_annotation_path),
             Some(&new_annotation_png),
             ImageAdjustments::default(),
+            0,
+            1.0,
         )
         .unwrap();
 
@@ -2383,10 +2535,35 @@ mod tests {
                 brightness: 20,
                 ..ImageAdjustments::default()
             },
+            0,
+            1.0,
         )
         .unwrap();
 
         assert_eq!(composed.rgba, vec![151, 151, 151, 255]);
+    }
+
+    #[test]
+    fn pin_copy_applies_rounded_corners_after_annotation_layers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base_path = tmp.path().join("pin.png");
+        let base = [255, 255, 255, 255].repeat(100);
+        std::fs::write(&base_path, encode_pin_png(&base, 10, 10).unwrap()).unwrap();
+
+        let annotation = [255, 0, 0, 255].repeat(100);
+        let annotation_png = encode_pin_png(&annotation, 10, 10).unwrap();
+        let composed = compose_pin_image(
+            &base_path,
+            None,
+            Some(&annotation_png),
+            ImageAdjustments::default(),
+            4,
+            1.0,
+        )
+        .unwrap();
+
+        assert_eq!(composed.rgba[3], 0);
+        assert_eq!(composed.rgba[(5 * 10 + 5) * 4 + 3], 255);
     }
 
     #[test]
@@ -2600,13 +2777,19 @@ mod tests {
     }
 
     #[test]
-    fn about_window_has_vertical_room_for_content() {
-        assert_eq!(about_window_size(), (360.0, 300.0));
+    fn flashot_window_uses_unified_tabbed_size() {
+        assert_eq!(flashot_window_size(), (500.0, 432.0));
     }
 
     #[test]
-    fn settings_window_has_vertical_room_for_quick_shot_shortcuts() {
-        assert_eq!(settings_window_size(), (560.0, 560.0));
+    fn updater_menu_opens_updates_tab_with_check_signal() {
+        let source = include_str!("commands.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "open_updater_window");
+
+        assert!(
+            body.contains("open_flashot_window(app, \"updates\", true)"),
+            "open_updater_window must request an immediate update check",
+        );
     }
 
     #[test]
@@ -2624,45 +2807,33 @@ mod tests {
     #[test]
     fn utility_windows_start_hidden_with_theme_bootstrap() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
-        for name in [
-            "open_settings_window",
-            "open_about_window",
-            "open_updater_window",
-        ] {
-            let body = function_body(&source, name);
-            assert!(
-                body.contains(".visible(false)"),
-                "{name} must stay hidden until its background is configured",
-            );
-            assert!(
-                body.contains(".theme(theme)"),
-                "{name} must apply the saved window theme before showing",
-            );
-            assert!(
-                body.contains(".background_color(utility_window_initial_background(theme))"),
-                "{name} must configure the native/webview first-frame background",
-            );
-            assert!(
-                body.contains(".initialization_script(utility_window_init_script(theme))"),
-                "{name} must bootstrap the document theme before React mounts",
-            );
-        }
+        let body = function_body(&source, "open_flashot_window");
+        assert!(
+            body.contains(".visible(false)"),
+            "open_flashot_window must stay hidden until its background is configured",
+        );
+        assert!(
+            body.contains(".theme(theme)"),
+            "open_flashot_window must apply the saved window theme before showing",
+        );
+        assert!(
+            body.contains(".background_color(utility_window_initial_background(theme))"),
+            "open_flashot_window must configure the native/webview first-frame background",
+        );
+        assert!(
+            body.contains(".initialization_script(utility_window_init_script(theme))"),
+            "open_flashot_window must bootstrap the document theme before React mounts",
+        );
     }
 
     #[test]
     fn reopened_menu_windows_are_explicitly_brought_to_front() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
-        for name in [
-            "open_settings_window",
-            "open_about_window",
-            "open_updater_window",
-        ] {
-            let body = function_body(&source, name);
-            assert!(
-                body.contains("show_utility_window(&w, theme)?;"),
-                "{name} must raise an already-open window instead of only focusing it",
-            );
-        }
+        let body = function_body(&source, "open_flashot_window");
+        assert!(
+            body.contains("show_utility_window(&w, theme)?;"),
+            "open_flashot_window must raise an already-open window instead of only focusing it",
+        );
     }
 
     #[test]
@@ -2744,10 +2915,15 @@ mod tests {
 
         let apply_idx = body.find("apply_launch_at_login").unwrap();
         let save_idx = body.find("settings_store::save").unwrap();
+        let refresh_idx = body.find("refresh_open_utility_windows_appearance").unwrap();
 
         assert!(
             apply_idx < save_idx,
             "login startup must be applied before settings are persisted",
+        );
+        assert!(
+            refresh_idx > save_idx,
+            "set_settings must refresh open utility window chrome after persisting theme",
         );
     }
 

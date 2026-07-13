@@ -1,6 +1,7 @@
 use crate::types::{FrozenFrame, MonitorInfo, Rect};
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use image::RgbaImage;
+use std::sync::Arc;
 use xcap::Monitor;
 
 pub fn enumerate_monitors() -> Result<Vec<MonitorInfo>> {
@@ -47,6 +48,19 @@ pub fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
     capture_all_xcap_monitors()
 }
 
+pub fn capture_monitor_region(monitor_id: u32, rect_physical: Rect) -> Result<Vec<u8>> {
+    if is_wayland_session() {
+        match capture_wayland_monitor_region(monitor_id, rect_physical) {
+            Ok(region) => return Ok(region),
+            Err(e) => tracing::warn!(
+                "Wayland region capture failed for monitor {monitor_id}, falling back to xcap: {e:#}"
+            ),
+        }
+    }
+
+    super::capture_xcap_monitor_region(monitor_id, rect_physical)
+}
+
 fn enumerate_xcap_monitors() -> Result<Vec<MonitorInfo>> {
     let monitors = Monitor::all().context("Failed to enumerate monitors")?;
     monitors.iter().map(monitor_info).collect()
@@ -63,7 +77,7 @@ fn capture_all_xcap_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
         let img = mon.capture_image().context("Failed to capture monitor")?;
         let frame_width = img.width();
         let frame_height = img.height();
-        let rgba = img.into_raw();
+        let rgba: Arc<[u8]> = img.into_raw().into();
         frames.push(FrozenFrame {
             monitor_id: info.id,
             rgba,
@@ -116,7 +130,7 @@ fn capture_all_wayland_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)
 
         frames.push(FrozenFrame {
             monitor_id: info.id,
-            rgba: rgba_image.into_raw(),
+            rgba: Arc::from(rgba_image.into_raw()),
             width: frame_width,
             height: frame_height,
             scale_factor: info.scale_factor,
@@ -126,6 +140,29 @@ fn capture_all_wayland_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)
     }
 
     Ok((infos, frames))
+}
+
+fn capture_wayland_monitor_region(monitor_id: u32, rect_physical: Rect) -> Result<Vec<u8>> {
+    let conn = wayland_connection()?;
+    let outputs = conn.get_all_outputs().to_vec();
+    let (_, output) = outputs
+        .iter()
+        .enumerate()
+        .find(|(index, output)| stable_wayland_output_id(*index, output) == monitor_id)
+        .ok_or_else(|| anyhow!("Wayland output for monitor {monitor_id} not found"))?;
+    let image = conn
+        .screenshot_single_output(output, false)
+        .with_context(|| format!("Failed to capture Wayland output {}", output.name))?;
+    let rgba_image = image.to_rgba8();
+    let frame_width = rgba_image.width();
+    let frame_height = rgba_image.height();
+
+    super::crop_physical_rect_from_rgba(
+        &rgba_image.into_raw(),
+        frame_width,
+        frame_height,
+        rect_physical,
+    )
 }
 
 fn capture_all_portal_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
@@ -292,7 +329,7 @@ fn split_portal_screenshot(
 
         frames.push(FrozenFrame {
             monitor_id: adjusted_monitor.id,
-            rgba: frame_rgba,
+            rgba: Arc::from(frame_rgba),
             width: crop.width,
             height: crop.height,
             scale_factor,
@@ -625,5 +662,48 @@ mod tests {
             .copied()
             .collect();
         assert_eq!(cropped, expected);
+    }
+
+    #[test]
+    fn wayland_region_capture_uses_wayland_output_ids_instead_of_xcap() {
+        let source = include_str!("linux.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "capture_monitor_region");
+
+        assert!(
+            body.contains("is_wayland_session()")
+                && body.contains("capture_wayland_monitor_region")
+                && body.contains("capture_xcap_monitor_region"),
+            "Linux region capture must route Wayland sessions through Wayland output ids and reserve xcap for X11",
+        );
+
+        let wayland_body = function_body(&source, "capture_wayland_monitor_region");
+        assert!(
+            wayland_body.contains("stable_wayland_output_id")
+                && wayland_body.contains("screenshot_single_output")
+                && !wayland_body.contains("Monitor::all"),
+            "Wayland scroll capture must not look up xcap monitor ids",
+        );
+    }
+
+    fn function_body<'a>(source: &'a str, name: &str) -> &'a str {
+        let start = source
+            .find(&format!("fn {name}"))
+            .or_else(|| source.find(&format!("pub fn {name}")))
+            .unwrap_or_else(|| panic!("{name} not found"));
+        let body_start = source[start..].find('{').map(|idx| start + idx).unwrap();
+        let mut depth = 0usize;
+        for (offset, ch) in source[body_start..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &source[body_start..=body_start + offset];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("{name} body did not close");
     }
 }

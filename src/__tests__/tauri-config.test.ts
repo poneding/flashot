@@ -23,7 +23,7 @@ describe("Tauri capabilities", () => {
     expect(config.bundle?.macOS?.frameworks ?? []).toEqual([]);
   });
 
-  it("grants IPC permissions to overlay and settings windows", () => {
+  it("grants IPC permissions to overlay and utility windows", () => {
     const capabilityPath = resolve(__dirname, "../../src-tauri/capabilities/default.json");
     const capability = JSON.parse(readFileSync(capabilityPath, "utf8")) as {
       windows: string[];
@@ -31,6 +31,7 @@ describe("Tauri capabilities", () => {
     };
 
     expect(capability.windows).toContain("overlay-*");
+    expect(capability.windows).toContain("flashot");
     expect(capability.windows).toContain("settings");
     expect(capability.windows).toContain("about");
     expect(capability.permissions).toContain("core:window:allow-set-cursor-icon");

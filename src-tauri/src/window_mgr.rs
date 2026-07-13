@@ -4,7 +4,7 @@ use crate::types::FrozenFrame;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Active capture session. While `Some(_)`, the overlay is showing.
 /// Drop guarantees `end_capture` runs (RAII invariant from spec §6.4).
@@ -16,7 +16,7 @@ pub struct WindowMgr {
 #[derive(Default)]
 struct Inner {
     /// Frozen frames keyed by monitor_id, alive only during a session.
-    frames: HashMap<u32, FrozenFrame>,
+    frames: HashMap<u32, Arc<FrozenFrame>>,
     in_session: bool,
     scroll: Option<ScrollState>,
     /// The app that was frontmost when the session started. Restoring focus
@@ -60,24 +60,12 @@ impl WindowMgr {
     }
 
     pub fn store_frame(&self, frame: FrozenFrame) {
-        self.inner.lock().frames.insert(frame.monitor_id, frame);
+        let id = frame.monitor_id;
+        self.inner.lock().frames.insert(id, Arc::new(frame));
     }
 
-    pub fn frame(&self, monitor_id: u32) -> Option<FrozenFrame> {
-        // Clone the rgba buffer out — caller cannot mutate the stored frame.
-        // We only call this from the crop command path, which is rare (one click).
-        self.inner
-            .lock()
-            .frames
-            .get(&monitor_id)
-            .map(|f| FrozenFrame {
-                monitor_id: f.monitor_id,
-                rgba: f.rgba.clone(),
-                width: f.width,
-                height: f.height,
-                scale_factor: f.scale_factor,
-                icc_profile: f.icc_profile.clone(),
-            })
+    pub fn frame(&self, monitor_id: u32) -> Option<Arc<FrozenFrame>> {
+        self.inner.lock().frames.get(&monitor_id).cloned()
     }
 
     pub fn in_session(&self) -> bool {
@@ -98,8 +86,10 @@ impl WindowMgr {
 
     pub fn end_session(&self, app: &AppHandle) {
         self.clear_session_state();
+        crate::set_capture_session_hotkeys(app, false);
         crate::app_activation::hide_overlay_windows(app);
         let _ = app.emit("capture:end", ());
+        cleanup_frame_files(app);
     }
 
     pub fn end_session_deactivating_app(&self, app: &AppHandle) {
@@ -110,10 +100,12 @@ impl WindowMgr {
         // expects regardless of capture.
         let previous = self.take_previous_app();
         self.clear_session_state();
+        crate::set_capture_session_hotkeys(app, false);
         if !crate::app_activation::reactivate_then_hide_overlays_macos(app, &previous) {
             crate::app_activation::hide_overlay_windows(app);
         }
         let _ = app.emit("capture:end", ());
+        cleanup_frame_files(app);
     }
 
     /// Reactivate the previously-frontmost app WITHOUT hiding overlays first.
@@ -151,6 +143,16 @@ impl WindowMgr {
     }
 }
 
+fn cleanup_frame_files(app: &AppHandle) {
+    let Ok(cache_dir) = app.path().app_cache_dir() else {
+        return;
+    };
+
+    if let Err(e) = crate::remove_stale_frame_files(&cache_dir) {
+        tracing::warn!("failed to remove capture frame files: {e}");
+    }
+}
+
 pub struct SessionGuard {
     mgr: Arc<WindowMgr>,
     app: AppHandle,
@@ -161,6 +163,12 @@ impl SessionGuard {
     /// Explicitly end (used on success paths to keep call sites clear).
     pub fn end(mut self) {
         self.mgr.end(&self.app);
+        self.ended = true;
+    }
+
+    /// Disarm the guard without ending the session. The session remains active
+    /// and must be ended later by calling `WindowMgr::end_session*` directly.
+    pub fn disarm(mut self) {
         self.ended = true;
     }
 }
@@ -198,6 +206,18 @@ mod tests {
         mgr.store_frame(fake_frame(7));
         assert!(mgr.frame(7).is_some());
         assert!(mgr.frame(99).is_none());
+    }
+
+    #[test]
+    fn frame_retrieval_reuses_shared_rgba_buffer() {
+        let mgr = WindowMgr::new();
+        mgr.inner.lock().in_session = true;
+        mgr.store_frame(fake_frame(7));
+
+        let first = mgr.frame(7).expect("stored frame should exist");
+        let second = mgr.frame(7).expect("stored frame should exist");
+
+        assert!(Arc::ptr_eq(&first, &second));
     }
 
     #[test]
@@ -272,6 +292,25 @@ mod tests {
             body.contains("reactivate_then_hide_overlays_macos"),
             "macOS capture end must reactivate the previous frontmost app and hide overlays in one main-thread task, reactivate first",
         );
+    }
+
+    #[test]
+    fn capture_end_disarms_session_hotkeys_directly() {
+        let source = include_str!("window_mgr.rs").replace("\r\n", "\n");
+        for name in ["end_session", "end_session_deactivating_app"] {
+            let body = function_body(&source, name);
+            let cleanup_idx = body
+                .find("crate::set_capture_session_hotkeys(app, false);")
+                .unwrap_or_else(|| panic!("{name} must directly disarm session hotkeys"));
+            let emit_idx = body
+                .find("app.emit(\"capture:end\"")
+                .unwrap_or_else(|| panic!("{name} must emit capture:end"));
+
+            assert!(
+                cleanup_idx < emit_idx,
+                "{name} must release global session hotkeys before broadcasting capture:end",
+            );
+        }
     }
 
     fn function_body<'a>(source: &'a str, name: &str) -> &'a str {

@@ -1,9 +1,9 @@
 import { useOverlay } from "@/overlay/state";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { Check } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Point, Rect } from "@/lib/types";
 import { createTranslator, type Locale } from "@/i18n";
+import { loadReleasableFrameImage } from "@/lib/frame-source";
 
 const MAGNIFIER_SIZE = 120;
 const PIXEL_GRID_SIZE = 15;
@@ -12,22 +12,6 @@ const PIXEL_BLOCK_SIZE = MAGNIFIER_SIZE / PIXEL_GRID_SIZE; // 8px per pixel
 const PANEL_WIDTH = 158;
 const PANEL_HEIGHT = 200;
 const OFFSET = 20;
-
-const ASSET_LOCALHOST_PREFIX = "asset://localhost/";
-
-function decodeAssetPath(path: string) {
-  if (!path.includes("%")) return path;
-  try {
-    return decodeURIComponent(path);
-  } catch {
-    return path;
-  }
-}
-
-function frameSourceFromUrl(url: string) {
-  if (!url.startsWith(ASSET_LOCALHOST_PREFIX)) return url;
-  return convertFileSrc(decodeAssetPath(url.slice(ASSET_LOCALHOST_PREFIX.length)));
-}
 
 export function ColorPicker({ locale = "en" }: { locale?: Locale }) {
   const t = createTranslator(locale);
@@ -42,59 +26,83 @@ export function ColorPicker({ locale = "en" }: { locale?: Locale }) {
   const currentColor = useOverlay((s) => s.currentColor);
   const setCurrentColor = useOverlay((s) => s.setCurrentColor);
 
-  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const frameImageRef = useRef<HTMLImageElement | null>(null);
+  const sampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const magnifierCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [frameReady, setFrameReady] = useState(false);
+  const shouldShow = mode === "hover" || (mode === "committed" && colorPickerVisible);
+  const shouldLoadFrame = Boolean(shouldShow && cursor && frameUrl);
 
-  // Load frozen frame into offscreen canvas
+  // Load the frozen frame image only while the picker is visible. Pixel reads
+  // use a tiny sample canvas instead of a full-screen RGBA canvas.
   useEffect(() => {
-    if (!frameUrl) {
-      offscreenCanvasRef.current = null;
-      setFrameReady(false);
+    frameImageRef.current = null;
+    setFrameReady(false);
+
+    if (!frameUrl || !shouldLoadFrame) {
       return;
     }
 
-    setFrameReady(false);
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      if (ctx) {
-        ctx.drawImage(img, 0, 0);
-        offscreenCanvasRef.current = canvas;
+    let loadedImage: HTMLImageElement | null = null;
+    const release = loadReleasableFrameImage(frameUrl, {
+      onLoad: (img) => {
+        loadedImage = img;
+        frameImageRef.current = img;
         setFrameReady(true);
+      },
+      onError: (err) => {
+        console.warn("[ColorPicker] failed to load frame", err);
+      },
+    });
+
+    return () => {
+      release();
+      if (loadedImage && frameImageRef.current === loadedImage) {
+        frameImageRef.current = null;
       }
     };
-    img.onerror = (err) => {
-      console.warn("[ColorPicker] failed to load frame", err);
-    };
-    img.src = frameSourceFromUrl(frameUrl);
-  }, [frameUrl]);
+  }, [frameUrl, shouldLoadFrame]);
 
   // Read pixels and update magnifier on cursor move
   useEffect(() => {
-    if (!cursor || !frameReady || !offscreenCanvasRef.current || !magnifierCanvasRef.current) return;
+    if (!cursor || !frameReady || !frameImageRef.current || !magnifierCanvasRef.current) return;
 
-    const offscreenCtx = offscreenCanvasRef.current.getContext("2d", { willReadFrequently: true });
+    const sampleCanvas = sampleCanvasRef.current ?? document.createElement("canvas");
+    sampleCanvasRef.current = sampleCanvas;
+    sampleCanvas.width = PIXEL_GRID_SIZE;
+    sampleCanvas.height = PIXEL_GRID_SIZE;
+    const sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true });
     const magnifierCtx = magnifierCanvasRef.current.getContext("2d");
-    if (!offscreenCtx || !magnifierCtx) return;
+    if (!sampleCtx || !magnifierCtx) return;
 
+    const frameImage = frameImageRef.current;
+    const frameWidth = frameImage.naturalWidth || frameImage.width;
+    const frameHeight = frameImage.naturalHeight || frameImage.height;
     const physX = Math.floor(cursor.x * scaleFactor);
     const physY = Math.floor(cursor.y * scaleFactor);
     const halfGrid = Math.floor(PIXEL_GRID_SIZE / 2);
 
     // Clamp start to valid range
-    const maxX = offscreenCanvasRef.current.width - PIXEL_GRID_SIZE;
-    const maxY = offscreenCanvasRef.current.height - PIXEL_GRID_SIZE;
+    const maxX = frameWidth - PIXEL_GRID_SIZE;
+    const maxY = frameHeight - PIXEL_GRID_SIZE;
     const startX = Math.max(0, Math.min(physX - halfGrid, maxX));
     const startY = Math.max(0, Math.min(physY - halfGrid, maxY));
 
     let imageData: ImageData;
     try {
-      imageData = offscreenCtx.getImageData(startX, startY, PIXEL_GRID_SIZE, PIXEL_GRID_SIZE);
+      sampleCtx.clearRect(0, 0, PIXEL_GRID_SIZE, PIXEL_GRID_SIZE);
+      sampleCtx.drawImage(
+        frameImage,
+        startX,
+        startY,
+        PIXEL_GRID_SIZE,
+        PIXEL_GRID_SIZE,
+        0,
+        0,
+        PIXEL_GRID_SIZE,
+        PIXEL_GRID_SIZE,
+      );
+      imageData = sampleCtx.getImageData(0, 0, PIXEL_GRID_SIZE, PIXEL_GRID_SIZE);
     } catch (e) {
       return;
     }
@@ -154,7 +162,6 @@ export function ColorPicker({ locale = "en" }: { locale?: Locale }) {
   }, [cursor, scaleFactor, setCurrentColor, frameReady]);
 
   const position = cursor && monitorRect ? colorPickerPosition(cursor, monitorRect) : null;
-  const shouldShow = mode === "hover" || (mode === "committed" && colorPickerVisible);
   if (!shouldShow || !position || !frameUrl) return null;
 
   return (

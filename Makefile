@@ -1,65 +1,70 @@
-# Flashot Makefile
-#
-# Works on Windows, macOS, and Linux with GNU Make (3.81+).
-# Windows: install make via `choco install make`, `scoop install make`,
-# or GnuWin32. Recipes are single-line commands that are valid under both
-# cmd.exe and sh, and use `cargo --manifest-path` instead of `cd` so no
-# recipe depends on shell-specific behavior.
-#
-# Main targets: check, lint, test, build, run
+# Keep recipes shell-portable for GNU Make on Windows, macOS, and Linux.
+PNPM ?= pnpm
+CARGO ?= cargo
+TAURI_MANIFEST := src-tauri/Cargo.toml
 
-CARGO_MANIFEST = src-tauri/Cargo.toml
+.DEFAULT_GOAL := help
+
+.PHONY: help install check lint run build test test-watch frontend-lint frontend-build cargo-check cargo-clippy cargo-test cargo-bench tauri-dev tauri-build docs-run docs-build docs-preview
 
 help:
-	@echo Flashot make targets:
-	@echo   make check      - fast compile checks: tsc + cargo check
-	@echo   make lint       - tsc + cargo clippy with -D warnings
-	@echo   make test       - frontend vitest + Rust cargo test
-	@echo   make test-web   - frontend vitest only
-	@echo   make test-rust  - Rust cargo test only
-	@echo   make build      - production bundle via pnpm tauri build
-	@echo   make build-web  - frontend production build only
-	@echo   make run        - full app in dev mode via pnpm tauri dev
-	@echo   make dev        - frontend Vite dev server only
-	@echo   make bench      - Rust crop_bench benchmark
-	@echo   make ci         - check + lint + test + bench, mirrors CI
-	@echo   make clean      - remove cargo target dir and frontend dist
+	@echo Available targets:
+	@echo make install - Install project dependencies
+	@echo make check - Run frontend and Rust checks
+	@echo make lint - Run TypeScript and Rust lint checks
+	@echo make run - Run the full Tauri app in dev mode
+	@echo make build - Build the production Tauri app
+	@echo make test - Run frontend and Rust tests
+	@echo make frontend-build - Build the frontend only
+	@echo make cargo-bench - Run the crop benchmark
 
-check:
-	pnpm lint
-	cargo check --manifest-path $(CARGO_MANIFEST) --all-targets
+install:
+	$(PNPM) install
 
-lint:
-	pnpm lint
-	cargo clippy --manifest-path $(CARGO_MANIFEST) --all-targets -- -D warnings
+check: lint test cargo-check
 
-test: test-web test-rust
+lint: frontend-lint cargo-clippy
 
-test-web:
-	pnpm test
+run: tauri-dev
 
-test-rust:
-	cargo test --manifest-path $(CARGO_MANIFEST)
+build: tauri-build
 
-build:
-	pnpm tauri build
+test:
+	$(PNPM) test
+	$(CARGO) test --manifest-path $(TAURI_MANIFEST)
 
-build-web:
-	pnpm build
+test-watch:
+	$(PNPM) test:watch
 
-run:
-	pnpm tauri dev
+frontend-lint:
+	$(PNPM) lint
 
-dev:
-	pnpm dev
+frontend-build:
+	$(PNPM) build
 
-bench:
-	cargo bench --manifest-path $(CARGO_MANIFEST) --bench crop_bench
+cargo-check:
+	$(CARGO) check --manifest-path $(TAURI_MANIFEST) --all-targets
 
-ci: check lint test bench
+cargo-clippy:
+	$(CARGO) clippy --manifest-path $(TAURI_MANIFEST) --all-targets -- -D warnings
 
-clean:
-	cargo clean --manifest-path $(CARGO_MANIFEST)
-	node -e "require('fs').rmSync('dist',{recursive:true,force:true})"
+cargo-test:
+	$(CARGO) test --manifest-path $(TAURI_MANIFEST)
 
-.PHONY: help check lint test test-web test-rust build build-web run dev bench ci clean
+cargo-bench:
+	$(CARGO) bench --manifest-path $(TAURI_MANIFEST) --bench crop_bench
+
+tauri-dev:
+	$(PNPM) tauri dev
+
+tauri-build:
+	$(PNPM) tauri build
+
+docs-run:
+	$(PNPM) docs:dev
+
+docs-build:
+	$(PNPM) docs:build
+
+docs-preview:
+	$(PNPM) docs:preview

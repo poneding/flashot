@@ -12,12 +12,16 @@ pub struct PinEntry {
     pub original_width: u32,
     pub original_height: u32,
     pub current_scale: f64,
+    pub corner_radius: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PinPaths {
     pub image_path: PathBuf,
     pub annotation_path: Option<PathBuf>,
+    pub original_width: u32,
+    pub original_height: u32,
+    pub corner_radius: u32,
 }
 
 #[derive(Default)]
@@ -71,6 +75,9 @@ impl PinManager {
         Some(PinPaths {
             image_path: entry.image_path.clone(),
             annotation_path: entry.annotation_path.clone(),
+            original_width: entry.original_width,
+            original_height: entry.original_height,
+            corner_radius: entry.corner_radius,
         })
     }
 
@@ -93,6 +100,7 @@ mod tests {
             original_width: 100,
             original_height: 100,
             current_scale: 1.0,
+            corner_radius: 0,
         }
     }
 
@@ -117,6 +125,7 @@ mod tests {
             Some(std::path::Path::new("/tmp/test-annotation.png")),
         );
         assert_eq!(retrieved.original_width, 100);
+        assert_eq!(retrieved.corner_radius, 0);
     }
 
     #[test]
@@ -132,6 +141,7 @@ mod tests {
         assert_eq!(updated.current_scale, 1.55);
         assert_eq!(updated.image_path, entry.image_path);
         assert_eq!(updated.annotation_path, entry.annotation_path);
+        assert_eq!(updated.corner_radius, entry.corner_radius);
         assert!(mgr.get_pin("test-id").is_some());
     }
 
@@ -162,6 +172,9 @@ mod tests {
 
         assert_eq!(paths.image_path, entry.image_path);
         assert_eq!(paths.annotation_path, entry.annotation_path);
+        assert_eq!(paths.original_width, entry.original_width);
+        assert_eq!(paths.original_height, entry.original_height);
+        assert_eq!(paths.corner_radius, entry.corner_radius);
         assert!(mgr.get_pin("test-id").is_some());
     }
 }

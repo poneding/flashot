@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsRoute } from "@/routes/Settings";
@@ -16,6 +16,8 @@ vi.mock("@/lib/ipc", () => ({
 
 const currentWindowMock = vi.hoisted(() => ({
   setTitle: vi.fn().mockResolvedValue(undefined),
+  theme: vi.fn().mockResolvedValue(null as "light" | "dark" | null),
+  onThemeChanged: vi.fn().mockResolvedValue(vi.fn()),
 }));
 
 vi.mock("@tauri-apps/api/window", () => ({
@@ -91,7 +93,6 @@ describe("SettingsRoute", () => {
     expect(checkbox.getAttribute("aria-checked")).toBe("false");
 
     fireEvent.click(checkbox);
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(setSettings).toHaveBeenCalledWith({
@@ -124,15 +125,14 @@ describe("SettingsRoute", () => {
     fireEvent.change(interval, { target: { value: "6" } });
 
     fireEvent.click(beta);
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      expect(setSettings).toHaveBeenCalledWith({
+      expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({
         ...settings,
         autoCheckUpdates: true,
         allowBetaUpdates: true,
         updateCheckIntervalHours: 6,
-      });
+      }));
     });
   });
 
@@ -151,7 +151,6 @@ describe("SettingsRoute", () => {
     fireEvent.click(autoCheck);
 
     expect(screen.queryByRole("checkbox", { name: "Allow beta updates" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -174,9 +173,11 @@ describe("SettingsRoute", () => {
     const changeButton = screen.getByRole("button", { name: "Change default save location" });
 
     expect(input.disabled).toBe(true);
-    expect(input.className).toContain("h-8");
+    expect(input.className).toContain("h-7");
     expect(field).toBeTruthy();
     expect(field?.className).toContain("relative");
+    expect(field?.className).toContain("max-w-[320px]");
+    expect((field as HTMLElement).style.width).toMatch(/ch$/);
     expect(field?.contains(changeButton)).toBe(true);
     expect(changeButton.className).toContain("absolute");
     expect(changeButton.className).toContain("right-1");
@@ -187,7 +188,6 @@ describe("SettingsRoute", () => {
 
     fireEvent.click(changeButton);
     await screen.findByDisplayValue("/Users/dp/Desktop/Shots");
-    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(chooseDefaultSaveDir).toHaveBeenCalledWith("/Users/dp/Pictures/Flashot");
@@ -221,10 +221,10 @@ describe("SettingsRoute", () => {
     expect(row?.className).toContain("flex");
     expect(row?.querySelector("label")?.textContent).toContain("Capture Area");
     expect(row?.querySelector("input")?.getAttribute("value")).toBe("Cmd+Shift+A");
-    expect(Array.from(row?.querySelectorAll("button") ?? []).some((button) => button.textContent === "Change")).toBe(true);
+    expect(within(row as HTMLElement).getByRole("button", { name: "Change" })).toBeTruthy();
   });
 
-  it("keeps shortcut values in fixed editable fields with an embedded clear button", async () => {
+  it("keeps shortcut values in fixed editable fields with embedded reset and clear buttons", async () => {
     vi.mocked(getSettings).mockResolvedValue({
       ...settings,
       captureHotkey: "",
@@ -236,15 +236,19 @@ describe("SettingsRoute", () => {
 
     expect(input.value).toBe("");
     expect(input.className).toContain("w-36");
-    expect(input.className).toContain("h-8");
-    expect(input.className).toContain("pr-8");
+    expect(input.className).toContain("h-7");
+    expect(input.className).toContain("pr-14");
 
     const field = input.closest("[data-hotkey-field]");
     const clearButton = screen.getByRole("button", { name: "Clear Capture Area shortcut" });
+    const resetButton = screen.getByRole("button", { name: "Reset Capture Area shortcut" });
 
     expect(field).toBeTruthy();
     expect(field?.className).toContain("relative");
+    expect(field?.contains(resetButton)).toBe(true);
     expect(field?.contains(clearButton)).toBe(true);
+    expect(resetButton.className).toContain("absolute");
+    expect(resetButton.className).toContain("right-7");
     expect(clearButton.className).toContain("absolute");
     expect(clearButton.className).toContain("right-1");
 
@@ -257,7 +261,6 @@ describe("SettingsRoute", () => {
 
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "Ctrl+Alt+S" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -266,15 +269,29 @@ describe("SettingsRoute", () => {
     });
   });
 
-  it("resets quick shot shortcuts to macOS Option defaults", async () => {
+  it("resets individual shortcuts from the icon button inside the input", async () => {
+    vi.mocked(getSettings).mockResolvedValue({
+      ...settings,
+      fullscreenHotkey: "Cmd+Shift+F",
+    });
     render(<SettingsRoute />);
 
-    await screen.findByRole("tab", { name: "Shortcuts" });
-    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Shortcuts" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Shortcuts" }));
+    const screenRow = screen.getByText("Capture Screen").closest("[data-shortcut-row]");
+    const field = screenRow?.querySelector("[data-hotkey-field]");
+    const resetButton = screen.getByRole("button", { name: "Reset Capture Screen shortcut" });
+    expect(within(screenRow as HTMLElement).getByRole("button", { name: "Change" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+    expect(field?.contains(resetButton)).toBe(true);
 
+    fireEvent.click(resetButton);
+
+    await waitFor(() => {
+      expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({
+        fullscreenHotkey: "Option+F",
+      }));
+    });
     expect(await screen.findByDisplayValue("Option+F")).toBeTruthy();
-    expect(screen.getByDisplayValue("Option+W")).toBeTruthy();
   });
 
   it("shows conflict info when shortcut settings duplicate each other", async () => {
@@ -298,17 +315,49 @@ describe("SettingsRoute", () => {
     expect((await screen.findByRole("tooltip")).textContent).toBe("Capture Area conflicts with Capture Screen");
   });
 
-  it("groups settings into general, appearance, and shortcut tabs", async () => {
+  it("groups utility content into one Flashot window with compact bordered shadcn tabs", async () => {
     const { container } = render(<SettingsRoute />);
 
     expect(await screen.findByRole("tab", { name: "General" })).toBeTruthy();
-    expect(container.querySelector('[data-utility-window-shell="settings"]')).not.toBeNull();
-    expect(container.querySelector("[data-utility-window-content]")?.className).toContain("max-w-lg");
+    expect(container.querySelector('[data-utility-window-shell="flashot"]')).not.toBeNull();
+    expect(container.querySelector('[data-utility-window-shell="flashot"]')?.className).toContain("p-4");
+    expect(container.querySelector("[data-utility-window-content]")?.className).toContain("max-w-[500px]");
     expect(screen.getByRole("tab", { name: "Appearance" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Shortcuts" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Updates" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "About" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+    expect(screen.getByRole("tablist").className).toContain("!h-7");
+    expect(screen.getByRole("tab", { name: "General" }).className).toContain("rounded-md");
+    expect(screen.getByRole("tab", { name: "General" }).className).toContain("text-xs");
+    expect(screen.getByRole("tab", { name: "General" }).className).toContain("data-[active]:border-border");
+    expect(screen.getByRole("tab", { name: "General" }).className).not.toContain("dark:data-[active]:border-primary");
+    expect(screen.getByRole("tab", { name: "General" }).className).toContain("data-[active]:bg-background");
+    expect(screen.getByRole("tab", { name: "General" }).className).toContain("data-[active]:text-primary");
+    expect(screen.getByRole("tab", { name: "General" }).className).toContain("data-[active]:shadow-sm");
+    expect(screen.getByRole("tab", { name: "General" }).className).not.toContain("!border-foreground");
+    expect(screen.getByRole("tab", { name: "General" }).className).not.toContain("data-[active]:ring-1");
 
     fireEvent.click(screen.getByRole("tab", { name: "Shortcuts" }));
     expect(await screen.findByText("Capture Area")).toBeTruthy();
+  });
+
+  it("uses compact dropdown and accent color controls", async () => {
+    const user = userEvent.setup();
+    render(<SettingsRoute />);
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Appearance" }));
+    const language = screen.getByRole("combobox", { name: "Language" });
+    const accent = screen.getByRole("button", { name: "Accent color: Amber" });
+
+    expect(language.className).toContain("h-7");
+    expect(language.className).toContain("text-xs");
+    expect(accent.className).toContain("size-6");
+    expect(accent.querySelector("span")?.className).toContain("size-3");
+
+    await user.click(language);
+    expect((await screen.findByRole("option", { name: "English" })).className).toContain("text-xs");
   });
 
   it("renders settings labels in Simplified Chinese when selected", async () => {
@@ -319,12 +368,14 @@ describe("SettingsRoute", () => {
     expect(await screen.findByRole("tab", { name: "快捷键" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "外观" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "通用" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "更新" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "关于" })).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "快捷键" }));
     expect(screen.getByText("截取区域")).toBeTruthy();
     expect(screen.getByText("截取当前活动窗口")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "外观" }));
     expect(screen.getByLabelText("语言")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "保存" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "保存" })).toBeNull();
   });
 
   it("saves accent color and language selections", async () => {
@@ -337,7 +388,6 @@ describe("SettingsRoute", () => {
     await user.click(screen.getByLabelText("Language"));
     expect(screen.queryByRole("option", { name: "System" })).toBeNull();
     await user.click(await screen.findByRole("option", { name: "繁體中文" }));
-    fireEvent.click(screen.getByRole("button", { name: "儲存" }));
 
     await waitFor(() => {
       expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -355,15 +405,17 @@ describe("SettingsRoute", () => {
     expect(await screen.findByRole("tab", { name: "快速鍵" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "外觀" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "一般" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "更新" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "關於" })).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "快速鍵" }));
     expect(screen.getByText("擷取區域")).toBeTruthy();
     expect(screen.getByText("擷取目前活動視窗")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "外觀" }));
     expect(screen.getByLabelText("語言")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "儲存" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "儲存" })).toBeNull();
   });
 
-  it("updates the native settings window title when the language changes", async () => {
+  it("uses Flashot as the native utility window title", async () => {
     const user = userEvent.setup();
     render(<SettingsRoute />);
 
@@ -373,7 +425,7 @@ describe("SettingsRoute", () => {
     await user.click(await screen.findByRole("option", { name: "繁體中文" }));
 
     await waitFor(() => {
-      expect(currentWindowMock.setTitle).toHaveBeenCalledWith("Flashot 設定");
+      expect(currentWindowMock.setTitle).toHaveBeenCalledWith("Flashot");
     });
   });
 
@@ -470,13 +522,9 @@ describe("SettingsRoute", () => {
 
     fireEvent.click(await screen.findByRole("tab", { name: "Shortcuts" }));
     await screen.findByText("Capture Area");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Appearance" }));
 
-    await waitFor(() => {
-      expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({
-        accentColor: SELECTION_COLOR,
-        language: "en",
-      }));
-    });
+    expect(screen.getByRole("button", { name: "Accent color: Cyan" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 });

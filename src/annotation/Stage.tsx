@@ -9,10 +9,10 @@ import {
   type FocusHole,
 } from "@/annotation/focus";
 import {
-  annotationFrameSourceFromUrl,
   createMagnifierRenderContext,
   type MagnifierRenderContext,
 } from "@/annotation/magnifierContext";
+import { loadReleasableFrameImage } from "@/lib/frame-source";
 import { MarkerTextOverlay } from "@/annotation/MarkerTextOverlay";
 import { MARKER_DEFAULT_FONT_SIZE, markerLabelAnchor } from "@/annotation/markerStyle";
 import { renderObject } from "@/annotation/render";
@@ -1162,6 +1162,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
   const containerRef = useRef<HTMLDivElement>(null);
   const activeTool = useAnnotation((s) => s.activeTool);
   const activeStyle = useAnnotation((s) => s.activeStyle);
+  const hasMagnifierObjects = useAnnotation((s) => s.objects.some((object) => object.type === "magnifier"));
   const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
   const [, forceRender] = useState(0);
   const [textEditing, setTextEditing] = useState<{ position: { x: number; y: number }; editingObject: AnnotationObject | null; key: number } | null>(null);
@@ -1170,6 +1171,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
   const textKeyRef = useRef(0);
   const markerKeyRef = useRef(0);
   const viewportOrigin = viewportOriginForStage(containerRef.current, selection);
+  const needsMagnifierSource = activeTool === "magnifier" || hasMagnifierObjects;
 
   const openMarkerEditor = (object: AnnotationObject) => {
     useAnnotation.getState().setSelectedObject(null);
@@ -1366,37 +1368,34 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
   }, [frameSourceRect]);
 
   useEffect(() => {
-    if (!frameUrl) {
+    if (!frameUrl || !needsMagnifierSource) {
       magnifierSourceImage = null;
       return;
     }
 
-    let canceled = false;
-    const image = new Image();
-    image.crossOrigin = "anonymous";
-    image.onload = () => {
-      if (canceled) return;
-      magnifierSourceImage = image;
-      useAnnotation.getState().objects
-        .filter((object) => object.type === "magnifier")
-        .forEach((object) => replaceRenderedObjectNode(object));
-      layer?.batchDraw();
-    };
-    image.onerror = (error) => {
-      if (!canceled) {
+    let loadedImage: HTMLImageElement | null = null;
+    const release = loadReleasableFrameImage(frameUrl, {
+      onLoad: (image) => {
+        loadedImage = image;
+        magnifierSourceImage = image;
+        useAnnotation.getState().objects
+          .filter((object) => object.type === "magnifier")
+          .forEach((object) => replaceRenderedObjectNode(object));
+        layer?.batchDraw();
+      },
+      onError: (error) => {
         magnifierSourceImage = null;
         console.warn("Failed to load annotation magnifier frame", error);
-      }
-    };
-    image.src = annotationFrameSourceFromUrl(frameUrl);
+      },
+    });
 
     return () => {
-      canceled = true;
-      if (magnifierSourceImage === image) {
+      release();
+      if (loadedImage && magnifierSourceImage === loadedImage) {
         magnifierSourceImage = null;
       }
     };
-  }, [frameUrl]);
+  }, [frameUrl, needsMagnifierSource]);
 
   useEffect(() => {
     if (!stage || interacting) return;
