@@ -19,6 +19,8 @@ pub mod tray_template_icon;
 pub mod types;
 pub mod window_mgr;
 pub mod window_probe;
+#[cfg(target_os = "windows")]
+pub mod windows_key_block;
 
 use anyhow::{Context, Result};
 use pin_mgr::PinManager;
@@ -585,6 +587,18 @@ fn set_color_picker_hotkeys(app: &AppHandle, enabled: bool) {
 pub(crate) fn set_capture_session_hotkeys(app: &AppHandle, enabled: bool) {
     set_capture_cancel_hotkey(app, enabled);
     set_color_picker_hotkeys(app, enabled);
+    set_win_key_block(app, enabled);
+}
+
+/// Block the Windows (Super) key while a capture session is active. The overlay
+/// only paints a frozen screenshot; the live desktop underneath still honors the
+/// Win key, so without this the Start menu opens over the "frozen" screen.
+/// Windows-only; no-op elsewhere.
+fn set_win_key_block(app: &AppHandle, enabled: bool) {
+    #[cfg(target_os = "windows")]
+    windows_key_block::set_enabled(app, enabled);
+    #[cfg(not(target_os = "windows"))]
+    let _ = (app, enabled);
 }
 
 #[cfg(test)]
