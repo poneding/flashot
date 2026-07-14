@@ -887,6 +887,48 @@ describe("AnnotationStage selection movement", () => {
     expect(mask?.getAttr("focusHoles")?.[0]?.kind).toBe("ellipse");
   });
 
+  it.each(["rect", "ellipse"] as const)(
+    "keeps the %s tool active after selecting an existing spotlight",
+    (tool) => {
+      const spotlight: AnnotationObject = {
+        id: `spotlight-before-${tool}`,
+        type: "spotlight",
+        start: { x: 20, y: 24 },
+        end: { x: 80, y: 84 },
+        style: { ...annotatedRect.style, fill: "spotlight", spotlightShape: "rect" },
+        transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+      };
+      useAnnotation.getState().setActiveTool(tool);
+      useAnnotation.getState().setActiveStyle({
+        color: "#0099ff",
+        strokeWidth: 6,
+        fill: "hollow",
+      });
+      const { container } = render(<AnnotationStage selection={selection} scaleFactor={2} />);
+      const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
+
+      act(() => {
+        useAnnotation.getState().addObject(spotlight);
+        useAnnotation.getState().setSelectedObject(spotlight.id);
+      });
+
+      expect(useAnnotation.getState().activeStyle.fill).toBe("hollow");
+
+      act(() => {
+        fireEvent.mouseDown(stageNode, { clientX: 120, clientY: 20 });
+        fireEvent.mouseUp(stageNode, { clientX: 120, clientY: 20 });
+        fireEvent.mouseDown(stageNode, { clientX: 120, clientY: 20 });
+        fireEvent.mouseMove(stageNode, { clientX: 210, clientY: 120 });
+        fireEvent.mouseUp(stageNode, { clientX: 210, clientY: 120 });
+      });
+
+      const createdShape = useAnnotation.getState().objects.find((object) => object.type === tool);
+      expect(createdShape?.style.fill).toBe("hollow");
+      expect(createdShape?.style.color).toBe("#0099ff");
+      expect(getLayer()?.findOne(".focus-mask")?.getAttr("focusHoles")).toHaveLength(1);
+    },
+  );
+
   it("renders all spotlight annotations through one shared mask when selection dimensions change", () => {
     const focusedRect: AnnotationObject = {
       ...annotatedRect,

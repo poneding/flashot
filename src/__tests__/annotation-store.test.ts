@@ -399,6 +399,139 @@ describe("useAnnotation store", () => {
     expect(useAnnotation.getState().activeStyle.cornerRadius).toBe(20);
   });
 
+  it("keeps every drawing tool style isolated from cross-type selection", () => {
+    const drawingTools: ToolType[] = [
+      "draw",
+      "line",
+      "measure",
+      "arrow",
+      "rect",
+      "ellipse",
+      "text",
+      "blur",
+      "highlight",
+      "spotlight",
+      "marker",
+      "magnifier",
+    ];
+
+    for (const tool of drawingTools) {
+      useAnnotation.getState().reset();
+      useAnnotation.getState().setActiveTool(tool);
+      useAnnotation.getState().setActiveStyle({
+        color: "#123456",
+        strokeWidth: 7,
+        fill: tool === "spotlight" ? "spotlight" : "hollow",
+        lineShape: "straight",
+        lineStyle: "dotted",
+        arrow: "none",
+        fontSize: 23,
+        blurMode: "mosaic",
+        spotlightShape: "rect",
+        magnifierZoom: 2.5,
+      });
+      const beforeSelection = { ...useAnnotation.getState().activeStyle };
+      const selectedObject: AnnotationObject = {
+        id: `selected-by-${tool}`,
+        type: tool === "spotlight" ? "rect" : "spotlight",
+        start: { x: 0, y: 0 },
+        end: { x: 100, y: 100 },
+        style: {
+          ...DEFAULT_STYLE,
+          color: "#abcdef",
+          strokeWidth: 19,
+          fill: "spotlight",
+          lineShape: "wavy",
+          lineStyle: "dashed",
+          arrow: "both",
+          fontSize: 71,
+          blurMode: "gaussian",
+          spotlightShape: "circle",
+          magnifierZoom: 4,
+        },
+        transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+      };
+
+      useAnnotation.getState().addObject(selectedObject);
+      useAnnotation.getState().setSelectedObject(selectedObject.id);
+
+      expect(useAnnotation.getState().activeTool).toBe(tool);
+      expect(useAnnotation.getState().activeStyle).toEqual(beforeSelection);
+    }
+  });
+
+  it("edits a cross-type selected object without changing the active drawing style", () => {
+    useAnnotation.getState().setActiveTool("rect");
+    useAnnotation.getState().setActiveStyle({
+      color: "#123456",
+      strokeWidth: 7,
+      fill: "hollow",
+      cornerRadius: 12,
+    });
+    const rectangleStyle = { ...useAnnotation.getState().activeStyle };
+    const spotlight: AnnotationObject = {
+      id: "spotlight-1",
+      type: "spotlight",
+      start: { x: 0, y: 0 },
+      end: { x: 100, y: 100 },
+      style: { ...DEFAULT_STYLE, fill: "spotlight", spotlightShape: "rect" },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    useAnnotation.getState().addObject(spotlight);
+    useAnnotation.getState().setSelectedObject(spotlight.id);
+
+    useAnnotation.getState().updateSelectedStyle({
+      spotlightShape: "circle",
+      cornerRadius: 24,
+    });
+
+    const updatedSpotlight = useAnnotation.getState().objects.find((object) => object.id === spotlight.id);
+    expect(updatedSpotlight?.style.spotlightShape).toBe("circle");
+    expect(updatedSpotlight?.style.cornerRadius).toBe(24);
+    expect(useAnnotation.getState().activeStyle).toEqual(rectangleStyle);
+  });
+
+  it.each(["rect", "ellipse"] as const)(
+    "does not seed the %s tool with a legacy spotlight fill",
+    (tool) => {
+      useAnnotation.getState().setActiveTool(tool);
+      const legacySpotlightShape: AnnotationObject = {
+        id: `legacy-${tool}-spotlight`,
+        type: tool,
+        start: { x: 0, y: 0 },
+        end: { x: 100, y: 100 },
+        style: { ...DEFAULT_STYLE, fill: "spotlight" },
+        transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+      };
+      useAnnotation.getState().addObject(legacySpotlightShape);
+
+      useAnnotation.getState().setSelectedObject(legacySpotlightShape.id);
+
+      expect(useAnnotation.getState().activeStyle.fill).toBe("hollow");
+    },
+  );
+
+  it("does not carry a selected arrow style into a different tool from select mode", () => {
+    useAnnotation.getState().setActiveTool("rect");
+    useAnnotation.getState().setActiveStyle({ color: "#123456", arrow: "none" });
+    useAnnotation.getState().setActiveTool("select");
+    const arrow: AnnotationObject = {
+      id: "arrow-1",
+      type: "arrow",
+      start: { x: 0, y: 0 },
+      end: { x: 100, y: 100 },
+      style: { ...DEFAULT_STYLE, color: "#abcdef", arrow: "end" },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    };
+    useAnnotation.getState().addObject(arrow);
+    useAnnotation.getState().setSelectedObject(arrow.id);
+
+    useAnnotation.getState().setActiveTool("line");
+
+    expect(useAnnotation.getState().activeStyle.color).toBe("#123456");
+    expect(useAnnotation.getState().activeStyle.arrow).toBe("none");
+  });
+
   it("updateSelectedStyle updates selected object and remembers style for next annotation", () => {
     const obj = {
       id: "1",

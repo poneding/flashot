@@ -237,6 +237,25 @@ function usesIsolatedToolStyle(tool: ToolType): boolean {
   return tool === "measure" || tool === "highlight" || tool === "spotlight" || tool === "marker";
 }
 
+function selectionCanSeedActiveStyle(
+  activeTool: ToolType,
+  objectType: AnnotationObject["type"],
+): boolean {
+  return activeTool === "select" || activeTool === objectType;
+}
+
+function styleSeededFromSelectedObject(
+  tool: ToolType,
+  baseStyle: AnnotationStyle,
+  objectStyle: AnnotationStyle,
+): AnnotationStyle {
+  const style = normalizeActiveStyleForTool(tool, { ...baseStyle, ...objectStyle });
+  if (tool === "rect" || tool === "ellipse") {
+    return { ...style, fill: style.fill === "solid" ? "solid" : "hollow" };
+  }
+  return style;
+}
+
 function rememberToolStyle(tool: ToolType, style: AnnotationStyle) {
   if (tool === "line") {
     toolStyleMemory.line = lineToolStyle(style);
@@ -358,13 +377,22 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
   ...initialState,
 
   setActiveTool(tool) {
-    const { activeTool, activeStyle } = get();
-    rememberToolStyle(activeTool, activeStyle);
-    if (!usesIsolatedToolStyle(activeTool)) {
-      sharedStyleMemory = activeStyle;
+    const { activeTool, activeStyle, objects, selectedObjectId } = get();
+    const selectedObject = selectedObjectId
+      ? objects.find((object) => object.id === selectedObjectId)
+      : undefined;
+    const hasTransientSelectionStyle = activeTool === "select" && Boolean(selectedObject);
+
+    if (!hasTransientSelectionStyle) {
+      rememberToolStyle(activeTool, activeStyle);
+      if (!usesIsolatedToolStyle(activeTool)) {
+        sharedStyleMemory = activeStyle;
+      }
     }
 
-    const nextStyle = styleForTool(tool, sharedStyleMemory);
+    const nextStyle = selectedObject?.type === tool
+      ? styleSeededFromSelectedObject(tool, sharedStyleMemory, selectedObject.style)
+      : styleForTool(tool, sharedStyleMemory);
     if (!usesIsolatedToolStyle(tool)) {
       sharedStyleMemory = nextStyle;
       persistStyle(nextStyle);
@@ -379,7 +407,8 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
       { ...state.activeStyle, ...partial },
     );
     rememberToolStyle(state.activeTool, activeStyle);
-    if (!usesIsolatedToolStyle(state.activeTool)) {
+    const hasTransientSelectionStyle = state.activeTool === "select" && state.selectedObjectId != null;
+    if (!usesIsolatedToolStyle(state.activeTool) && !hasTransientSelectionStyle) {
       sharedStyleMemory = activeStyle;
       persistStyle(activeStyle);
     }
@@ -387,14 +416,16 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
   },
 
   updateSelectedStyle(updates) {
-    const id = get().selectedObjectId;
-    if (id) {
-      const obj = get().objects.find(o => o.id === id);
-      if (obj) {
-        get().modifyStyle(id, updates);
-      }
+    const state = get();
+    const obj = state.selectedObjectId
+      ? state.objects.find((object) => object.id === state.selectedObjectId)
+      : undefined;
+    if (obj) {
+      get().modifyStyle(obj.id, updates);
     }
-    get().setActiveStyle(updates);
+    if (!obj || selectionCanSeedActiveStyle(state.activeTool, obj.type)) {
+      get().setActiveStyle(updates);
+    }
   },
 
   setDrawingState(drawingState) {
@@ -402,11 +433,17 @@ export const useAnnotation = create<AnnotationState & AnnotationActions>((set, g
   },
 
   setSelectedObject(id) {
-    const obj = id ? get().objects.find(o => o.id === id) : null;
-    if (obj) {
-      const { activeTool } = get();
-      const nextStyle = normalizeActiveStyleForTool(activeTool, { ...get().activeStyle, ...obj.style });
+    const state = get();
+    const obj = id ? state.objects.find((object) => object.id === id) : null;
+    if (obj && selectionCanSeedActiveStyle(state.activeTool, obj.type)) {
+      const nextStyle = styleSeededFromSelectedObject(
+        state.activeTool,
+        state.activeStyle,
+        obj.style,
+      );
       set({ selectedObjectId: id, activeStyle: nextStyle });
+    } else if (id == null && state.activeTool === "select" && state.selectedObjectId != null) {
+      set({ selectedObjectId: null, activeStyle: sharedStyleMemory });
     } else {
       set({ selectedObjectId: id });
     }
