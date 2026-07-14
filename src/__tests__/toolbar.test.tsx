@@ -17,12 +17,14 @@ vi.mock("@/lib/ipc", () => ({
 }));
 
 const capture: CaptureStartPayload = {
+  sessionMode: "capture",
   monitorId: 1,
   frameUrl: "asset://localhost/frame.png",
   monitorRect: { x: 0, y: 0, width: 800, height: 600 },
   scaleFactor: 2,
   windows: [],
   cornerRadius: 0,
+  toolbarTopInset: 0,
 };
 
 describe("Toolbar", () => {
@@ -108,6 +110,32 @@ describe("Toolbar", () => {
     fireEvent.mouseEnter(copy);
 
     expect(screen.getByRole("tooltip").textContent).toBe("Copy (Cmd+C)");
+  });
+
+  it("reuses only close, save, and copy in the board toolbar", () => {
+    const { container } = render(
+      <Toolbar
+        variant="board"
+        selection={{ x: 0, y: 0, width: 800, height: 600 }}
+        monitorRect={{ x: 0, y: 0, width: 800, height: 600 }}
+        onCopy={onCopy}
+        onSave={onSave}
+        onPin={onPin}
+        onClose={onClose}
+        onScroll={onScroll}
+      />,
+    );
+    const toolbar = container.querySelector('[data-toolbar-variant="board"]') as HTMLElement;
+
+    expect(toolbar.style.flexDirection).toBe("column");
+    expect(toolbar.style.left).toBe("752px");
+    expect(toolbar.style.top).toBe("234px");
+    expect(screen.getByRole("button", { name: "Close (Esc)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save As (Cmd+S)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy (Cmd+C)" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Scrolling screenshot" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Corner radius: 0" })).toBeNull();
   });
 
   it("renders screenshot toolbar labels in Traditional Chinese", () => {

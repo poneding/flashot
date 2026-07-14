@@ -23,8 +23,9 @@ const i18nSource = readFileSync(
 
 describe("tray menu", () => {
   it("uses the configured capture hotkey for the capture accelerator", () => {
-    expect(traySource).toMatch(/install\(\s*app: &AppHandle,\s*capture_hotkey: &str,\s*fullscreen_hotkey: &str,\s*active_window_hotkey: &str,\s*language: Language,\s*\)/);
+    expect(traySource).toMatch(/install\(\s*app: &AppHandle,\s*capture_hotkey: &str,\s*board_hotkey: &str,\s*fullscreen_hotkey: &str,\s*active_window_hotkey: &str,\s*language: Language,\s*\)/);
     expect(traySource).toContain("capture_menu_accelerator(capture_hotkey)");
+    expect(traySource).toContain("board_menu_accelerator(board_hotkey)");
     expect(traySource).toContain("active_screen_menu_accelerator(fullscreen_hotkey)");
     expect(traySource).toContain("active_window_menu_accelerator(active_window_hotkey)");
     expect(traySource).toContain("pub fn update_menu(");
@@ -32,26 +33,38 @@ describe("tray menu", () => {
   });
 
   it("adds tray menu actions for active screen and active window quick shots", () => {
+    expect(traySource).toContain('"board"');
+    expect(traySource).toContain('"board:trigger"');
     expect(traySource).toContain('"quick-active-screen"');
     expect(traySource).toContain('"quick-active-window"');
     expect(traySource).toContain('"quick-shot:active-display"');
     expect(traySource).toContain('"quick-shot:active-window"');
   });
 
-  it("labels and icons the three capture actions consistently", () => {
+  it("labels and icons the four capture actions consistently", () => {
     expect(traySource).toContain("let labels = tray_labels(language)");
     expect(traySource).toContain("labels.capture_region");
+    expect(traySource).toContain("labels.board");
     expect(traySource).toContain("labels.capture_screen");
     expect(traySource).toContain("labels.capture_window");
     expect(i18nSource).toContain('"Capture Area"');
+    expect(i18nSource).toContain('"Board"');
     expect(i18nSource).toContain('"Capture Screen"');
     expect(i18nSource).toContain('"Capture Active Window"');
     expect(i18nSource).toContain('"擷取區域"');
+    expect(i18nSource).toContain('"畫板"');
     expect(i18nSource).toContain('"擷取目前活動視窗"');
     expect(traySource).toContain("IconMenuItem::with_id");
     expect(traySource).toContain("MenuIcon::Crop");
+    expect(traySource).toContain("MenuIcon::Paintbrush");
     expect(traySource).toContain("MenuIcon::Monitor");
     expect(traySource).toContain("MenuIcon::AppWindow");
+  });
+
+  it("places the board action below active-window capture", () => {
+    const captureActions = traySource.match(/&\[\s*&capture,\s*&active_screen,\s*&active_window,\s*&board,/);
+
+    expect(captureActions).not.toBeNull();
   });
 
   it("uses icons or reserved icon slots for every normal tray menu item", () => {
@@ -72,8 +85,10 @@ describe("tray menu", () => {
     expect(buildSource).not.toContain("stroke-opacity=");
     expect(buildSource).toContain('format!("{}-light.png", icon.name)');
     expect(buildSource).toContain("refresh-cw");
+    expect(buildSource).toContain("paintbrush");
     expect(traySource).toContain('env!("OUT_DIR")');
     expect(traySource).toContain("/menu-icons/crop-light.png");
+    expect(traySource).toContain("/menu-icons/paintbrush-light.png");
     expect(traySource).not.toContain("struct MenuIconCanvas");
   });
 

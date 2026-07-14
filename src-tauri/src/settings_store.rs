@@ -9,6 +9,11 @@ pub const DEFAULT_CAPTURE_HOTKEY: &str = "Cmd+Shift+A";
 pub const DEFAULT_CAPTURE_HOTKEY: &str = "Ctrl+Shift+A";
 
 #[cfg(target_os = "macos")]
+pub const DEFAULT_BOARD_HOTKEY: &str = "Option+B";
+#[cfg(not(target_os = "macos"))]
+pub const DEFAULT_BOARD_HOTKEY: &str = "Win+B";
+
+#[cfg(target_os = "macos")]
 pub const DEFAULT_FULLSCREEN_HOTKEY: &str = "Option+F";
 #[cfg(target_os = "windows")]
 pub const DEFAULT_FULLSCREEN_HOTKEY: &str = "Win+F";
@@ -71,6 +76,10 @@ fn default_capture_hotkey() -> String {
     DEFAULT_CAPTURE_HOTKEY.to_string()
 }
 
+fn default_board_hotkey() -> String {
+    DEFAULT_BOARD_HOTKEY.to_string()
+}
+
 fn default_fullscreen_hotkey() -> String {
     DEFAULT_FULLSCREEN_HOTKEY.to_string()
 }
@@ -108,6 +117,8 @@ pub fn default_save_dir() -> String {
 pub struct Settings {
     #[serde(default = "default_capture_hotkey", alias = "hotkey")]
     pub capture_hotkey: String,
+    #[serde(default = "default_board_hotkey")]
+    pub board_hotkey: String,
     #[serde(default = "default_fullscreen_hotkey")]
     pub fullscreen_hotkey: String,
     #[serde(default = "default_active_window_hotkey")]
@@ -140,6 +151,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             capture_hotkey: default_capture_hotkey(),
+            board_hotkey: default_board_hotkey(),
             fullscreen_hotkey: default_fullscreen_hotkey(),
             active_window_hotkey: default_active_window_hotkey(),
             theme: default_theme(),
@@ -197,6 +209,7 @@ mod tests {
         let settings = Settings::default();
 
         assert_eq!(settings.capture_hotkey, default_capture_hotkey());
+        assert_eq!(settings.board_hotkey, default_board_hotkey());
         assert_eq!(settings.fullscreen_hotkey, default_fullscreen_hotkey());
         assert_eq!(
             settings.active_window_hotkey,
@@ -220,18 +233,21 @@ mod tests {
 
         #[cfg(target_os = "macos")]
         {
+            assert_eq!(settings.board_hotkey, "Option+B");
             assert_eq!(settings.fullscreen_hotkey, "Option+F");
             assert_eq!(settings.active_window_hotkey, "Option+W");
         }
 
         #[cfg(target_os = "windows")]
         {
+            assert_eq!(settings.board_hotkey, "Win+B");
             assert_eq!(settings.fullscreen_hotkey, "Win+F");
             assert_eq!(settings.active_window_hotkey, "Win+W");
         }
 
         #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
         {
+            assert_eq!(settings.board_hotkey, "Win+B");
             assert_eq!(settings.fullscreen_hotkey, "Super+F");
             assert_eq!(settings.active_window_hotkey, "Super+W");
         }
@@ -242,6 +258,7 @@ mod tests {
         let settings: Settings = serde_json::from_str(r#"{"hotkey":"Cmd+Shift+B"}"#).unwrap();
 
         assert_eq!(settings.capture_hotkey, "Cmd+Shift+B");
+        assert_eq!(settings.board_hotkey, default_board_hotkey());
         assert_eq!(settings.fullscreen_hotkey, default_fullscreen_hotkey());
         assert_eq!(
             settings.active_window_hotkey,
@@ -265,6 +282,7 @@ mod tests {
             serde_json::from_str(r#"{"captureHotkey":"Cmd+Shift+B"}"#).unwrap();
 
         assert_eq!(settings.capture_hotkey, "Cmd+Shift+B");
+        assert_eq!(settings.board_hotkey, default_board_hotkey());
         assert_eq!(settings.fullscreen_hotkey, default_fullscreen_hotkey());
         assert_eq!(
             settings.active_window_hotkey,
@@ -276,6 +294,7 @@ mod tests {
     fn settings_serialize_with_frontend_camel_case_fields() {
         let settings = Settings {
             capture_hotkey: "Ctrl+Shift+A".to_string(),
+            board_hotkey: "Win+B".to_string(),
             fullscreen_hotkey: "Ctrl+Shift+F".to_string(),
             active_window_hotkey: "Ctrl+Shift+W".to_string(),
             theme: Theme::Dark,
@@ -294,6 +313,7 @@ mod tests {
         let value = serde_json::to_value(settings).unwrap();
 
         assert_eq!(value["captureHotkey"], "Ctrl+Shift+A");
+        assert_eq!(value["boardHotkey"], "Win+B");
         assert_eq!(value["fullscreenHotkey"], "Ctrl+Shift+F");
         assert_eq!(value["activeWindowHotkey"], "Ctrl+Shift+W");
         assert!(value.get("hotkey").is_none());

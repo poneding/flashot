@@ -88,6 +88,7 @@ pub fn run() {
             if let Err(e) = tray::update_menu(
                 &app,
                 &settings.capture_hotkey,
+                &settings.board_hotkey,
                 &settings.fullscreen_hotkey,
                 &settings.active_window_hotkey,
                 settings.language,
@@ -126,6 +127,7 @@ pub fn run() {
             install_tray(
                 app.handle(),
                 &settings.capture_hotkey,
+                &settings.board_hotkey,
                 &settings.fullscreen_hotkey,
                 &settings.active_window_hotkey,
                 settings.language,
@@ -157,6 +159,9 @@ pub fn run() {
                         ) {
                             Some(hotkey::HotkeyAction::TriggerCapture) => {
                                 let _ = app_handle.emit("capture:trigger", ());
+                            }
+                            Some(hotkey::HotkeyAction::TriggerBoard) => {
+                                let _ = app_handle.emit("board:trigger", ());
                             }
                             Some(hotkey::HotkeyAction::CopyActiveDisplay) => {
                                 spawn_quick_shot(
@@ -193,11 +198,13 @@ pub fn run() {
                 let app = app_for_settings.clone();
                 let s = settings_store::load().unwrap_or_default();
                 let next_capture_hotkey = s.capture_hotkey.clone();
+                let next_board_hotkey = s.board_hotkey.clone();
                 let next_fullscreen_hotkey = s.fullscreen_hotkey.clone();
                 let next_active_window_hotkey = s.active_window_hotkey.clone();
                 if let Err(e) = app.run_on_main_thread(move || {
                     if let Err(e) = hotkey::set_all(
                         &next_capture_hotkey,
+                        &next_board_hotkey,
                         &next_fullscreen_hotkey,
                         &next_active_window_hotkey,
                     ) {
@@ -209,6 +216,7 @@ pub fn run() {
                 if let Err(e) = tray::update_menu(
                     &app,
                     &s.capture_hotkey,
+                    &s.board_hotkey,
                     &s.fullscreen_hotkey,
                     &s.active_window_hotkey,
                     s.language,
@@ -226,6 +234,18 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     if let Err(e) = run_capture(app, mgr).await {
                         tracing::error!("Capture failed: {e:?}");
+                    }
+                });
+            });
+
+            let app_handle = app.handle().clone();
+            let mgr_clone = mgr.clone();
+            app.listen("board:trigger", move |_event| {
+                let app = app_handle.clone();
+                let mgr = mgr_clone.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = run_board(app, mgr).await {
+                        tracing::error!("Board capture failed: {e:?}");
                     }
                 });
             });
@@ -543,18 +563,20 @@ where
 
 fn register_startup_hotkeys<F>(settings: &settings_store::Settings, register: F) -> bool
 where
-    F: FnOnce(&str, &str, &str) -> Result<hotkey::RegisteredHotkeyIds>,
+    F: FnOnce(&str, &str, &str, &str) -> Result<hotkey::RegisteredHotkeyIds>,
 {
     match register(
         &settings.capture_hotkey,
+        &settings.board_hotkey,
         &settings.fullscreen_hotkey,
         &settings.active_window_hotkey,
     ) {
         Ok(_) => true,
         Err(e) => {
             tracing::warn!(
-                "failed to register startup hotkeys '{}', '{}', '{}': {e}",
+                "failed to register startup hotkeys '{}', '{}', '{}', '{}': {e}",
                 settings.capture_hotkey,
+                settings.board_hotkey,
                 settings.fullscreen_hotkey,
                 settings.active_window_hotkey
             );
@@ -566,6 +588,7 @@ where
 fn install_tray(
     app: &AppHandle,
     capture_hotkey: &str,
+    board_hotkey: &str,
     fullscreen_hotkey: &str,
     active_window_hotkey: &str,
     language: settings_store::Language,
@@ -575,12 +598,14 @@ fn install_tray(
     {
         let app = app.clone();
         let capture_hotkey = capture_hotkey.to_string();
+        let board_hotkey = board_hotkey.to_string();
         let fullscreen_hotkey = fullscreen_hotkey.to_string();
         let active_window_hotkey = active_window_hotkey.to_string();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
             tray::install(
                 &app,
                 &capture_hotkey,
+                &board_hotkey,
                 &fullscreen_hotkey,
                 &active_window_hotkey,
                 language,
@@ -597,6 +622,7 @@ fn install_tray(
         if let Err(e) = tray::install(
             app,
             capture_hotkey,
+            board_hotkey,
             fullscreen_hotkey,
             active_window_hotkey,
             language,
@@ -606,8 +632,17 @@ fn install_tray(
     }
 }
 
+#[derive(serde::Serialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+enum CaptureSessionMode {
+    Capture,
+    Board,
+}
+
 #[derive(serde::Serialize, Clone)]
 struct CaptureStartPayload {
+    #[serde(rename = "sessionMode")]
+    session_mode: CaptureSessionMode,
     #[serde(rename = "monitorId")]
     monitor_id: u32,
     #[serde(rename = "frameUrl")]
@@ -618,6 +653,8 @@ struct CaptureStartPayload {
     scale_factor: f32,
     #[serde(rename = "cornerRadius")]
     corner_radius: u32,
+    #[serde(rename = "toolbarTopInset")]
+    toolbar_top_inset: f64,
     windows: Vec<types::WindowRect>,
 }
 
@@ -753,11 +790,13 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
                     capture_start_target(&label),
                     "capture:start",
                     CaptureStartPayload {
+                        session_mode: CaptureSessionMode::Capture,
                         monitor_id: mon.id,
                         frame_url: asset_url,
                         monitor_rect: mon.rect,
                         scale_factor: mon.scale_factor,
                         corner_radius,
+                        toolbar_top_inset: 0.0,
                         windows: local_windows,
                     },
                 )
@@ -793,6 +832,115 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     // Disarm the guard so it drops without ending the session. The session
     // will be ended later by crop_and_copy / crop_and_save / cancel_capture.
     tracing::info!("run_capture: disarming guard, capture setup complete");
+    guard.disarm();
+
+    Ok(())
+}
+
+async fn run_board(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
+    tracing::info!("run_board: starting");
+
+    if mgr.in_session() {
+        tracing::warn!("Capture already in session, ignoring board trigger");
+        return Ok(());
+    }
+
+    let guard = mgr.begin(app.clone());
+    set_capture_session_hotkeys(&app, true);
+    mgr.set_previous_app(app_activation::capture_previous_frontmost_app(&app));
+
+    let current_monitors = capture::enumerate_monitors()
+        .context("Failed to enumerate monitors before board capture")?;
+    ensure_overlays_for_monitors(&app, &current_monitors)?;
+    let cursor_display = current_cursor_display(&app, &current_monitors);
+    let active_window_rect = if cursor_display.is_none() {
+        window_probe::active_window().ok().map(|window| window.rect)
+    } else {
+        None
+    };
+    let target_monitor_id = active_display_monitor(
+        &current_monitors,
+        cursor_display,
+        active_window_rect.as_ref(),
+    )
+    .or_else(|| current_monitors.first())
+        .map(|monitor| monitor.id)
+        .context("No monitor available for board capture")?;
+
+    let (monitors, frames) = tokio::task::spawn_blocking(capture::capture_all_monitors)
+        .await
+        .context("Board capture task panicked")?
+        .context("Failed to capture monitor for board")?;
+    ensure_overlays_for_monitors(&app, &monitors)?;
+
+    let monitor = monitors
+        .iter()
+        .find(|monitor| monitor.id == target_monitor_id)
+        .or_else(|| {
+            active_display_monitor(&monitors, cursor_display, active_window_rect.as_ref())
+        })
+        .or_else(|| monitors.first())
+        .cloned()
+        .context("Captured board monitor is unavailable")?;
+    let frame = frames
+        .into_iter()
+        .find(|frame| frame.monitor_id == monitor.id)
+        .context("Captured board frame is unavailable")?;
+
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .context("Failed to get cache directory")?;
+    std::fs::create_dir_all(&cache_dir).context("Failed to create cache directory")?;
+    if let Err(e) = remove_stale_frame_files(&cache_dir) {
+        tracing::warn!("run_board: failed to clean stale frame files: {e}");
+    }
+
+    let frame_revision = next_frame_revision();
+    let frame_path = frame_asset_path(&cache_dir, monitor.id, frame_revision);
+    save_frame_as_png(&frame, &frame_path).context("Failed to save board frame as PNG")?;
+    mgr.store_frame(frame);
+
+    let label = overlay_label(monitor.id);
+    let window = app
+        .get_webview_window(&label)
+        .with_context(|| format!("Board overlay window {label} not found"))?;
+    window
+        .set_ignore_cursor_events(false)
+        .context("Failed to enable board cursor events")?;
+    overlay_window::show_capture_overlay(&window).context("Failed to show board overlay window")?;
+    if overlay_window::capture_overlay_should_take_focus()
+        && let Err(e) = window.set_focus()
+    {
+        tracing::warn!("run_board: failed to focus overlay window {label}: {e}");
+    }
+    let toolbar_top_inset = match overlay_window::board_toolbar_top_inset(&window) {
+        Ok(inset) => inset,
+        Err(e) => {
+            tracing::warn!("run_board: failed to read display safe area: {e}");
+            0.0
+        }
+    };
+
+    app.emit_to(
+        capture_start_target(&label),
+        "capture:start",
+        CaptureStartPayload {
+            session_mode: CaptureSessionMode::Board,
+            monitor_id: monitor.id,
+            frame_url: frame_asset_url(&cache_dir, monitor.id, frame_revision),
+            monitor_rect: monitor.rect,
+            scale_factor: monitor.scale_factor,
+            corner_radius: 0,
+            toolbar_top_inset,
+            windows: Vec::new(),
+        },
+    )
+    .context("Failed to emit board capture:start event")?;
+
+    app_activation::activate_flashot_for_capture(&app);
+    overlay_window::bring_capture_overlay_to_front(&window)
+        .context("Failed to bring board overlay to front")?;
     guard.disarm();
 
     Ok(())
@@ -1405,7 +1553,7 @@ mod tests {
         let frames = vec![
             types::FrozenFrame {
                 monitor_id: 2,
-                rgba: vec![2, 2, 2, 255].into(),
+                rgba: vec![2, 2, 2, 255],
                 width: 1,
                 height: 1,
                 scale_factor: 1.0,
@@ -1413,7 +1561,7 @@ mod tests {
             },
             types::FrozenFrame {
                 monitor_id: 1,
-                rgba: vec![1, 1, 1, 255].into(),
+                rgba: vec![1, 1, 1, 255],
                 width: 1,
                 height: 1,
                 scale_factor: 1.0,
@@ -1461,7 +1609,7 @@ mod tests {
         let frames = vec![
             types::FrozenFrame {
                 monitor_id: 1,
-                rgba: vec![1, 1, 1, 255].into(),
+                rgba: vec![1, 1, 1, 255],
                 width: 1440,
                 height: 900,
                 scale_factor: 2.0,
@@ -1469,7 +1617,7 @@ mod tests {
             },
             types::FrozenFrame {
                 monitor_id: 2,
-                rgba: vec![2, 2, 2, 255].into(),
+                rgba: vec![2, 2, 2, 255],
                 width: 1920,
                 height: 1080,
                 scale_factor: 1.0,
@@ -1505,7 +1653,7 @@ mod tests {
     fn quick_shot_active_display_frame_falls_back_to_first_frame() {
         let frames = vec![types::FrozenFrame {
             monitor_id: 7,
-            rgba: vec![7, 7, 7, 255].into(),
+            rgba: vec![7, 7, 7, 255],
             width: 1,
             height: 1,
             scale_factor: 1.0,
@@ -1545,7 +1693,7 @@ mod tests {
         let frames = vec![
             types::FrozenFrame {
                 monitor_id: 2,
-                rgba: vec![2, 2, 2, 255].into(),
+                rgba: vec![2, 2, 2, 255],
                 width: 1,
                 height: 1,
                 scale_factor: 1.0,
@@ -1553,7 +1701,7 @@ mod tests {
             },
             types::FrozenFrame {
                 monitor_id: 1,
-                rgba: vec![1, 1, 1, 255].into(),
+                rgba: vec![1, 1, 1, 255],
                 width: 1,
                 height: 1,
                 scale_factor: 1.0,
@@ -1709,7 +1857,7 @@ mod tests {
     }
 
     #[test]
-    fn capture_start_payload_includes_corner_radius() {
+    fn capture_start_payload_includes_overlay_configuration() {
         let source = include_str!("lib.rs").replace("\r\n", "\n");
         let start = source.find("struct CaptureStartPayload").unwrap();
         let end = source[start..].find("}\n").map(|idx| start + idx).unwrap();
@@ -1722,6 +1870,33 @@ mod tests {
             body.contains("cornerRadius"),
             "CaptureStartPayload must serialize as camelCase cornerRadius",
         );
+        assert!(
+            body.contains("toolbar_top_inset") && body.contains("toolbarTopInset"),
+            "CaptureStartPayload must carry the board-only safe-area offset",
+        );
+    }
+
+    #[test]
+    fn board_capture_targets_one_cursor_display_overlay() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "run_board");
+
+        assert!(body.contains("current_cursor_display(&app, &current_monitors)"));
+        assert!(body.contains("window_probe::active_window()"));
+        assert!(body.contains("active_window_rect.as_ref()"));
+        assert!(body.contains("session_mode: CaptureSessionMode::Board"));
+        assert!(body.contains("board_toolbar_top_inset(&window)"));
+        assert!(body.contains("bring_capture_overlay_to_front(&window)"));
+        assert!(!body.contains("bring_all_capture_overlays_to_front"));
+    }
+
+    #[test]
+    fn screenshot_capture_does_not_apply_board_toolbar_inset() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "run_capture");
+
+        assert!(body.contains("toolbar_top_inset: 0.0"));
+        assert!(!body.contains("board_toolbar_top_inset"));
     }
 
     #[test]
@@ -1738,6 +1913,7 @@ mod tests {
     fn startup_hotkey_registration_uses_all_configured_shortcuts() {
         let settings = settings_store::Settings {
             capture_hotkey: "Cmd+Shift+A".to_string(),
+            board_hotkey: "Option+B".to_string(),
             fullscreen_hotkey: "Cmd+Shift+F".to_string(),
             active_window_hotkey: "Cmd+Shift+W".to_string(),
             theme: settings_store::Theme::System,
@@ -1753,13 +1929,16 @@ mod tests {
             corner_radius: 0,
         };
 
-        let registered =
-            register_startup_hotkeys(&settings, |capture, fullscreen, active_window| {
+        let registered = register_startup_hotkeys(
+            &settings,
+            |capture, board, fullscreen, active_window| {
                 assert_eq!(capture, "Cmd+Shift+A");
+                assert_eq!(board, "Option+B");
                 assert_eq!(fullscreen, "Cmd+Shift+F");
                 assert_eq!(active_window, "Cmd+Shift+W");
                 Ok(hotkey::RegisteredHotkeyIds::default())
-            });
+            },
+        );
 
         assert!(registered);
     }
@@ -1821,7 +2000,7 @@ mod tests {
     fn fast_png_encoder_writes_a_decodable_overlay_frame() {
         let frame = types::FrozenFrame {
             monitor_id: 42,
-            rgba: vec![255, 0, 0, 255, 0, 255, 0, 255].into(),
+            rgba: vec![255, 0, 0, 255, 0, 255, 0, 255],
             width: 2,
             height: 1,
             scale_factor: 1.0,
@@ -1845,7 +2024,7 @@ mod tests {
         let profile = b"test-display-profile".to_vec();
         let frame = types::FrozenFrame {
             monitor_id: 42,
-            rgba: vec![255, 0, 0, 255].into(),
+            rgba: vec![255, 0, 0, 255],
             width: 1,
             height: 1,
             scale_factor: 1.0,

@@ -3,6 +3,7 @@ use crate::settings_store::Language;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NativeText {
     pub capture_region: &'static str,
+    pub board: &'static str,
     pub capture_screen: &'static str,
     pub capture_window: &'static str,
     pub settings_menu: &'static str,
@@ -18,6 +19,7 @@ pub fn native_text(language: Language) -> NativeText {
     match language {
         Language::En => NativeText {
             capture_region: "Capture Area",
+            board: "Board",
             capture_screen: "Capture Screen",
             capture_window: "Capture Active Window",
             settings_menu: "Settings…",
@@ -30,6 +32,7 @@ pub fn native_text(language: Language) -> NativeText {
         },
         Language::ZhCn => NativeText {
             capture_region: "截取区域",
+            board: "画板",
             capture_screen: "截取屏幕",
             capture_window: "截取当前活动窗口",
             settings_menu: "设置…",
@@ -42,6 +45,7 @@ pub fn native_text(language: Language) -> NativeText {
         },
         Language::ZhTw => NativeText {
             capture_region: "擷取區域",
+            board: "畫板",
             capture_screen: "擷取螢幕",
             capture_window: "擷取目前活動視窗",
             settings_menu: "設定…",
@@ -64,12 +68,20 @@ mod tests {
         let text = super::native_text(Language::ZhTw);
 
         assert_eq!(text.capture_region, "擷取區域");
+        assert_eq!(text.board, "畫板");
         assert_eq!(text.capture_screen, "擷取螢幕");
         assert_eq!(text.capture_window, "擷取目前活動視窗");
         assert_eq!(text.settings_menu, "設定…");
         assert_eq!(text.check_updates_menu, "檢查更新");
         assert_eq!(text.about_menu, "關於");
         assert_eq!(text.quit_menu, "結束 Flashot");
+    }
+
+    #[test]
+    fn native_board_text_uses_short_feature_name() {
+        assert_eq!(super::native_text(Language::En).board, "Board");
+        assert_eq!(super::native_text(Language::ZhCn).board, "画板");
+        assert_eq!(super::native_text(Language::ZhTw).board, "畫板");
     }
 
     #[test]

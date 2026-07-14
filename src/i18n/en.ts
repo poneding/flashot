@@ -2,6 +2,7 @@ export const en = {
   "settings.title": "Flashot Settings",
   "settings.shortcuts.title": "Shortcuts",
   "settings.shortcut.region": "Capture Area",
+  "settings.shortcut.board": "Board",
   "settings.shortcut.screen": "Capture Screen",
   "settings.shortcut.window": "Capture Active Window",
   "settings.hotkey.change": "Change",

@@ -21,12 +21,14 @@ export type MonitorInfo = {
 };
 
 export type CaptureStartPayload = {
+  sessionMode: "capture" | "board";
   monitorId: number;
   frameUrl: string;          // tauri asset:// url
   monitorRect: Rect;
   scaleFactor: number;
   windows: WindowRect[];     // already translated to monitor-local coords
   cornerRadius: number;
+  toolbarTopInset: number;   // board-only safe-area offset in logical pixels
 };
 
 export type QuickShotFlashPayload = {
@@ -58,6 +60,7 @@ export type ToolbarPosition =
 
 export type Settings = {
   captureHotkey: string;      // e.g. "Cmd+Shift+A"
+  boardHotkey: string;        // e.g. "Option+B" or "Win+B"
   fullscreenHotkey: string;   // e.g. "Cmd+Shift+F"
   activeWindowHotkey: string; // e.g. "Cmd+Shift+W"
   theme: "system" | "light" | "dark";

@@ -2,6 +2,7 @@ export const zhTW = {
   "settings.title": "Flashot 設定",
   "settings.shortcuts.title": "快速鍵",
   "settings.shortcut.region": "擷取區域",
+  "settings.shortcut.board": "畫板",
   "settings.shortcut.screen": "擷取螢幕",
   "settings.shortcut.window": "擷取目前活動視窗",
   "settings.hotkey.change": "變更",

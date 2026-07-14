@@ -2,6 +2,7 @@ export const zhCN = {
   "settings.title": "Flashot 设置",
   "settings.shortcuts.title": "快捷键",
   "settings.shortcut.region": "截取区域",
+  "settings.shortcut.board": "画板",
   "settings.shortcut.screen": "截取屏幕",
   "settings.shortcut.window": "截取当前活动窗口",
   "settings.hotkey.change": "更改",

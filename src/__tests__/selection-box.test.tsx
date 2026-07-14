@@ -6,12 +6,14 @@ import { useOverlay } from "@/overlay/state";
 import type { CaptureStartPayload } from "@/lib/types";
 
 const capture: CaptureStartPayload = {
+  sessionMode: "capture",
   monitorId: 1,
   frameUrl: "asset://localhost/frame.png",
   monitorRect: { x: 0, y: 0, width: 800, height: 600 },
   scaleFactor: 2,
   windows: [],
   cornerRadius: 0,
+  toolbarTopInset: 0,
 };
 
 describe("SelectionBox", () => {

@@ -5,6 +5,7 @@ vi.mock("@/lib/ipc", () => ({
   setSettings: vi.fn().mockResolvedValue(undefined),
   getSettings: vi.fn().mockResolvedValue({
     captureHotkey: "",
+    boardHotkey: "",
     fullscreenHotkey: "",
     activeWindowHotkey: "",
     theme: "system",
@@ -62,6 +63,7 @@ describe("overlay store corner radius", () => {
   it("coalesces rapid changes into a single debounced setSettings call", async () => {
     (getSettings as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       captureHotkey: "",
+      boardHotkey: "",
       fullscreenHotkey: "",
       activeWindowHotkey: "",
       theme: "system" as const,
@@ -91,34 +93,40 @@ describe("overlay store corner radius", () => {
 
   it("start() hydrates cornerRadius from the capture payload", () => {
     useOverlay.getState().start({
+      sessionMode: "capture",
       monitorId: 0,
       monitorRect: { x: 0, y: 0, width: 100, height: 100 },
       scaleFactor: 1,
       frameUrl: "",
       windows: [],
       cornerRadius: 20,
+      toolbarTopInset: 0,
     });
     expect(useOverlay.getState().cornerRadius).toBe(20);
   });
 
   it("start() normalizes cornerRadius from the capture payload", () => {
     useOverlay.getState().start({
+      sessionMode: "capture",
       monitorId: 0,
       monitorRect: { x: 0, y: 0, width: 100, height: 100 },
       scaleFactor: 1,
       frameUrl: "",
       windows: [],
       cornerRadius: 99,
+      toolbarTopInset: 0,
     });
     expect(useOverlay.getState().cornerRadius).toBe(60);
 
     useOverlay.getState().start({
+      sessionMode: "capture",
       monitorId: 0,
       monitorRect: { x: 0, y: 0, width: 100, height: 100 },
       scaleFactor: 1,
       frameUrl: "",
       windows: [],
       cornerRadius: 12.6,
+      toolbarTopInset: 0,
     });
     expect(useOverlay.getState().cornerRadius).toBe(13);
   });
@@ -132,6 +140,7 @@ describe("overlay store corner radius", () => {
       .mockReturnValueOnce(firstSettings)
       .mockResolvedValueOnce({
         captureHotkey: "",
+        boardHotkey: "",
         fullscreenHotkey: "",
         activeWindowHotkey: "",
         theme: "system" as const,
@@ -156,6 +165,7 @@ describe("overlay store corner radius", () => {
 
     resolveFirstSettings({
       captureHotkey: "",
+      boardHotkey: "",
       fullscreenHotkey: "",
       activeWindowHotkey: "",
       theme: "system" as const,

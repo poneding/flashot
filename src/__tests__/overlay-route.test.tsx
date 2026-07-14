@@ -26,6 +26,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const ipcListeners = vi.hoisted(() => ({
+  captureStart: undefined as undefined | ((payload: CaptureStartPayload) => void),
   colorFormatToggleRequested: undefined as undefined | (() => void),
   colorCopyRequested: undefined as undefined | (() => void),
 }));
@@ -61,7 +62,10 @@ vi.mock("@/lib/ipc", () => ({
   cropAndSave: vi.fn().mockResolvedValue(null),
   getSettings: vi.fn().mockResolvedValue({ accentColor: "#0EA5E9" }),
   onCaptureEnd: vi.fn().mockResolvedValue(vi.fn()),
-  onCaptureStart: vi.fn().mockResolvedValue(vi.fn()),
+  onCaptureStart: vi.fn((cb: (payload: CaptureStartPayload) => void) => {
+    ipcListeners.captureStart = cb;
+    return Promise.resolve(vi.fn());
+  }),
   onQuickShotFlash: vi.fn().mockResolvedValue(vi.fn()),
   onSettingsChanged: vi.fn().mockResolvedValue(vi.fn()),
   onColorFormatToggleRequested: vi.fn((cb: () => void) => {
@@ -100,12 +104,14 @@ vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
 }));
 
 const capture: CaptureStartPayload = {
+  sessionMode: "capture",
   monitorId: 1,
   frameUrl: "asset://localhost//Users/dp/Library/Caches/dev.flashot.app/frame_1.png",
   monitorRect: { x: 0, y: 0, width: 800, height: 600 },
   scaleFactor: 2,
   windows: [],
   cornerRadius: 0,
+  toolbarTopInset: 0,
 };
 
 function resetColorFormat() {
@@ -117,6 +123,7 @@ function resetColorFormat() {
 describe("OverlayRoute", () => {
   beforeEach(() => {
     mockConvertFileSrc("macos");
+    ipcListeners.captureStart = undefined;
     ipcListeners.colorFormatToggleRequested = undefined;
     ipcListeners.colorCopyRequested = undefined;
     annotationStageMock.mockClear();
@@ -164,6 +171,57 @@ describe("OverlayRoute", () => {
     });
 
     expect(fullScreenMask).toBeDefined();
+  });
+
+  it("renders an immutable full-screen board without screenshot selection chrome", async () => {
+    useOverlay.getState().start({
+      ...capture,
+      sessionMode: "board",
+      monitorRect: { x: 1920, y: 0, width: 1024, height: 768 },
+    });
+
+    const { container } = render(<OverlayRoute />);
+    const captureSurface = container.firstElementChild as HTMLElement;
+
+    await waitFor(() => expect(annotationStageMock).toHaveBeenCalled());
+    const stageProps = annotationStageMock.mock.calls.at(-1)?.[0];
+    expect(stageProps).toEqual(expect.objectContaining({
+      selection: { x: 0, y: 0, width: 1024, height: 768 },
+      frameSourceRect: { x: 0, y: 0, width: 1024, height: 768 },
+      selectionEditable: false,
+    }));
+    expect(container.querySelector('[data-toolbar-variant="board"]')).toBeTruthy();
+    expect(container.querySelector("[data-handle]")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Scrolling screenshot" })).toBeNull();
+
+    fireEvent.mouseDown(captureSurface, { button: 0, clientX: 300, clientY: 260 });
+    fireEvent.mouseMove(captureSurface, { clientX: 500, clientY: 420 });
+    fireEvent.mouseUp(captureSurface);
+
+    expect(useOverlay.getState().selection).toEqual({ x: 0, y: 0, width: 1024, height: 768 });
+    expect(useOverlay.getState().selectionInteraction).toBeNull();
+  });
+
+  it("activates the pen when a board starts without changing capture tool state", async () => {
+    render(<OverlayRoute />);
+    await waitFor(() => expect(ipcListeners.captureStart).toBeTypeOf("function"));
+
+    useAnnotation.getState().setActiveTool("line");
+    act(() => ipcListeners.captureStart?.({ ...capture, sessionMode: "capture" }));
+    expect(useAnnotation.getState().activeTool).toBe("line");
+
+    act(() => ipcListeners.captureStart?.({
+      ...capture,
+      sessionMode: "board",
+      toolbarTopInset: 32,
+    }));
+    expect(useAnnotation.getState().activeTool).toBe("draw");
+    expect(useOverlay.getState().toolbarTopInset).toBe(32);
+    await waitFor(() => {
+      expect(screen.getByLabelText("Custom color")).not.toBeNull();
+      expect(screen.getByRole("button", { name: /^Stroke width:/ })).not.toBeNull();
+    });
   });
 
   it("clears hover detection when the cursor is outside this overlay", async () => {

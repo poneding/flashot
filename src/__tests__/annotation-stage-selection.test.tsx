@@ -18,12 +18,14 @@ vi.mock("@/lib/ipc", () => ({
 
 const selection = { x: 100, y: 120, width: 240, height: 160 };
 const capture: CaptureStartPayload = {
+  sessionMode: "capture",
   monitorId: 1,
   frameUrl: "asset://localhost/frame.png",
   monitorRect: { x: 0, y: 0, width: 800, height: 600 },
   scaleFactor: 2,
   windows: [],
   cornerRadius: 0,
+  toolbarTopInset: 0,
 };
 
 const annotatedRect: AnnotationObject = {

@@ -25,6 +25,10 @@ const LUCIDE_ICONS: &[LucideIcon] = &[
         body: r#"<path d="M6 2v14a2 2 0 0 0 2 2h14" /><path d="M18 22V8a2 2 0 0 0-2-2H2" />"#,
     },
     LucideIcon {
+        name: "paintbrush",
+        body: r#"<path d="m14.622 17.897-10.68-2.913" /><path d="M18.376 2.622a1 1 0 0 1 3.002 3.002L17.36 9.642a2 2 0 0 1-.562.387l-7.324 3.106-3.35-3.35L9.23 2.46a2 2 0 0 1 .387-.562z" /><path d="m9 8 3 3" /><path d="M3.5 21a1.5 1.5 0 0 1-1.5-1.5C2 18.12 3.12 17 4.5 17H5c.93 0 1.85-.32 2.5-.8l.5-.4" />"#,
+    },
+    LucideIcon {
         name: "monitor",
         body: r#"<rect width="20" height="14" x="2" y="3" rx="2" /><line x1="8" x2="16" y1="21" y2="21" /><line x1="12" x2="12" y1="17" y2="21" />"#,
     },

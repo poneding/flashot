@@ -14,6 +14,8 @@ export const SCREENSHOT_TOOLBAR_BACKGROUND = "rgba(30, 30, 30, 0.85)";
 export const SCREENSHOT_TOOLBAR_BORDER = "1px solid rgba(255,255,255,0.1)";
 
 const TOOLBAR_SIZE = { width: 40, height: 308 };
+const BOARD_TOOLBAR_SIZE = { width: 40, height: 132 };
+const BOARD_TOOLBAR_EDGE_GAP = 8;
 const SIDE_PANEL_GAP = 8;
 const ADJUSTMENTS_PANEL_SIZE = { width: 220, height: 220 };
 
@@ -28,6 +30,7 @@ type ToolbarAction = () => void | Promise<void>;
 type Props = {
   selection: Rect;
   monitorRect: Rect;
+  variant?: "capture" | "board";
   locale?: Locale;
   onCopy: ToolbarAction;
   onSave: ToolbarAction;
@@ -58,6 +61,7 @@ const ACTION_COLORS: Record<NonNullable<ToolbarButtonProps["tone"]>, string> = {
 export function Toolbar({
   selection,
   monitorRect,
+  variant = "capture",
   locale = "en",
   onCopy,
   onSave,
@@ -77,14 +81,31 @@ export function Toolbar({
   const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
   const toggleColorPicker = useOverlay((s) => s.toggleColorPicker);
   const setActiveTool = useAnnotation((s) => s.setActiveTool);
-  const [measuredHeight, setMeasuredHeight] = useState(TOOLBAR_SIZE.height);
+  const [measuredHeight, setMeasuredHeight] = useState(
+    variant === "board" ? BOARD_TOOLBAR_SIZE.height : TOOLBAR_SIZE.height,
+  );
   const [busy, setBusy] = useState(false);
   const [customPos, setCustomPos] = useState<{ x: number; y: number } | null>(null);
   const [radiusPanelOpen, setRadiusPanelOpen] = useState(false);
   const [adjustmentsPanelOpen, setAdjustmentsPanelOpen] = useState(false);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
-  const toolbarSize = { width: TOOLBAR_SIZE.width, height: measuredHeight };
-  const computedPos = computeVerticalToolbarPosition(selection, toolbarSize, monitorRect);
+  const isBoard = variant === "board";
+  const toolbarSize = isBoard
+    ? {
+      width: BOARD_TOOLBAR_SIZE.width,
+      height: measuredHeight || BOARD_TOOLBAR_SIZE.height,
+    }
+    : { width: TOOLBAR_SIZE.width, height: measuredHeight };
+  const computedPos = isBoard
+    ? clampToolbarPosition(
+      {
+        x: monitorRect.x + monitorRect.width - toolbarSize.width - BOARD_TOOLBAR_EDGE_GAP,
+        y: monitorRect.y + (monitorRect.height - toolbarSize.height) / 2,
+      },
+      toolbarSize,
+      monitorRect,
+    )
+    : computeVerticalToolbarPosition(selection, toolbarSize, monitorRect);
   const pos = customPos ? clampToolbarPosition(customPos, toolbarSize, monitorRect) : computedPos;
   const radiusPanelPosition = computeSidePanelPosition(pos, monitorRect, CORNER_RADIUS_PANEL_SIZE, SIDE_PANEL_GAP);
   const adjustmentsPanelPosition = computeSidePanelPosition(
@@ -152,6 +173,7 @@ export function Toolbar({
       <div
         ref={toolbarRef}
         data-screenshot-toolbar
+        data-toolbar-variant={variant}
         onMouseDown={(e) => e.stopPropagation()}
         style={{
           position: "fixed",
@@ -193,51 +215,55 @@ export function Toolbar({
           <GripHorizontal size={14} />
         </div>
 
-        <ToolbarGroup name="radius">
-          <ToolbarButton
-            buttonRef={radiusButtonRef}
-            label={t("screenshot.cornerRadius", { value: cornerRadius })}
-            tooltipLabel={t("screenshot.cornerRadiusUnit")}
-            icon={<SquareRoundCorner size={18} strokeWidth={2.2} aria-hidden="true" />}
-            onClick={() => {
-              setAdjustmentsPanelOpen(false);
-              setRadiusPanelOpen((open) => !open);
-            }}
-          />
-        </ToolbarGroup>
+        {!isBoard && (
+          <>
+            <ToolbarGroup name="radius">
+              <ToolbarButton
+                buttonRef={radiusButtonRef}
+                label={t("screenshot.cornerRadius", { value: cornerRadius })}
+                tooltipLabel={t("screenshot.cornerRadiusUnit")}
+                icon={<SquareRoundCorner size={18} strokeWidth={2.2} aria-hidden="true" />}
+                onClick={() => {
+                  setAdjustmentsPanelOpen(false);
+                  setRadiusPanelOpen((open) => !open);
+                }}
+              />
+            </ToolbarGroup>
 
-        <ToolbarGroup name="pin-scroll">
-          <ToolbarButton
-            label={t("screenshot.pin")}
-            icon={<PinIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
-            onClick={() => runAction(onPin)}
-            disabled={busy}
-          />
-          <ToolbarButton
-            label={t("screenshot.colorPicker")}
-            icon={<Pipette size={18} strokeWidth={2.2} aria-hidden="true" />}
-            active={colorPickerVisible}
-            onClick={handleColorPickerClick}
-          />
-          <ToolbarButton
-            buttonRef={adjustmentsButtonRef}
-            label={t("screenshot.imageAdjustments")}
-            icon={<Image size={18} strokeWidth={2.2} aria-hidden="true" />}
-            active={adjustmentsPanelOpen}
-            onClick={() => {
-              setRadiusPanelOpen(false);
-              setAdjustmentsPanelOpen((open) => !open);
-            }}
-          />
-          <ToolbarButton
-            label={scrollSelectionTooSmall ? t("screenshot.selectionTooSmall") : t("screenshot.scrollingScreenshot")}
-            icon={<Scroll size={18} strokeWidth={2.2} aria-hidden="true" />}
-            onClick={() => runAction(onScroll)}
-            disabled={scrollSelectionTooSmall}
-          />
-        </ToolbarGroup>
+            <ToolbarGroup name="pin-scroll">
+              <ToolbarButton
+                label={t("screenshot.pin")}
+                icon={<PinIcon size={18} strokeWidth={2.2} aria-hidden="true" />}
+                onClick={() => runAction(onPin)}
+                disabled={busy}
+              />
+              <ToolbarButton
+                label={t("screenshot.colorPicker")}
+                icon={<Pipette size={18} strokeWidth={2.2} aria-hidden="true" />}
+                active={colorPickerVisible}
+                onClick={handleColorPickerClick}
+              />
+              <ToolbarButton
+                buttonRef={adjustmentsButtonRef}
+                label={t("screenshot.imageAdjustments")}
+                icon={<Image size={18} strokeWidth={2.2} aria-hidden="true" />}
+                active={adjustmentsPanelOpen}
+                onClick={() => {
+                  setRadiusPanelOpen(false);
+                  setAdjustmentsPanelOpen((open) => !open);
+                }}
+              />
+              <ToolbarButton
+                label={scrollSelectionTooSmall ? t("screenshot.selectionTooSmall") : t("screenshot.scrollingScreenshot")}
+                icon={<Scroll size={18} strokeWidth={2.2} aria-hidden="true" />}
+                onClick={() => runAction(onScroll)}
+                disabled={scrollSelectionTooSmall}
+              />
+            </ToolbarGroup>
 
-        <Separator />
+            <Separator />
+          </>
+        )}
 
         <ToolbarGroup name="close">
           <ToolbarButton
@@ -263,7 +289,7 @@ export function Toolbar({
         </ToolbarGroup>
       </div>
 
-      {radiusPanelOpen && (
+      {!isBoard && radiusPanelOpen && (
         <CornerRadiusPanel
           locale={locale}
           panelRef={radiusPanelRef}
@@ -279,7 +305,7 @@ export function Toolbar({
         />
       )}
 
-      {adjustmentsPanelOpen && (
+      {!isBoard && adjustmentsPanelOpen && (
         <ImageAdjustmentsPanel
           locale={locale}
           panelRef={adjustmentsPanelRef}

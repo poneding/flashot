@@ -84,6 +84,7 @@ type Props = {
   frameUrl?: string | null;
   frameSourceRect?: Rect | null;
   interacting?: boolean;
+  selectionEditable?: boolean;
 };
 
 let stage: Konva.Stage | null = null;
@@ -1158,7 +1159,14 @@ function syncLayerWithStore(prevObjects: AnnotationObject[] = []) {
   syncSelectionWithStore(selectedObjectId);
 }
 
-export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceRect, interacting }: Props) {
+export function AnnotationStage({
+  selection,
+  scaleFactor,
+  frameUrl,
+  frameSourceRect,
+  interacting,
+  selectionEditable = true,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeTool = useAnnotation((s) => s.activeTool);
   const activeStyle = useAnnotation((s) => s.activeStyle);
@@ -1463,7 +1471,7 @@ export function AnnotationStage({ selection, scaleFactor, frameUrl, frameSourceR
     if (e.button !== 0) return;
 
     // Let resize handle clicks pass through to overlay
-    if (hitTestHandle({ x: e.clientX, y: e.clientY }, selection, 10)) return;
+    if (selectionEditable && hitTestHandle({ x: e.clientX, y: e.clientY }, selection, 10)) return;
 
     const { activeTool: tool, activeStyle, objects, selectedObjectId, setSelectedObject, setDrawingState } = useAnnotation.getState();
     const rect = containerRef.current!.getBoundingClientRect();

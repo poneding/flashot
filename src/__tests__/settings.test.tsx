@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsRoute } from "@/routes/Settings";
 import { ThemeSelect } from "@/settings/ThemeSelect";
+import { formatHotkeyForPlatform } from "@/settings/HotkeyRecorder";
 import { chooseDefaultSaveDir, getSettings, setSettings } from "@/lib/ipc";
 import { SELECTION_COLOR } from "@/lib/colors";
 import type { Settings } from "@/lib/types";
@@ -26,6 +27,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 
 const settings: Settings = {
   captureHotkey: "Cmd+Shift+A",
+  boardHotkey: "Option+B",
   fullscreenHotkey: "Cmd+Shift+F",
   activeWindowHotkey: "Cmd+Shift+W",
   theme: "system",
@@ -49,6 +51,13 @@ describe("ThemeSelect", () => {
 
     expect(trigger.textContent).toContain("Dark");
     expect(trigger.textContent).not.toContain("dark");
+  });
+});
+
+describe("formatHotkeyForPlatform", () => {
+  it("keeps an explicit Win modifier on Linux", () => {
+    expect(formatHotkeyForPlatform("Win+B", "Linux x86_64")).toBe("Win+B");
+    expect(formatHotkeyForPlatform("Super+F", "Linux x86_64")).toBe("Super+F");
   });
 });
 
@@ -197,15 +206,17 @@ describe("SettingsRoute", () => {
     });
   });
 
-  it("shows editable shortcuts for area, screen, and active window capture", async () => {
+  it("shows editable shortcuts for area, board, screen, and active window capture", async () => {
     render(<SettingsRoute />);
 
     fireEvent.click(await screen.findByRole("tab", { name: "Shortcuts" }));
     expect(await screen.findByText("Capture Area")).toBeTruthy();
+    expect(screen.getByText("Board")).toBeTruthy();
     expect(screen.getByText("Capture Screen")).toBeTruthy();
     expect(screen.getByText("Capture Active Window")).toBeTruthy();
 
     expect(screen.getByDisplayValue("Cmd+Shift+A")).toBeTruthy();
+    expect(screen.getByDisplayValue("Option+B")).toBeTruthy();
     expect(screen.getByDisplayValue("Cmd+Shift+F")).toBeTruthy();
     expect(screen.getByDisplayValue("Cmd+Shift+W")).toBeTruthy();
     expect(screen.queryByText(/CommandOrControl/)).toBeNull();

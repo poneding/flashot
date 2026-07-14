@@ -7,12 +7,14 @@ import { useOverlay } from "@/overlay/state";
 import type { CaptureStartPayload } from "@/lib/types";
 
 const capture: CaptureStartPayload = {
+  sessionMode: "capture",
   monitorId: 3,
   frameUrl: "asset://localhost//Users/dp/Library/Caches/dev.flashot.app/frame_3.png",
   monitorRect: { x: 0, y: 0, width: 800, height: 600 },
   scaleFactor: 2,
   windows: [],
   cornerRadius: 0,
+  toolbarTopInset: 0,
 };
 
 const originalCreateObjectURL = URL.createObjectURL;

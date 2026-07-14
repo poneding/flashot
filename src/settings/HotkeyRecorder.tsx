@@ -8,9 +8,11 @@ export function formatHotkeyForPlatform(value: string, platform = window.navigat
   const isApple = /Mac|iPhone|iPad|iPod/.test(platform);
   const commandOrControl = isApple ? "Cmd" : "Ctrl";
   const meta = isApple ? "Cmd" : /Win/.test(platform) ? "Win" : "Super";
+  const explicitWin = isApple ? "Cmd" : "Win";
   return value
     .replace(/CommandOrControl/gi, commandOrControl)
-    .replace(/\b(Command|Cmd|Meta|Super|Win|Windows)\b/gi, meta)
+    .replace(/\b(Win|Windows)\b/gi, explicitWin)
+    .replace(/\b(Command|Cmd|Meta|Super)\b/gi, meta)
     .replace(/\bAlt\b/gi, isApple ? "Option" : "Alt")
     .replace(/\bOption\b/gi, isApple ? "Option" : "Alt");
 }

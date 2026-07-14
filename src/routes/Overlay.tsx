@@ -143,6 +143,7 @@ export function OverlayRoute() {
   const updateSelectionInteraction = useOverlay((s) => s.updateSelectionInteraction);
   const finishSelectionInteraction = useOverlay((s) => s.finishSelectionInteraction);
   const mode = useOverlay((s) => s.mode);
+  const sessionMode = useOverlay((s) => s.sessionMode);
   const monitorId = useOverlay((s) => s.monitorId);
   const selection = useOverlay((s) => s.selection);
   const cursor = useOverlay((s) => s.cursor);
@@ -151,6 +152,7 @@ export function OverlayRoute() {
   const frameUrl = useOverlay((s) => s.frameUrl);
   const scaleFactor = useOverlay((s) => s.scaleFactor);
   const cornerRadius = useOverlay((s) => s.cornerRadius);
+  const toolbarTopInset = useOverlay((s) => s.toolbarTopInset);
   const monitorRect = useOverlay((s) => s.monitorRect);
   const [flashRect, setFlashRect] = useState<Rect | null>(null);
   const flashTimerRef = useRef<number | null>(null);
@@ -165,6 +167,10 @@ export function OverlayRoute() {
     // they appear. The cursor-owner polling below keeps the focused
     // overlay aligned with the monitor under the pointer.
     onCaptureStart((payload) => {
+      if (payload.sessionMode === "board") {
+        useAnnotation.getState().reset();
+        useAnnotation.getState().setActiveTool("draw");
+      }
       start(payload);
       focusCurrentOverlay();
     }).then((u) => (unsubStart = u));
@@ -479,6 +485,8 @@ export function OverlayRoute() {
     const p = { x: e.clientX, y: e.clientY };
     const state = useOverlay.getState();
 
+    if (state.sessionMode === "board") return;
+
     if (state.mode === "committed" && state.selection) {
       const handle = hitTestHandle(p, state.selection, 10);
       if (handle) {
@@ -564,10 +572,10 @@ export function OverlayRoute() {
       }}
     >
       <FrozenLayer />
-      <DimMask />
-      <DetectHighlight />
-      <SelectionBox />
-      <ColorPicker locale={locale} />
+      {sessionMode === "capture" && <DimMask />}
+      {sessionMode === "capture" && <DetectHighlight />}
+      {sessionMode === "capture" && <SelectionBox />}
+      {sessionMode === "capture" && <ColorPicker locale={locale} />}
       {mode === "scrollStarting" && selection && monitorRect && (
         <ScrollCaptureAffordance
           selection={selection}
@@ -584,15 +592,20 @@ export function OverlayRoute() {
               frameUrl={frameUrl}
               frameSourceRect={selection}
               interacting={!!selectionInteraction}
+              selectionEditable={sessionMode === "capture"}
             />
             <AnnotationToolbar
               locale={locale}
               selection={selection}
               monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
+              placement={sessionMode === "board" ? "top-center" : "selection"}
+              topInset={sessionMode === "board" ? toolbarTopInset : 0}
+              initialPanelOpen={sessionMode === "board"}
             />
           </Suspense>
           <ScreenshotToolbar
             locale={locale}
+            variant={sessionMode}
             selection={selection}
             monitorRect={{ x: 0, y: 0, width: monitorRect.width, height: monitorRect.height }}
             onCopy={handleCopy}

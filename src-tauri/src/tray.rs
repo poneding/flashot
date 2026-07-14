@@ -14,6 +14,7 @@ const WAYLAND_MENU_DISMISSAL_CAPTURE_DELAY: Duration = Duration::from_millis(220
 pub fn install(
     app: &AppHandle,
     capture_hotkey: &str,
+    board_hotkey: &str,
     fullscreen_hotkey: &str,
     active_window_hotkey: &str,
     language: Language,
@@ -21,6 +22,7 @@ pub fn install(
     let menu = build_menu(
         app,
         capture_hotkey,
+        board_hotkey,
         fullscreen_hotkey,
         active_window_hotkey,
         language,
@@ -35,6 +37,9 @@ pub fn install(
         .on_menu_event(|app, event| match event.id.as_ref() {
             "capture" => {
                 emit_screenshot_action_after_menu_dismissal(app, "capture:trigger");
+            }
+            "board" => {
+                emit_screenshot_action_after_menu_dismissal(app, "board:trigger");
             }
             "quick-active-screen" => {
                 emit_screenshot_action_after_menu_dismissal(app, "quick-shot:active-display");
@@ -148,6 +153,7 @@ fn tray_icon_is_template() -> bool {
 #[derive(Clone, Copy)]
 enum MenuIcon {
     Crop,
+    Paintbrush,
     Monitor,
     AppWindow,
     Settings,
@@ -206,6 +212,12 @@ fn menu_icon_png(icon: MenuIcon, theme: MenuIconTheme) -> &'static [u8] {
         (MenuIcon::Crop, MenuIconTheme::Dark) => {
             include_bytes!(concat!(env!("OUT_DIR"), "/menu-icons/crop-dark.png"))
         }
+        (MenuIcon::Paintbrush, MenuIconTheme::Light) => {
+            include_bytes!(concat!(env!("OUT_DIR"), "/menu-icons/paintbrush-light.png"))
+        }
+        (MenuIcon::Paintbrush, MenuIconTheme::Dark) => {
+            include_bytes!(concat!(env!("OUT_DIR"), "/menu-icons/paintbrush-dark.png"))
+        }
         (MenuIcon::Monitor, MenuIconTheme::Light) => {
             include_bytes!(concat!(env!("OUT_DIR"), "/menu-icons/monitor-light.png"))
         }
@@ -248,6 +260,7 @@ fn menu_icon_png(icon: MenuIcon, theme: MenuIconTheme) -> &'static [u8] {
 pub fn update_menu(
     app: &AppHandle,
     capture_hotkey: &str,
+    board_hotkey: &str,
     fullscreen_hotkey: &str,
     active_window_hotkey: &str,
     language: Language,
@@ -258,6 +271,7 @@ pub fn update_menu(
     tray.set_menu(Some(build_menu(
         app,
         capture_hotkey,
+        board_hotkey,
         fullscreen_hotkey,
         active_window_hotkey,
         language,
@@ -269,6 +283,7 @@ pub fn update_menu(
 fn build_menu(
     app: &AppHandle,
     capture_hotkey: &str,
+    board_hotkey: &str,
     fullscreen_hotkey: &str,
     active_window_hotkey: &str,
     language: Language,
@@ -282,6 +297,14 @@ fn build_menu(
         true,
         Some(menu_item_icon(Some(MenuIcon::Crop), icon_theme)),
         capture_menu_accelerator(capture_hotkey),
+    )?;
+    let board = IconMenuItem::with_id(
+        app,
+        "board",
+        labels.board,
+        true,
+        Some(menu_item_icon(Some(MenuIcon::Paintbrush), icon_theme)),
+        board_menu_accelerator(board_hotkey),
     )?;
     let active_screen = IconMenuItem::with_id(
         app,
@@ -340,6 +363,7 @@ fn build_menu(
                 &capture,
                 &active_screen,
                 &active_window,
+                &board,
                 &sep,
                 &settings,
                 &updates,
@@ -355,6 +379,7 @@ fn build_menu(
         &[
             &capture,
             &active_screen,
+            &board,
             &sep,
             &settings,
             &updates,
@@ -369,6 +394,7 @@ fn build_menu(
 #[derive(Clone, Copy)]
 struct TrayLabels {
     capture_region: &'static str,
+    board: &'static str,
     capture_screen: &'static str,
     capture_window: &'static str,
     settings: &'static str,
@@ -381,6 +407,7 @@ fn tray_labels(language: Language) -> TrayLabels {
     let text = crate::i18n::native_text(language);
     TrayLabels {
         capture_region: text.capture_region,
+        board: text.board,
         capture_screen: text.capture_screen,
         capture_window: text.capture_window,
         settings: text.settings_menu,
@@ -392,6 +419,10 @@ fn tray_labels(language: Language) -> TrayLabels {
 
 fn capture_menu_accelerator(capture_hotkey: &str) -> Option<&str> {
     menu_accelerator_for_supported_modifiers(capture_hotkey, menu_supports_super_accelerator())
+}
+
+fn board_menu_accelerator(board_hotkey: &str) -> Option<&str> {
+    menu_accelerator_for_supported_modifiers(board_hotkey, menu_supports_super_accelerator())
 }
 
 fn active_screen_menu_accelerator(fullscreen_hotkey: &str) -> Option<&str> {
@@ -479,6 +510,7 @@ mod tests {
         let labels = super::tray_labels(Language::ZhTw);
 
         assert_eq!(labels.capture_region, "擷取區域");
+        assert_eq!(labels.board, "畫板");
         assert_eq!(labels.capture_screen, "擷取螢幕");
         assert_eq!(labels.capture_window, "擷取目前活動視窗");
         assert_eq!(labels.settings, "設定…");
@@ -555,6 +587,12 @@ mod tests {
     }
 
     #[test]
+    fn board_menu_uses_configured_hotkey_as_accelerator() {
+        let accelerator = super::board_menu_accelerator("Option+B");
+        assert_eq!(accelerator, Some("Option+B"));
+    }
+
+    #[test]
     fn menu_accelerator_omits_explicit_super_when_platform_cannot_show_it() {
         assert_eq!(
             super::menu_accelerator_for_supported_modifiers("Win+F", false),
@@ -590,6 +628,7 @@ mod tests {
     fn capture_menu_icons_are_visible_images() {
         for icon in [
             super::MenuIcon::Crop,
+            super::MenuIcon::Paintbrush,
             super::MenuIcon::Monitor,
             super::MenuIcon::AppWindow,
         ] {
@@ -609,6 +648,7 @@ mod tests {
     fn capture_menu_icons_have_compact_visual_bounds() {
         for icon in [
             super::MenuIcon::Crop,
+            super::MenuIcon::Paintbrush,
             super::MenuIcon::Monitor,
             super::MenuIcon::AppWindow,
         ] {
@@ -628,6 +668,7 @@ mod tests {
     fn capture_menu_icons_use_reduced_opacity_strokes() {
         for icon in [
             super::MenuIcon::Crop,
+            super::MenuIcon::Paintbrush,
             super::MenuIcon::Monitor,
             super::MenuIcon::AppWindow,
         ] {

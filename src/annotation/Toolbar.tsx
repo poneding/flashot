@@ -78,17 +78,28 @@ type Props = {
   selection: Rect;
   monitorRect: Rect;
   opaqueSurface?: boolean;
+  placement?: "selection" | "top-center";
+  topInset?: number;
+  initialPanelOpen?: boolean;
   locale?: Locale;
 };
 
-export function Toolbar({ selection, monitorRect, opaqueSurface = false, locale = "en" }: Props) {
+export function Toolbar({
+  selection,
+  monitorRect,
+  opaqueSurface = false,
+  placement = "selection",
+  topInset = 0,
+  initialPanelOpen = false,
+  locale = "en",
+}: Props) {
   const t = createTranslator(locale);
   const { activeTool, setActiveTool, canUndo, canRedo, undo, redo } = useAnnotation();
   const currentMarkerNumber = useAnnotation((s) => s.currentMarkerNumber);
   const hideColorPicker = useOverlay((s) => s.hideColorPicker);
   const objects = useAnnotation((s) => s.objects);
   const selectedObjectId = useAnnotation((s) => s.selectedObjectId);
-  const [showPanel, setShowPanel] = useState(false);
+  const [showPanel, setShowPanel] = useState(initialPanelOpen);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const propertyPanelRef = useRef<HTMLDivElement>(null);
   const [measuredWidth, setMeasuredWidth] = useState(TOOLBAR_SIZE.width);
@@ -107,8 +118,17 @@ export function Toolbar({ selection, monitorRect, opaqueSurface = false, locale 
     }
   });
 
-  const computedPos = computeToolbarPosition(selection, { width: measuredWidth, height: TOOLBAR_SIZE.height }, monitorRect);
   const toolbarSize = { width: measuredWidth, height: TOOLBAR_SIZE.height };
+  const computedPos = placement === "top-center"
+    ? clampToolbarPosition(
+      {
+        x: monitorRect.x + (monitorRect.width - measuredWidth) / 2,
+        y: monitorRect.y + 8 + Math.max(0, topInset),
+      },
+      toolbarSize,
+      monitorRect,
+    )
+    : computeToolbarPosition(selection, toolbarSize, monitorRect);
   const pos = customPos ? clampToolbarPosition(customPos, toolbarSize, monitorRect) : computedPos;
 
   function handleToolClick(tool: ToolType) {
@@ -171,8 +191,11 @@ export function Toolbar({ selection, monitorRect, opaqueSurface = false, locale 
           object={selectedObject}
           style={{
             position: "fixed",
-            left: pos.x,
+            left: placement === "top-center"
+              ? monitorRect.x + monitorRect.width / 2
+              : pos.x,
             top: panelTop,
+            transform: placement === "top-center" ? "translateX(-50%)" : undefined,
             zIndex: 10001,
           }}
         />

@@ -28,6 +28,7 @@ import {
   FolderOpenIcon,
   InfoIcon,
   LoaderCircleIcon,
+  PaintbrushIcon,
   type LucideIcon,
   MonitorIcon,
   XCircleIcon,
@@ -36,7 +37,11 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-type ShortcutSettingKey = "captureHotkey" | "fullscreenHotkey" | "activeWindowHotkey";
+type ShortcutSettingKey =
+  | "captureHotkey"
+  | "boardHotkey"
+  | "fullscreenHotkey"
+  | "activeWindowHotkey";
 type FlashotTab = "general" | "appearance" | "shortcuts" | "updates" | "about";
 type UpdaterState =
   | "idle"
@@ -61,6 +66,10 @@ function quickShotModifier(platform = navigator.platform) {
   return "Super";
 }
 
+function boardModifier(platform = navigator.platform) {
+  return /Mac|iPhone|iPad|iPod/.test(platform) ? "Option" : "Win";
+}
+
 function storedThemePreference(): Settings["theme"] | null {
   try {
     const theme = window.localStorage.getItem("theme");
@@ -72,9 +81,11 @@ function storedThemePreference(): Settings["theme"] | null {
 
 function defaultSettings(): Settings {
   const mod = platformModifier();
+  const boardMod = boardModifier();
   const quickShotMod = quickShotModifier();
   return {
     captureHotkey: `${mod}+Shift+A`,
+    boardHotkey: `${boardMod}+B`,
     fullscreenHotkey: `${quickShotMod}+F`,
     activeWindowHotkey: `${quickShotMod}+W`,
     theme: "system",
@@ -593,6 +604,12 @@ export function FlashotRoute({ initialTab = "general" }: { initialTab?: FlashotT
         icon: CropIcon,
         label: t("settings.shortcut.region"),
         onChange: (captureHotkey) => commitSettings((current) => ({ ...current, captureHotkey })),
+      },
+      {
+        key: "boardHotkey",
+        icon: PaintbrushIcon,
+        label: t("settings.shortcut.board"),
+        onChange: (boardHotkey) => commitSettings((current) => ({ ...current, boardHotkey })),
       },
       {
         key: "fullscreenHotkey",

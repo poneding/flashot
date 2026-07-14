@@ -27,6 +27,7 @@ describe("AboutRoute", () => {
     document.documentElement.style.removeProperty("--flashot-accent");
     vi.mocked(getSettings).mockResolvedValue({
       captureHotkey: "Cmd+Shift+A",
+      boardHotkey: "Cmd+Shift+B",
       fullscreenHotkey: "Cmd+Shift+F",
       activeWindowHotkey: "Cmd+Shift+W",
       theme: "system",
@@ -59,6 +60,7 @@ describe("AboutRoute", () => {
   it("renders About copy in Traditional Chinese", async () => {
     vi.mocked(getSettings).mockResolvedValue({
       captureHotkey: "Cmd+Shift+A",
+      boardHotkey: "Cmd+Shift+B",
       fullscreenHotkey: "Cmd+Shift+F",
       activeWindowHotkey: "Cmd+Shift+W",
       theme: "system",
@@ -152,6 +154,7 @@ describe("AboutRoute", () => {
   it("applies the saved dark theme for the utility window", async () => {
     vi.mocked(getSettings).mockResolvedValue({
       captureHotkey: "Cmd+Shift+A",
+      boardHotkey: "Cmd+Shift+B",
       fullscreenHotkey: "Cmd+Shift+F",
       activeWindowHotkey: "Cmd+Shift+W",
       theme: "dark",

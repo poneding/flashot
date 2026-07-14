@@ -4,12 +4,14 @@ import { DEFAULT_IMAGE_ADJUSTMENTS, frozenLayerFilterForImageAdjustments } from 
 import type { CaptureStartPayload, Rect } from "@/lib/types";
 
 const capture: CaptureStartPayload = {
+  sessionMode: "capture",
   monitorId: 1,
   frameUrl: "asset://localhost/frame.png",
   monitorRect: { x: 0, y: 0, width: 800, height: 600 },
   scaleFactor: 2,
   windows: [],
   cornerRadius: 0,
+  toolbarTopInset: 0,
 };
 
 function reset() {
@@ -64,6 +66,64 @@ describe("overlay committed selection editing", () => {
     expect(useOverlay.getState().mode).toBe("hover");
     expect(useOverlay.getState().selection).toBeNull();
     expect(useOverlay.getState().hoverRect).toBeNull();
+  });
+});
+
+describe("overlay board session", () => {
+  beforeEach(reset);
+
+  it("starts committed with an immutable full-monitor selection", () => {
+    useOverlay.getState().start({
+      ...capture,
+      sessionMode: "board",
+      monitorRect: { x: -1440, y: 0, width: 1440, height: 900 },
+      cornerRadius: 24,
+      toolbarTopInset: 32,
+      windows: [
+        {
+          rect: { x: 20, y: 30, width: 240, height: 160 },
+          title: "Editor",
+          appName: "Code",
+          pid: 7,
+        },
+      ],
+    });
+
+    expect(useOverlay.getState()).toMatchObject({
+      sessionMode: "board",
+      mode: "committed",
+      selection: { x: 0, y: 0, width: 1440, height: 900 },
+      cornerRadius: 0,
+      toolbarTopInset: 32,
+      windows: [],
+    });
+
+    useOverlay.getState().beginMove({ x: 200, y: 200 });
+    useOverlay.getState().beginResize("se", { x: 1440, y: 900 });
+    useOverlay.getState().beginDrag({ x: 100, y: 100 });
+
+    expect(useOverlay.getState().selectionInteraction).toBeNull();
+    expect(useOverlay.getState().dragStart).toBeNull();
+    expect(useOverlay.getState().selection).toEqual({ x: 0, y: 0, width: 1440, height: 900 });
+  });
+
+  it("restores capture defaults when the board session ends", () => {
+    useOverlay.getState().start({ ...capture, sessionMode: "board" });
+
+    useOverlay.getState().end();
+
+    expect(useOverlay.getState()).toMatchObject({
+      sessionMode: "capture",
+      mode: "idle",
+      selection: null,
+      toolbarTopInset: 0,
+    });
+  });
+
+  it("ignores a toolbar inset in capture sessions", () => {
+    useOverlay.getState().start({ ...capture, toolbarTopInset: 32 });
+
+    expect(useOverlay.getState().toolbarTopInset).toBe(0);
   });
 });
 

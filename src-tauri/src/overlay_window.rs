@@ -50,6 +50,21 @@ pub fn restore_overlay_after_text_input(window: &WebviewWindow) -> Result<()> {
     })
 }
 
+pub fn board_toolbar_top_inset(window: &WebviewWindow) -> Result<f64> {
+    #[cfg(target_os = "macos")]
+    {
+        run_on_window_main_thread(window, "read board toolbar safe area", |window| {
+            macos_screen_safe_area_top(window)
+        })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        Ok(0.0)
+    }
+}
+
 pub fn capture_overlay_accepts_first_mouse() -> bool {
     true
 }
@@ -99,13 +114,14 @@ fn capture_presentation_options(current: usize) -> usize {
     current
 }
 
-fn run_on_window_main_thread<F>(
+fn run_on_window_main_thread<T, F>(
     window: &WebviewWindow,
     task_name: &'static str,
     task: F,
-) -> Result<()>
+) -> Result<T>
 where
-    F: FnOnce(&WebviewWindow) -> Result<()> + Send + 'static,
+    T: Send + 'static,
+    F: FnOnce(&WebviewWindow) -> Result<T> + Send + 'static,
 {
     let task_window = window.clone();
     let (tx, rx) = mpsc::sync_channel(1);
@@ -320,6 +336,42 @@ struct NSSize {
 struct NSRect {
     origin: NSPoint,
     size: NSSize,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct NSEdgeInsets {
+    top: f64,
+    left: f64,
+    bottom: f64,
+    right: f64,
+}
+
+#[cfg(target_os = "macos")]
+fn macos_screen_safe_area_top(window: &WebviewWindow) -> Result<f64> {
+    use objc::{
+        runtime::{Object, Sel},
+        Message,
+    };
+
+    let ns_window = window.ns_window()? as *mut Object;
+    unsafe {
+        let screen: *mut Object = (*ns_window).send_message(Sel::register("screen"), ())?;
+        if screen.is_null() {
+            return Ok(0.0);
+        }
+
+        let safe_area_selector = Sel::register("safeAreaInsets");
+        let supports_safe_area: bool =
+            (*screen).send_message(Sel::register("respondsToSelector:"), (safe_area_selector,))?;
+        if !supports_safe_area {
+            return Ok(0.0);
+        }
+
+        let insets: NSEdgeInsets = (*screen).send_message(safe_area_selector, ())?;
+        Ok(insets.top.max(0.0))
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -787,6 +839,17 @@ mod tests {
             body.contains("push_crosshair_cursor();"),
             "showing a capture overlay must push the crosshair cursor without requiring app activation",
         );
+    }
+
+    #[test]
+    fn board_toolbar_uses_actual_macos_notch_safe_area() {
+        let source = include_str!("overlay_window.rs").replace("\r\n", "\n");
+        let macos_body = function_body(&source, "macos_screen_safe_area_top");
+
+        assert!(macos_body.contains("safeAreaInsets"));
+        assert!(macos_body.contains("respondsToSelector:"));
+        assert!(macos_body.contains("insets.top.max(0.0)"));
+        assert!(!macos_body.contains("model") && !macos_body.contains("arch"));
     }
 
     #[cfg(not(target_os = "macos"))]

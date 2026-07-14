@@ -10,12 +10,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const selection: Rect = { x: 100, y: 120, width: 300, height: 180 };
 const monitorRect: Rect = { x: 0, y: 0, width: 900, height: 700 };
 const capture: CaptureStartPayload = {
+  sessionMode: "capture",
   monitorId: 1,
   frameUrl: "asset://localhost/frame.png",
   monitorRect,
   scaleFactor: 2,
   windows: [],
   cornerRadius: 0,
+  toolbarTopInset: 0,
 };
 
 const selectedRect: AnnotationObject = {
@@ -100,6 +102,50 @@ describe("Annotation toolbar", () => {
     const toolbar = container.querySelector("[data-annotation-toolbar]") as HTMLElement;
 
     expect(toolbar.style.background).toBe("rgb(30, 30, 30)");
+  });
+
+  it("centers the board toolbar below the active monitor safe area", () => {
+    const { container } = renderToolbar({ placement: "top-center", topInset: 28 });
+    const toolbar = container.querySelector("[data-annotation-toolbar]") as HTMLElement;
+
+    expect(toolbar.style.top).toBe("36px");
+    expect(Number.parseFloat(toolbar.style.left)).toBeGreaterThanOrEqual(0);
+  });
+
+  it("centers board property panels without changing screenshot panel placement", () => {
+    const boardRender = renderToolbar({ placement: "top-center" });
+    fireEvent.click(screen.getByRole("button", { name: "Rectangle" }));
+    const boardPanel = propertyPanelElement(boardRender.container);
+
+    expect(boardPanel.style.left).toBe("450px");
+    expect(boardPanel.style.transform).toBe("translateX(-50%)");
+    boardRender.unmount();
+
+    useAnnotation.getState().reset();
+    const captureRender = renderToolbar();
+    fireEvent.click(screen.getByRole("button", { name: "Rectangle" }));
+    const captureToolbar = captureRender.container.querySelector("[data-annotation-toolbar]") as HTMLElement;
+    const capturePanel = propertyPanelElement(captureRender.container);
+
+    expect(capturePanel.style.left).toBe(captureToolbar.style.left);
+    expect(capturePanel.style.transform).toBe("");
+  });
+
+  it("opens pen controls initially for the board but not for screenshots", () => {
+    useAnnotation.getState().setActiveTool("draw");
+    const boardRender = renderToolbar({
+      placement: "top-center",
+      initialPanelOpen: true,
+    });
+
+    expect(screen.getByLabelText("Custom color")).not.toBeNull();
+    expect(screen.getByRole("button", { name: /^Stroke width:/ })).not.toBeNull();
+    boardRender.unmount();
+
+    renderToolbar();
+
+    expect(screen.queryByLabelText("Custom color")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Stroke width:/ })).toBeNull();
   });
 
   it("keeps the toolbar inside monitor bounds while dragging", () => {

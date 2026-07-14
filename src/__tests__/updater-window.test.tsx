@@ -54,6 +54,7 @@ describe("UpdaterRoute", () => {
     document.documentElement.style.removeProperty("--flashot-accent");
     vi.mocked(getSettings).mockResolvedValue({
       captureHotkey: "Cmd+Shift+A",
+      boardHotkey: "Cmd+Shift+B",
       fullscreenHotkey: "Cmd+Shift+F",
       activeWindowHotkey: "Cmd+Shift+W",
       theme: "system",
@@ -84,6 +85,7 @@ describe("UpdaterRoute", () => {
     mockCheckForUpdate.mockReturnValue(new Promise(() => {}));
     vi.mocked(getSettings).mockResolvedValue({
       captureHotkey: "Cmd+Shift+A",
+      boardHotkey: "Cmd+Shift+B",
       fullscreenHotkey: "Cmd+Shift+F",
       activeWindowHotkey: "Cmd+Shift+W",
       theme: "dark",
@@ -146,6 +148,7 @@ describe("UpdaterRoute", () => {
     mockCheckForUpdate.mockReturnValue(new Promise(() => {}));
     vi.mocked(getSettings).mockResolvedValue({
       captureHotkey: "Cmd+Shift+A",
+      boardHotkey: "Cmd+Shift+B",
       fullscreenHotkey: "Cmd+Shift+F",
       activeWindowHotkey: "Cmd+Shift+W",
       theme: "system",
@@ -253,6 +256,7 @@ describe("UpdaterRoute", () => {
   it("checks the beta channel when beta updates are allowed", async () => {
     vi.mocked(getSettings).mockResolvedValue({
       captureHotkey: "Cmd+Shift+A",
+      boardHotkey: "Cmd+Shift+B",
       fullscreenHotkey: "Cmd+Shift+F",
       activeWindowHotkey: "Cmd+Shift+W",
       theme: "system",
@@ -373,6 +377,7 @@ describe("UpdaterRoute", () => {
   it("downloads from the beta channel selected during the check", async () => {
     vi.mocked(getSettings).mockResolvedValue({
       captureHotkey: "Cmd+Shift+A",
+      boardHotkey: "Cmd+Shift+B",
       fullscreenHotkey: "Cmd+Shift+F",
       activeWindowHotkey: "Cmd+Shift+W",
       theme: "system",

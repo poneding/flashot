@@ -8,6 +8,7 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 static CURRENT_CAPTURE_ID: AtomicU32 = AtomicU32::new(0);
+static CURRENT_BOARD_ID: AtomicU32 = AtomicU32::new(0);
 static CURRENT_FULLSCREEN_ID: AtomicU32 = AtomicU32::new(0);
 static CURRENT_ACTIVE_WINDOW_ID: AtomicU32 = AtomicU32::new(0);
 
@@ -48,6 +49,7 @@ impl HotkeyService {
         let id = self.register_hotkey(parsed, &mut cur)?;
         store_current_ids(RegisteredHotkeyIds {
             capture: id,
+            board: 0,
             fullscreen: 0,
             active_window: 0,
         });
@@ -57,10 +59,11 @@ impl HotkeyService {
     pub fn set_all(
         &self,
         capture: &str,
+        board: &str,
         fullscreen: &str,
         active_window: &str,
     ) -> Result<RegisteredHotkeyIds> {
-        let parsed = parse_configured_hotkeys(capture, fullscreen, active_window)?;
+        let parsed = parse_configured_hotkeys(capture, board, fullscreen, active_window)?;
         let mut cur = self.current.lock();
         for old in cur.drain(..) {
             let _ = self.mgr.unregister(old);
@@ -68,9 +71,17 @@ impl HotkeyService {
 
         let mut ids = RegisteredHotkeyIds {
             capture: self.register_hotkey(parsed.capture, &mut cur)?,
+            board: 0,
             fullscreen: 0,
             active_window: 0,
         };
+
+        if let Some(hotkey) = parsed.board {
+            match self.register_hotkey(hotkey, &mut cur) {
+                Ok(id) => ids.board = id,
+                Err(e) => tracing::warn!("failed to register board hotkey: {e}"),
+            }
+        }
 
         if let Some(hotkey) = parsed.fullscreen {
             match self.register_hotkey(hotkey, &mut cur) {
@@ -181,6 +192,7 @@ pub fn set(accelerator: &str) -> Result<u32> {
 
 pub fn set_all(
     capture: &str,
+    board: &str,
     fullscreen: &str,
     active_window: &str,
 ) -> Result<RegisteredHotkeyIds> {
@@ -189,7 +201,7 @@ pub fn set_all(
         let service = service
             .as_ref()
             .ok_or_else(|| anyhow!("hotkey service has not been initialized"))?;
-        service.set_all(capture, fullscreen, active_window)
+        service.set_all(capture, board, fullscreen, active_window)
     })
 }
 
@@ -224,6 +236,7 @@ pub fn current_id() -> u32 {
 pub fn current_ids() -> RegisteredHotkeyIds {
     RegisteredHotkeyIds {
         capture: CURRENT_CAPTURE_ID.load(Ordering::SeqCst),
+        board: CURRENT_BOARD_ID.load(Ordering::SeqCst),
         fullscreen: CURRENT_FULLSCREEN_ID.load(Ordering::SeqCst),
         active_window: CURRENT_ACTIVE_WINDOW_ID.load(Ordering::SeqCst),
     }
@@ -232,6 +245,7 @@ pub fn current_ids() -> RegisteredHotkeyIds {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RegisteredHotkeyIds {
     pub capture: u32,
+    pub board: u32,
     pub fullscreen: u32,
     pub active_window: u32,
 }
@@ -239,6 +253,7 @@ pub struct RegisteredHotkeyIds {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HotkeyAction {
     TriggerCapture,
+    TriggerBoard,
     CopyActiveDisplay,
     CopyActiveWindow,
     CancelCapture,
@@ -276,6 +291,9 @@ pub fn action_for_event(
     if event_id == ids.capture {
         return Some(HotkeyAction::TriggerCapture);
     }
+    if event_id == ids.board {
+        return Some(HotkeyAction::TriggerBoard);
+    }
     if in_capture_session {
         return None;
     }
@@ -291,6 +309,7 @@ pub fn action_for_event(
 
 fn store_current_ids(ids: RegisteredHotkeyIds) {
     CURRENT_CAPTURE_ID.store(ids.capture, Ordering::SeqCst);
+    CURRENT_BOARD_ID.store(ids.board, Ordering::SeqCst);
     CURRENT_FULLSCREEN_ID.store(ids.fullscreen, Ordering::SeqCst);
     CURRENT_ACTIVE_WINDOW_ID.store(ids.active_window, Ordering::SeqCst);
 }
@@ -310,17 +329,20 @@ fn color_copy_hotkey() -> HotKey {
 #[derive(Debug, Clone, Copy)]
 struct ParsedHotkeys {
     capture: HotKey,
+    board: Option<HotKey>,
     fullscreen: Option<HotKey>,
     active_window: Option<HotKey>,
 }
 
 fn parse_configured_hotkeys(
     capture: &str,
+    board: &str,
     fullscreen: &str,
     active_window: &str,
 ) -> Result<ParsedHotkeys> {
     Ok(ParsedHotkeys {
         capture: parse_accelerator(capture)?,
+        board: parse_optional_accelerator(board),
         fullscreen: parse_optional_accelerator(fullscreen),
         active_window: parse_optional_accelerator(active_window),
     })
@@ -461,18 +483,26 @@ mod tests {
 
     #[test]
     fn blank_quick_shot_hotkeys_do_not_block_capture_hotkey() {
-        let parsed = parse_configured_hotkeys("F1", " ", " ").unwrap();
+        let parsed = parse_configured_hotkeys("F1", " ", " ", " ").unwrap();
 
         assert_eq!(parsed.capture.id(), id_for("F1"));
+        assert!(parsed.board.is_none());
         assert!(parsed.fullscreen.is_none());
         assert!(parsed.active_window.is_none());
     }
 
     #[test]
     fn invalid_quick_shot_hotkeys_do_not_block_capture_hotkey() {
-        let parsed = parse_configured_hotkeys("Cmd+Shift+A", "not-a-key", "Ctrl+Shift").unwrap();
+        let parsed = parse_configured_hotkeys(
+            "Cmd+Shift+A",
+            "also-not-a-key",
+            "not-a-key",
+            "Ctrl+Shift",
+        )
+        .unwrap();
 
         assert_eq!(parsed.capture.id(), id_for("Cmd+Shift+A"));
+        assert!(parsed.board.is_none());
         assert!(parsed.fullscreen.is_none());
         assert!(parsed.active_window.is_none());
     }
@@ -481,6 +511,7 @@ mod tests {
     fn escape_hotkey_cancels_only_active_capture_session() {
         let ids = RegisteredHotkeyIds {
             capture: HotKey::new(Some(Modifiers::SUPER), Code::KeyA).id(),
+            board: id_for("Cmd+Shift+B"),
             fullscreen: id_for("Cmd+Shift+F"),
             active_window: id_for("Cmd+Shift+W"),
         };
@@ -497,8 +528,9 @@ mod tests {
     fn color_picker_hotkeys_map_to_actions_only_in_session() {
         let ids = RegisteredHotkeyIds {
             capture: 1,
-            fullscreen: 2,
-            active_window: 3,
+            board: 2,
+            fullscreen: 3,
+            active_window: 4,
         };
         assert_eq!(
             action_for_event(color_format_toggle_id(), ids, true),
@@ -526,6 +558,7 @@ mod tests {
     fn current_hotkey_still_triggers_capture() {
         let ids = RegisteredHotkeyIds {
             capture: HotKey::new(Some(Modifiers::SUPER), Code::KeyA).id(),
+            board: id_for("Cmd+Shift+B"),
             fullscreen: id_for("Cmd+Shift+F"),
             active_window: id_for("Cmd+Shift+W"),
         };
@@ -541,9 +574,25 @@ mod tests {
     }
 
     #[test]
+    fn board_hotkey_routes_to_board_action() {
+        let ids = RegisteredHotkeyIds {
+            capture: id_for("Cmd+Shift+A"),
+            board: id_for("Cmd+Shift+B"),
+            fullscreen: id_for("Cmd+Shift+F"),
+            active_window: id_for("Cmd+Shift+W"),
+        };
+
+        assert_eq!(
+            action_for_event(ids.board, ids, false),
+            Some(HotkeyAction::TriggerBoard)
+        );
+    }
+
+    #[test]
     fn quick_shot_hotkeys_route_to_distinct_actions_outside_capture_sessions() {
         let ids = RegisteredHotkeyIds {
             capture: id_for("Cmd+Shift+A"),
+            board: id_for("Cmd+Shift+B"),
             fullscreen: id_for("Cmd+Shift+F"),
             active_window: id_for("Cmd+Shift+W"),
         };
@@ -562,6 +611,7 @@ mod tests {
     fn quick_shot_hotkeys_are_ignored_during_capture_sessions() {
         let ids = RegisteredHotkeyIds {
             capture: id_for("Cmd+Shift+A"),
+            board: id_for("Cmd+Shift+B"),
             fullscreen: id_for("Cmd+Shift+F"),
             active_window: id_for("Cmd+Shift+W"),
         };

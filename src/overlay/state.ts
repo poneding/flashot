@@ -23,6 +23,7 @@ type HoverHit = {
 };
 
 type State = {
+  sessionMode: CaptureStartPayload["sessionMode"];
   mode: Mode;
   monitorId: number | null;
   monitorRect: Rect | null;
@@ -40,6 +41,7 @@ type State = {
   colorCopied: boolean;
   currentColor: { r: number; g: number; b: number } | null;
   cornerRadius: number;
+  toolbarTopInset: number;
   imageAdjustments: ImageAdjustments;
 };
 
@@ -135,6 +137,7 @@ function targetRectAtPoint(p: Point, windows: WindowRect[], monitor: Rect | null
 }
 
 export const useOverlay = create<State & Actions>((set, get) => ({
+  sessionMode: "capture",
   mode: "idle",
   monitorId: null,
   monitorRect: null,
@@ -152,28 +155,37 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   colorCopied: false,
   currentColor: null,
   cornerRadius: 0,
+  toolbarTopInset: 0,
   imageAdjustments: DEFAULT_IMAGE_ADJUSTMENTS,
 
-  start: (p) =>
+  start: (p) => {
+    const boardSelection = p.sessionMode === "board"
+      ? localMonitorBounds(p.monitorRect)
+      : null;
     set({
-      mode: "hover",
+      sessionMode: p.sessionMode,
+      mode: p.sessionMode === "board" ? "committed" : "hover",
       monitorId: p.monitorId,
       monitorRect: p.monitorRect,
       scaleFactor: p.scaleFactor,
       frameUrl: p.frameUrl,
-      windows: p.windows,
+      windows: p.sessionMode === "board" ? [] : p.windows,
       cursor: null,
       hoverRect: null,
       hoverTarget: null,
-      selection: null,
+      selection: boardSelection,
       dragStart: null,
       selectionInteraction: null,
       colorPickerVisible: false,
       colorCopied: false,
       currentColor: null,
-      cornerRadius: normalizeCornerRadius(p.cornerRadius ?? 0),
+      cornerRadius: p.sessionMode === "board" ? 0 : normalizeCornerRadius(p.cornerRadius ?? 0),
+      toolbarTopInset: p.sessionMode === "board"
+        ? Math.max(0, p.toolbarTopInset ?? 0)
+        : 0,
       imageAdjustments: DEFAULT_IMAGE_ADJUSTMENTS,
-    }),
+    });
+  },
 
   setCursor: (p) => {
     if (samePoint(get().cursor, p)) return;
@@ -236,7 +248,8 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   },
 
   beginDrag: (p) => {
-    const { mode: currentMode, windows, monitorRect, hoverRect } = get();
+    const { sessionMode, mode: currentMode, windows, monitorRect, hoverRect } = get();
+    if (sessionMode === "board") return;
     if (currentMode !== "hover" && currentMode !== "committed") return;
     const keepHover = currentMode === "hover";
     const detectedHover = keepHover && !hoverRect ? targetRectAtPoint(p, windows, monitorRect) : null;
@@ -295,13 +308,13 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   },
   setSelection: (r) => set({ selection: r }),
   beginMove: (p) => {
-    const { mode, selection } = get();
-    if (mode !== "committed" || !selection) return;
+    const { sessionMode, mode, selection } = get();
+    if (sessionMode === "board" || mode !== "committed" || !selection) return;
     set({ selectionInteraction: { kind: "move", origin: p, startRect: selection } });
   },
   beginResize: (handle, _p) => {
-    const { mode, selection } = get();
-    if (mode !== "committed" || !selection) return;
+    const { sessionMode, mode, selection } = get();
+    if (sessionMode === "board" || mode !== "committed" || !selection) return;
     set({ selectionInteraction: { kind: "resize", handle, startRect: selection } });
   },
   updateSelectionInteraction: (p) => {
@@ -328,6 +341,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   finishSelectionInteraction: () => set({ selectionInteraction: null }),
   end: () =>
     set({
+      sessionMode: "capture",
       mode: "idle",
       monitorId: null,
       monitorRect: null,
@@ -342,6 +356,7 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       colorPickerVisible: false,
       colorCopied: false,
       currentColor: null,
+      toolbarTopInset: 0,
       imageAdjustments: DEFAULT_IMAGE_ADJUSTMENTS,
     }),
   toggleColorFormat: () => {
