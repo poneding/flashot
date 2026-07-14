@@ -14,10 +14,13 @@ pub mod scroll_session;
 pub mod scroll_stitch;
 pub mod settings_store;
 pub mod tray;
+pub mod tray_menu_icons;
 pub mod tray_template_icon;
 pub mod types;
 pub mod window_mgr;
 pub mod window_probe;
+#[cfg(target_os = "windows")]
+pub mod windows_key_block;
 
 use anyhow::{Context, Result};
 use pin_mgr::PinManager;
@@ -413,18 +416,7 @@ fn ensure_overlays_for_monitors(app: &AppHandle, monitors: &[types::MonitorInfo]
     for mon in monitors {
         let label = overlay_label(mon.id);
         if let Some(window) = app.get_webview_window(&label) {
-            window
-                .set_position(tauri::Position::Logical(tauri::LogicalPosition::new(
-                    mon.rect.x as f64,
-                    mon.rect.y as f64,
-                )))
-                .context("Failed to update overlay position")?;
-            window
-                .set_size(tauri::Size::Logical(tauri::LogicalSize::new(
-                    mon.rect.width as f64,
-                    mon.rect.height as f64,
-                )))
-                .context("Failed to update overlay size")?;
+            place_overlay_window(&window, mon.rect)?;
             overlay_window::configure_capture_overlay(&window, mon.id, mon.rect)
                 .context("Failed to configure overlay window")?;
             continue;
@@ -447,6 +439,10 @@ fn ensure_overlays_for_monitors(app: &AppHandle, monitors: &[types::MonitorInfo]
             .accept_first_mouse(overlay_window::capture_overlay_accepts_first_mouse())
             .build()
             .context("Failed to create overlay window")?;
+        // The builder sizes in logical units. On Windows (Per-Monitor-DPI-Aware
+        // V2) monitor geometry is physical, so re-assert the geometry through
+        // the platform-correct path before the overlay is ever shown.
+        place_overlay_window(&window, mon.rect)?;
         #[cfg(not(target_os = "linux"))]
         window
             .set_ignore_cursor_events(true)
@@ -456,6 +452,72 @@ fn ensure_overlays_for_monitors(app: &AppHandle, monitors: &[types::MonitorInfo]
     }
 
     Ok(())
+}
+
+/// Position and size a capture overlay so it covers exactly one monitor.
+///
+/// On Windows the process is Per-Monitor-DPI-Aware V2, so `MonitorInfo.rect`
+/// (from xcap's `DEVMODE`) is in *physical* pixels. Placing the overlay with
+/// logical units would make tao multiply those already-physical numbers by the
+/// monitor scale factor, inflating the overlay (and the frozen desktop filling
+/// it) past the physical screen — the "screenshot zoomed off-screen on a scaled
+/// virtual display" bug. Physical placement covers the monitor 1:1 regardless
+/// of scale. On macOS/Linux `rect` is already logical, so use logical units.
+fn place_overlay_window(window: &tauri::WebviewWindow, rect: types::Rect) -> Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        window
+            .set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+                rect.x, rect.y,
+            )))
+            .context("Failed to update overlay position")?;
+        window
+            .set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
+                rect.width,
+                rect.height,
+            )))
+            .context("Failed to update overlay size")?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        window
+            .set_position(tauri::Position::Logical(tauri::LogicalPosition::new(
+                rect.x as f64,
+                rect.y as f64,
+            )))
+            .context("Failed to update overlay position")?;
+        window
+            .set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+                rect.width as f64,
+                rect.height as f64,
+            )))
+            .context("Failed to update overlay size")?;
+    }
+    Ok(())
+}
+
+/// Convert a monitor or monitor-local rect from physical pixels to the logical
+/// CSS pixels the overlay webview measures in.
+///
+/// On Windows monitor geometry and window rects come back in physical pixels
+/// (Per-Monitor-DPI-Aware V2), but the overlay webview's viewport is logical
+/// (physical / scale). The frozen frame stays physical and `crop_rgba` scales
+/// the logical selection back up by the same factor. On macOS/Linux the source
+/// geometry is already logical, so this is the identity.
+#[cfg(target_os = "windows")]
+fn overlay_logical_rect(rect: types::Rect, scale_factor: f32) -> types::Rect {
+    let scale = scale_factor.max(1.0);
+    types::Rect {
+        x: (rect.x as f32 / scale).round() as i32,
+        y: (rect.y as f32 / scale).round() as i32,
+        width: (rect.width as f32 / scale).round().max(1.0) as u32,
+        height: (rect.height as f32 / scale).round().max(1.0) as u32,
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn overlay_logical_rect(rect: types::Rect, _scale_factor: f32) -> types::Rect {
+    rect
 }
 
 fn overlay_label(monitor_id: u32) -> String {
@@ -545,6 +607,18 @@ fn set_color_picker_hotkeys(app: &AppHandle, enabled: bool) {
 pub(crate) fn set_capture_session_hotkeys(app: &AppHandle, enabled: bool) {
     set_capture_cancel_hotkey(app, enabled);
     set_color_picker_hotkeys(app, enabled);
+    set_win_key_block(app, enabled);
+}
+
+/// Block the Windows (Super) key while a capture session is active. The overlay
+/// only paints a frozen screenshot; the live desktop underneath still honors the
+/// Win key, so without this the Start menu opens over the "frozen" screen.
+/// Windows-only; no-op elsewhere.
+fn set_win_key_block(app: &AppHandle, enabled: bool) {
+    #[cfg(target_os = "windows")]
+    windows_key_block::set_enabled(app, enabled);
+    #[cfg(not(target_os = "windows"))]
+    let _ = (app, enabled);
 }
 
 #[cfg(test)]
@@ -765,12 +839,18 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
                 }
                 tracing::info!("run_capture: overlay window shown");
 
-                // Filter windows overlapping this monitor
+                // Filter windows overlapping this monitor. Window rects and the
+                // monitor rect are physical on Windows; the overlay webview
+                // measures in logical CSS px, so convert both to logical before
+                // emitting.
                 let local_windows: Vec<_> = windows
                     .iter()
                     .filter(|w| rects_overlap(&w.rect, &mon.rect))
                     .map(|w| types::WindowRect {
-                        rect: translate_to_monitor(&w.rect, &mon.rect),
+                        rect: overlay_logical_rect(
+                            translate_to_monitor(&w.rect, &mon.rect),
+                            mon.scale_factor,
+                        ),
                         title: w.title.clone(),
                         app_name: w.app_name.clone(),
                         pid: w.pid,
@@ -793,7 +873,7 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
                         session_mode: CaptureSessionMode::Capture,
                         monitor_id: mon.id,
                         frame_url: asset_url,
-                        monitor_rect: mon.rect,
+                        monitor_rect: overlay_logical_rect(mon.rect, mon.scale_factor),
                         scale_factor: mon.scale_factor,
                         corner_radius,
                         toolbar_top_inset: 0.0,
@@ -1064,7 +1144,9 @@ fn show_quick_shot_flash(
     app.emit_to(
         capture_start_target(&label),
         "quick-shot:flash",
-        QuickShotFlashPayload { rect },
+        QuickShotFlashPayload {
+            rect: overlay_logical_rect(rect, monitor.scale_factor),
+        },
     )
     .context("Failed to emit quick shot flash event")?;
 
@@ -1738,6 +1820,66 @@ mod tests {
     #[test]
     fn overlay_label_uses_stable_monitor_id() {
         assert_eq!(overlay_label(42), "overlay-42");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn overlay_logical_rect_divides_physical_geometry_by_scale_on_windows() {
+        // A 1920x1080-logical monitor at 150% reports 2880x1620 physical from
+        // xcap; the overlay webview measures in logical CSS px, so the payload
+        // must be divided back down by the scale factor.
+        let physical = types::Rect {
+            x: 2880,
+            y: 0,
+            width: 2880,
+            height: 1620,
+        };
+
+        let logical = overlay_logical_rect(physical, 1.5);
+
+        assert_eq!(
+            (logical.x, logical.y, logical.width, logical.height),
+            (1920, 0, 1920, 1080)
+        );
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn overlay_logical_rect_is_identity_off_windows() {
+        // macOS/Linux report logical geometry already, so no conversion.
+        let rect = types::Rect {
+            x: 100,
+            y: 40,
+            width: 800,
+            height: 600,
+        };
+
+        let converted = overlay_logical_rect(rect, 2.0);
+
+        assert_eq!(
+            (
+                converted.x,
+                converted.y,
+                converted.width,
+                converted.height
+            ),
+            (100, 40, 800, 600)
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn overlay_placement_covers_physical_monitor_on_windows() {
+        // Guard the scaled-display fix: placing the overlay in logical units
+        // would make tao re-multiply the already-physical geometry by the scale
+        // factor, inflating the overlay (and frozen desktop) past the screen.
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "place_overlay_window");
+
+        assert!(
+            body.contains("tauri::Position::Physical") && body.contains("tauri::Size::Physical"),
+            "Windows overlays must be placed in physical pixels so a scaled monitor is covered 1:1",
+        );
     }
 
     #[test]

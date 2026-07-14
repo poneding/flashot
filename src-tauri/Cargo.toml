@@ -1,6 +1,6 @@
 [package]
 name = "flashot"
-version = "0.6.6"
+version = "0.6.7"
 description = "Flashot is a screenshot tool built with Rust and Tauri."
 authors = ["poneding@gmail.com"]
 edition = "2024"
@@ -79,10 +79,16 @@ objc = "0.2"
 windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_HiDpi",
   "Win32_Graphics_Gdi",
   "Win32_Graphics_Dwm",
+  "Win32_System_LibraryLoader",
   "Win32_System_Threading",
   "Win32_System_ProcessStatus",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
 ] }
 
 [dev-dependencies]

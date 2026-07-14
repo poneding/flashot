@@ -19,7 +19,7 @@ pub fn install(
     active_window_hotkey: &str,
     language: Language,
 ) -> Result<()> {
-    let menu = build_menu(
+    let (menu, icon_slots) = build_menu(
         app,
         capture_hotkey,
         board_hotkey,
@@ -66,7 +66,43 @@ pub fn install(
         })
         .build(app)?;
 
+    apply_scaled_menu_icons(app, &menu, icon_slots);
+
     Ok(())
+}
+
+/// Overwrite the popup menu's fixed-size (16px) item bitmaps with DPI-scaled
+/// ones so tray icons don't look tiny on HiDPI displays. No-op off Windows.
+///
+/// The Win32 override touches the menu's `HMENU` and must run on the main (UI)
+/// thread. `update_menu` can be invoked from a non-main event-listener thread,
+/// so we always dispatch the override onto the main thread via
+/// `run_on_main_thread`.
+#[allow(unused_variables)]
+fn apply_scaled_menu_icons(
+    app: &AppHandle,
+    menu: &Menu<tauri::Wry>,
+    icon_slots: Vec<crate::tray_menu_icons::MenuIconSlot>,
+) {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::menu::ContextMenu as _;
+        // `hpopupmenu()` internally hops to the main thread to read the handle;
+        // the returned HMENU value is a plain integer we can move into the
+        // dispatched closure.
+        let hpopupmenu = match menu.hpopupmenu() {
+            Ok(h) => h,
+            Err(e) => {
+                tracing::warn!("failed to get popup HMENU for icon scaling: {e}");
+                return;
+            }
+        };
+        if let Err(e) = app.run_on_main_thread(move || {
+            crate::tray_menu_icons::apply_dpi_scaled_icons(hpopupmenu, &icon_slots);
+        }) {
+            tracing::warn!("failed to dispatch tray icon scaling to main thread: {e}");
+        }
+    }
 }
 
 fn emit_screenshot_action_after_menu_dismissal(app: &AppHandle, event: &'static str) {
@@ -268,14 +304,18 @@ pub fn update_menu(
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return Ok(());
     };
-    tray.set_menu(Some(build_menu(
+    let (menu, icon_slots) = build_menu(
         app,
         capture_hotkey,
         board_hotkey,
         fullscreen_hotkey,
         active_window_hotkey,
         language,
-    )?))?;
+    )?;
+    // `set_menu` takes ownership; clone (cheap Arc bump) so we keep a handle to
+    // read the popup HMENU for DPI icon scaling afterward.
+    tray.set_menu(Some(menu.clone()))?;
+    apply_scaled_menu_icons(app, &menu, icon_slots);
 
     Ok(())
 }
@@ -287,7 +327,9 @@ fn build_menu(
     fullscreen_hotkey: &str,
     active_window_hotkey: &str,
     language: Language,
-) -> Result<Menu<tauri::Wry>> {
+) -> Result<(Menu<tauri::Wry>, Vec<crate::tray_menu_icons::MenuIconSlot>)> {
+    use crate::tray_menu_icons::MenuIconSlot;
+
     let icon_theme = current_menu_icon_theme(app);
     let labels = tray_labels(language);
     let capture = IconMenuItem::with_id(
@@ -356,8 +398,18 @@ fn build_menu(
         quit_menu_accelerator(),
     )?;
 
+    // Produce a per-position DPI-scaling icon slot for a menu icon, in the same
+    // order items are appended below (separators map to an empty slot). The
+    // slots let the Windows post-processor overwrite each item's fixed 16px
+    // bitmap with a DPI-scaled one; they are unused (and cheap) on other
+    // platforms.
+    let icon_slot = |icon: MenuIcon| {
+        let image = lucide_menu_icon(icon, icon_theme);
+        MenuIconSlot::icon(image.rgba().to_vec(), image.width(), image.height())
+    };
+
     if active_window_capture_menu_visible() {
-        return Ok(Menu::with_items(
+        let menu = Menu::with_items(
             app,
             &[
                 &capture,
@@ -371,7 +423,19 @@ fn build_menu(
                 &sep,
                 &quit,
             ],
-        )?);
+        )?;
+        let slots = vec![
+            icon_slot(MenuIcon::Crop),
+            icon_slot(MenuIcon::Monitor),
+            icon_slot(MenuIcon::AppWindow),
+            MenuIconSlot::none(),
+            icon_slot(MenuIcon::Settings),
+            icon_slot(MenuIcon::Refresh),
+            icon_slot(MenuIcon::Info),
+            MenuIconSlot::none(),
+            icon_slot(MenuIcon::CircleX),
+        ];
+        return Ok((menu, slots));
     }
 
     let menu = Menu::with_items(
@@ -388,7 +452,17 @@ fn build_menu(
             &quit,
         ],
     )?;
-    Ok(menu)
+    let slots = vec![
+        icon_slot(MenuIcon::Crop),
+        icon_slot(MenuIcon::Monitor),
+        MenuIconSlot::none(),
+        icon_slot(MenuIcon::Settings),
+        icon_slot(MenuIcon::Refresh),
+        icon_slot(MenuIcon::Info),
+        MenuIconSlot::none(),
+        icon_slot(MenuIcon::CircleX),
+    ];
+    Ok((menu, slots))
 }
 
 #[derive(Clone, Copy)]
