@@ -195,6 +195,34 @@ pub fn reactivate_then_hide_overlays_macos(
     }
 }
 
+/// End a normal capture without explicitly activating another application.
+/// Activating the previously-frontmost app with `ActivateAllWindows` rewrites
+/// its window stack across every display (most visibly for Finder). Deactivate
+/// Flashot first, then hide the overlays in the same main-thread task so macOS
+/// can restore focus while preserving the other application's window order.
+pub fn deactivate_then_hide_overlays_macos(app: &AppHandle) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let handle = app.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        if let Err(e) = app.run_on_main_thread(move || {
+            deactivate_app_macos_on_main_thread();
+            hide_overlay_windows(&handle);
+            let _ = tx.send(());
+        }) {
+            tracing::warn!("failed to schedule capture-end deactivation: {e}");
+            return false;
+        }
+        let _ = rx.recv_timeout(std::time::Duration::from_millis(500));
+        true
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        false
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn capture_frontmost_app_on_main_thread() -> PreviousFrontmostApp {
     use objc::{
@@ -236,7 +264,7 @@ fn capture_frontmost_app_on_main_thread() -> PreviousFrontmostApp {
 }
 
 #[cfg(target_os = "macos")]
-fn activate_flashot_on_main_thread() {
+pub(crate) fn activate_flashot_on_main_thread() {
     use objc::{
         runtime::{Class, Object, Sel, YES},
         Message,
@@ -281,12 +309,11 @@ fn reactivate_previous_app_on_main_thread(raw: *mut objc::runtime::Object) {
         return;
     }
 
-    // NSApplicationActivateAllWindows = 1 << 0
-    // NSApplicationActivateIgnoringOtherApps = 1 << 1
-    // AllWindows pulls the restored app's entire window stack forward so it
-    // reliably covers Flashot's utility windows; IgnoringOtherApps forces the
-    // handoff even if another app grabbed focus mid-session.
-    const OPTIONS: usize = (1 << 0) | (1 << 1);
+    // Default activation brings forward only the application's main and key
+    // windows. Never use NSApplicationActivateAllWindows here: when Finder was
+    // frontmost because the desktop was active, that option pulls unrelated
+    // Finder windows on other displays above the user's existing workspace.
+    const OPTIONS: usize = 0;
 
     unsafe {
         let app = &*raw;
@@ -369,6 +396,41 @@ pub(crate) fn hide_overlay_windows(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn normal_capture_end_deactivates_before_hiding_overlays() {
+        let source = include_str!("app_activation.rs").replace("\r\n", "\n");
+        let implementation = source.split("#[cfg(test)]").next().unwrap();
+        let start = implementation
+            .find("pub fn deactivate_then_hide_overlays_macos")
+            .expect("deactivation entrypoint missing");
+        let end = implementation[start..]
+            .find("fn capture_frontmost_app_on_main_thread")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &implementation[start..end];
+
+        let deactivate = body.find("deactivate_app_macos_on_main_thread();").unwrap();
+        let hide = body.find("hide_overlay_windows(&handle);").unwrap();
+        assert!(deactivate < hide);
+        assert!(!body.contains("reactivate_previous_app_on_main_thread"));
+    }
+
+    #[test]
+    fn explicit_focus_restore_does_not_activate_all_windows() {
+        let source = include_str!("app_activation.rs").replace("\r\n", "\n");
+        let implementation = source.split("#[cfg(test)]").next().unwrap();
+        let start = implementation
+            .find("fn reactivate_previous_app_on_main_thread")
+            .expect("reactivation helper missing");
+        let end = implementation[start..]
+            .find("fn deactivate_app_macos_on_main_thread")
+            .map(|idx| start + idx)
+            .unwrap();
+        let body = &implementation[start..end];
+
+        assert!(body.contains("const OPTIONS: usize = 0;"));
+    }
+
     #[test]
     fn capture_restore_reactivates_previous_app_before_hiding_overlays() {
         let source = include_str!("app_activation.rs").replace("\r\n", "\n");

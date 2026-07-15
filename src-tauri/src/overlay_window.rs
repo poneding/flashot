@@ -38,6 +38,54 @@ pub fn show_capture_overlay(window: &WebviewWindow) -> Result<()> {
     })
 }
 
+pub fn reveal_capture_overlays(app: &AppHandle, monitor_ids: &[u32]) -> Result<()> {
+    tracing::info!("revealing capture overlays: monitors={monitor_ids:?}");
+    let windows = monitor_ids
+        .iter()
+        .filter_map(|monitor_id| app.get_webview_window(&format!("overlay-{monitor_id}")))
+        .collect::<Vec<_>>();
+
+    #[cfg(target_os = "macos")]
+    {
+        let (tx, rx) = mpsc::sync_channel(1);
+        app.run_on_main_thread(move || {
+            let result = (|| {
+                crate::app_activation::activate_flashot_on_main_thread();
+                push_crosshair_cursor();
+                for window in &windows {
+                    set_platform_overlay_alpha(window, 1.0)?;
+                    set_platform_cursor_events(window, true)?;
+                    display_platform_overlay_if_needed(window)?;
+                    bring_platform_overlay_to_front(window)?;
+                }
+                push_crosshair_cursor();
+                Ok(())
+            })();
+            let _ = tx.send(result);
+        })?;
+        let result = rx
+            .recv()
+            .map_err(|_| anyhow!("reveal capture overlays did not return from the main thread"))?;
+        if result.is_ok() {
+            tracing::info!("capture overlays revealed");
+        }
+        result
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        for window in windows {
+            #[cfg(not(target_os = "linux"))]
+            window.set_ignore_cursor_events(false)?;
+            show_capture_overlay(&window)?;
+            if capture_overlay_should_take_focus() {
+                let _ = window.set_focus();
+            }
+        }
+        Ok(())
+    }
+}
+
 pub fn prepare_overlay_text_input(window: &WebviewWindow) -> Result<()> {
     run_on_window_main_thread(window, "prepare overlay text input", |window| {
         prepare_platform_text_input(window)
@@ -75,6 +123,13 @@ pub fn capture_overlay_accepts_first_mouse() -> bool {
 pub fn push_capture_cursor() {
     #[cfg(target_os = "macos")]
     push_crosshair_cursor();
+}
+
+pub fn push_capture_cursor_for_style(cursor: &str) {
+    #[cfg(target_os = "macos")]
+    push_macos_cursor(cursor);
+    #[cfg(not(target_os = "macos"))]
+    let _ = cursor;
 }
 
 #[cfg(target_os = "macos")]
@@ -174,7 +229,53 @@ fn configure_platform_overlay(
 }
 
 #[cfg(target_os = "macos")]
+fn set_platform_cursor_events(window: &WebviewWindow, enabled: bool) -> Result<()> {
+    use objc::{
+        runtime::{Object, Sel, NO, YES},
+        Message,
+    };
+
+    let ns_window = window.ns_window()? as *mut Object;
+    unsafe {
+        (&*ns_window).send_message::<_, ()>(
+            Sel::register("setIgnoresMouseEvents:"),
+            (if enabled { NO } else { YES },),
+        )?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn set_platform_overlay_alpha(window: &WebviewWindow, alpha: f64) -> Result<()> {
+    use objc::{
+        runtime::{Object, Sel},
+        Message,
+    };
+
+    let ns_window = window.ns_window()? as *mut Object;
+    unsafe {
+        (&*ns_window).send_message::<_, ()>(Sel::register("setAlphaValue:"), (alpha,))?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn display_platform_overlay_if_needed(window: &WebviewWindow) -> Result<()> {
+    use objc::{
+        runtime::{Object, Sel},
+        Message,
+    };
+
+    let ns_window = window.ns_window()? as *mut Object;
+    unsafe {
+        (&*ns_window).send_message::<_, ()>(Sel::register("displayIfNeeded"), ())?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 fn show_platform_overlay(window: &WebviewWindow) -> Result<()> {
+    set_platform_overlay_alpha(window, 1.0)?;
     bring_platform_overlay_to_front(window)?;
     push_crosshair_cursor();
     Ok(())
@@ -213,6 +314,27 @@ fn bring_platform_overlay_to_front(window: &WebviewWindow) -> Result<()> {
 /// `run_on_main_thread`, which satisfies that requirement.
 #[cfg(target_os = "macos")]
 fn push_crosshair_cursor() {
+    push_macos_cursor("crosshair");
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_cursor_selector(cursor: &str) -> &'static str {
+    match cursor {
+        "crosshair" => "crosshairCursor",
+        "text" => "IBeamCursor",
+        "move" | "grab" => "openHandCursor",
+        "grabbing" => "closedHandCursor",
+        "zoom-in" => "_zoomInCursor",
+        "nwse-resize" => "_windowResizeNorthWestSouthEastCursor",
+        "nesw-resize" => "_windowResizeNorthEastSouthWestCursor",
+        "ns-resize" => "resizeUpDownCursor",
+        "ew-resize" => "resizeLeftRightCursor",
+        _ => "arrowCursor",
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn push_macos_cursor(cursor_style: &str) {
     use objc::{
         runtime::{Class, Object, Sel},
         Message,
@@ -222,11 +344,20 @@ fn push_crosshair_cursor() {
         let Some(cursor_class) = Class::get("NSCursor") else {
             return;
         };
+        let requested_selector = Sel::register(macos_cursor_selector(cursor_style));
+        let supports_requested: bool = cursor_class
+            .send_message(Sel::register("respondsToSelector:"), (requested_selector,))
+            .unwrap_or(false);
+        let cursor_selector = if supports_requested {
+            requested_selector
+        } else {
+            Sel::register("arrowCursor")
+        };
         let cursor: *mut Object =
-            match cursor_class.send_message(Sel::register("crosshairCursor"), ()) {
+            match cursor_class.send_message(cursor_selector, ()) {
                 Ok(cursor) => cursor,
                 Err(e) => {
-                    tracing::warn!("NSCursor crosshairCursor failed: {e}");
+                    tracing::warn!("NSCursor update failed for {cursor_style}: {e}");
                     return;
                 }
             };
@@ -839,6 +970,40 @@ mod tests {
             body.contains("push_crosshair_cursor();"),
             "showing a capture overlay must push the crosshair cursor without requiring app activation",
         );
+    }
+
+    #[test]
+    fn macos_capture_reveal_sets_cursor_before_mapping_windows() {
+        let source = include_str!("overlay_window.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "reveal_capture_overlays");
+
+        let activate = body
+            .find("activate_flashot_on_main_thread()")
+            .expect("capture reveal must activate Flashot for stable cursor ownership");
+        let first_cursor = body
+            .find("push_crosshair_cursor()")
+            .expect("capture reveal must set the cursor before mapping windows");
+        let cursor = body
+            .rfind("push_crosshair_cursor()")
+            .expect("capture reveal must settle the cursor");
+        let visible = body
+            .find("set_platform_overlay_alpha(window, 1.0)")
+            .expect("capture reveal must restore window opacity");
+        let front = body
+            .find("bring_platform_overlay_to_front(window)")
+            .expect("capture reveal must map the prepared window");
+        assert!(activate < first_cursor && first_cursor < visible && visible < front && front < cursor);
+        assert!(body.contains("display_platform_overlay_if_needed(window)"));
+    }
+
+    #[test]
+    fn macos_capture_cursor_maps_annotation_tool_styles() {
+        assert_eq!(super::macos_cursor_selector("crosshair"), "crosshairCursor");
+        assert_eq!(super::macos_cursor_selector("text"), "IBeamCursor");
+        assert_eq!(super::macos_cursor_selector("grab"), "openHandCursor");
+        assert_eq!(super::macos_cursor_selector("grabbing"), "closedHandCursor");
+        assert_eq!(super::macos_cursor_selector("zoom-in"), "_zoomInCursor");
+        assert_eq!(super::macos_cursor_selector("unknown"), "arrowCursor");
     }
 
     #[test]

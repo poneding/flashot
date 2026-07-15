@@ -79,6 +79,12 @@ export async function endTextInputSession(): Promise<void> {
 export async function pushCaptureCursorMacos(): Promise<void> {
   await invoke("push_capture_cursor_macos");
 }
+export async function setCaptureCursorMacos(cursor: string): Promise<void> {
+  await invoke("set_capture_cursor_macos", { cursor });
+}
+export async function captureOverlayReady(revision: string, monitorId: number): Promise<void> {
+  await invoke("capture_overlay_ready", { revision, monitorId });
+}
 export async function listSystemFonts(): Promise<string[]> {
   return await invoke<string[]>("list_system_fonts");
 }
@@ -140,6 +146,9 @@ export function onCaptureStart(cb: (p: CaptureStartPayload) => void): Promise<Un
     "capture:start",
     (e) => cb(e.payload),
   );
+}
+export function onCaptureRevealed(cb: (revision: string) => void): Promise<UnlistenFn> {
+  return listen<string>("capture:revealed", (e) => cb(e.payload));
 }
 export function onQuickShotFlash(cb: (p: QuickShotFlashPayload) => void): Promise<UnlistenFn> {
   return getCurrentWebviewWindow().listen<QuickShotFlashPayload>(

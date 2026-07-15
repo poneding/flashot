@@ -2,7 +2,7 @@ use crate::app_activation::PreviousFrontmostApp;
 use crate::scroll_stitch::ScrollStitcher;
 use crate::types::FrozenFrame;
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -22,6 +22,13 @@ struct Inner {
     /// The app that was frontmost when the session started. Restoring focus
     /// to it on session end returns focus to the app the user was in.
     previous_app: PreviousFrontmostApp,
+    capture_reveal: Option<CaptureRevealState>,
+}
+
+struct CaptureRevealState {
+    revision: String,
+    expected_monitor_ids: Vec<u32>,
+    ready_monitor_ids: HashSet<u32>,
 }
 
 #[allow(dead_code)] // `monitor_id`/`rect` are recorded for future routing/debug use
@@ -45,6 +52,7 @@ impl WindowMgr {
             inner.in_session = true;
             inner.frames.clear();
             inner.previous_app = PreviousFrontmostApp::empty();
+            inner.capture_reveal = None;
         }
         SessionGuard {
             mgr: self.clone(),
@@ -72,6 +80,50 @@ impl WindowMgr {
         self.inner.lock().in_session
     }
 
+    pub fn prepare_capture_reveal(&self, revision: String, monitor_ids: Vec<u32>) {
+        self.inner.lock().capture_reveal = Some(CaptureRevealState {
+            revision,
+            expected_monitor_ids: monitor_ids,
+            ready_monitor_ids: HashSet::new(),
+        });
+    }
+
+    pub fn mark_capture_overlay_ready(
+        &self,
+        revision: &str,
+        monitor_id: u32,
+    ) -> Option<Vec<u32>> {
+        let mut inner = self.inner.lock();
+        if !inner.in_session {
+            return None;
+        }
+        let reveal = inner.capture_reveal.as_mut()?;
+        if reveal.revision != revision || !reveal.expected_monitor_ids.contains(&monitor_id) {
+            return None;
+        }
+        reveal.ready_monitor_ids.insert(monitor_id);
+        if reveal.ready_monitor_ids.len() != reveal.expected_monitor_ids.len() {
+            return None;
+        }
+        inner
+            .capture_reveal
+            .take()
+            .map(|state| state.expected_monitor_ids)
+    }
+
+    pub fn force_capture_reveal(&self, revision: &str) -> Option<Vec<u32>> {
+        let mut inner = self.inner.lock();
+        if !inner.in_session
+            || inner.capture_reveal.as_ref().map(|state| state.revision.as_str()) != Some(revision)
+        {
+            return None;
+        }
+        inner
+            .capture_reveal
+            .take()
+            .map(|state| state.expected_monitor_ids)
+    }
+
     pub(crate) fn take_scroll(&self) -> Option<ScrollState> {
         self.inner.lock().scroll.take()
     }
@@ -93,15 +145,15 @@ impl WindowMgr {
     }
 
     pub fn end_session_deactivating_app(&self, app: &AppHandle) {
-        // Reactivate the previous app BEFORE hiding the overlay (Flashot's key
-        // window): with Flashot no longer frontmost, AppKit won't promote a
-        // utility window to key. Utility windows are pinned to the floating
-        // level by design (see `commands.rs`), so they stay where the user
-        // expects regardless of capture.
-        let previous = self.take_previous_app();
+        // Do not explicitly reactivate the previously-frontmost application
+        // here. In particular, activating Finder can pull Finder windows from
+        // other displays to the front. Deactivating Flashot before hiding its
+        // overlays lets macOS restore focus without rewriting another app's
+        // window stack.
+        let _previous = self.take_previous_app();
         self.clear_session_state();
         crate::set_capture_session_hotkeys(app, false);
-        if !crate::app_activation::reactivate_then_hide_overlays_macos(app, &previous) {
+        if !crate::app_activation::deactivate_then_hide_overlays_macos(app) {
             crate::app_activation::hide_overlay_windows(app);
         }
         let _ = app.emit("capture:end", ());
@@ -136,6 +188,7 @@ impl WindowMgr {
             s.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
         }
         inner.in_session = false;
+        inner.capture_reveal = None;
     }
 
     fn end(&self, app: &AppHandle) {
@@ -233,6 +286,31 @@ mod tests {
     }
 
     #[test]
+    fn capture_reveal_waits_for_every_monitor() {
+        let mgr = WindowMgr::new();
+        mgr.inner.lock().in_session = true;
+        mgr.prepare_capture_reveal("revision-1".into(), vec![7, 9]);
+
+        assert_eq!(mgr.mark_capture_overlay_ready("revision-1", 7), None);
+        assert_eq!(
+            mgr.mark_capture_overlay_ready("revision-1", 9),
+            Some(vec![7, 9])
+        );
+        assert_eq!(mgr.force_capture_reveal("revision-1"), None);
+    }
+
+    #[test]
+    fn capture_reveal_ignores_stale_revisions_and_has_a_timeout_path() {
+        let mgr = WindowMgr::new();
+        mgr.inner.lock().in_session = true;
+        mgr.prepare_capture_reveal("revision-2".into(), vec![3, 4]);
+
+        assert_eq!(mgr.mark_capture_overlay_ready("revision-1", 3), None);
+        assert_eq!(mgr.force_capture_reveal("revision-1"), None);
+        assert_eq!(mgr.force_capture_reveal("revision-2"), Some(vec![3, 4]));
+    }
+
+    #[test]
     fn clear_session_state_cancels_active_scroll() {
         use crate::scroll_stitch::{ScrollStitcher, StitchConfig};
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -285,12 +363,13 @@ mod tests {
     }
 
     #[test]
-    fn capture_end_reactivates_previous_app_before_hiding_overlays_on_macos() {
+    fn capture_end_deactivates_without_reordering_previous_app_windows() {
         let source = include_str!("window_mgr.rs").replace("\r\n", "\n");
         let body = function_body(&source, "end_session_deactivating_app");
         assert!(
-            body.contains("reactivate_then_hide_overlays_macos"),
-            "macOS capture end must reactivate the previous frontmost app and hide overlays in one main-thread task, reactivate first",
+            body.contains("deactivate_then_hide_overlays_macos")
+                && !body.contains("reactivate_then_hide_overlays_macos"),
+            "normal capture end must deactivate Flashot without activating every window of the previous app",
         );
     }
 

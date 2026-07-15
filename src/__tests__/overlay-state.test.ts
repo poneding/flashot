@@ -69,6 +69,21 @@ describe("overlay committed selection editing", () => {
   });
 });
 
+describe("overlay primary capture screen", () => {
+  beforeEach(reset);
+
+  it("starts with the full monitor as the undimmed primary target", () => {
+    useOverlay.getState().start({
+      ...capture,
+      primaryCaptureScreen: true,
+    });
+
+    expect(useOverlay.getState().primaryCaptureScreen).toBe(true);
+    expect(useOverlay.getState().hoverRect).toEqual({ x: 0, y: 0, width: 800, height: 600 });
+    expect(useOverlay.getState().hoverTarget).toBe("monitor");
+  });
+});
+
 describe("overlay board session", () => {
   beforeEach(reset);
 

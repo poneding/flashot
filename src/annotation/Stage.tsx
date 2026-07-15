@@ -85,6 +85,7 @@ type Props = {
   frameSourceRect?: Rect | null;
   interacting?: boolean;
   selectionEditable?: boolean;
+  onCursorChange?: (cursor: string) => void;
 };
 
 let stage: Konva.Stage | null = null;
@@ -95,6 +96,7 @@ let markerSelectionGroup: Konva.Group | null = null;
 let magnifierSourceImage: HTMLImageElement | null = null;
 let magnifierScaleFactor = 1;
 let magnifierSourceRect: Rect | null = null;
+let stageCursorObserver: ((cursor: string) => void) | null = null;
 // Wheel resize accumulates raw deltaY across events so one trackpad gesture
 // (which fires many small-delta events) advances at a controlled pace instead
 // of racing. One size step is taken each time the accumulator crosses the
@@ -799,8 +801,10 @@ function replaceRenderedObjectNode(obj: AnnotationObject): Konva.Node | null {
 }
 
 function setStageCursor(cursor: string) {
+  const resolvedCursor = cursorWithColorPickerOverride(cursor);
   const container = stage?.container();
-  if (container) container.style.cursor = cursorWithColorPickerOverride(cursor);
+  if (container) container.style.cursor = resolvedCursor;
+  stageCursorObserver?.(resolvedCursor);
 }
 
 function cursorWithColorPickerOverride(cursor: string): string {
@@ -1166,6 +1170,7 @@ export function AnnotationStage({
   frameSourceRect,
   interacting,
   selectionEditable = true,
+  onCursorChange,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeTool = useAnnotation((s) => s.activeTool);
@@ -1178,6 +1183,10 @@ export function AnnotationStage({
   const textFlushRef = useRef<(() => void) | null>(null);
   const textKeyRef = useRef(0);
   const markerKeyRef = useRef(0);
+  const stagePointerInsideRef = useRef(false);
+  const lastNativeCursorRef = useRef<string | null>(null);
+  const cursorChangeRef = useRef(onCursorChange);
+  cursorChangeRef.current = onCursorChange;
   const viewportOrigin = viewportOriginForStage(containerRef.current, selection);
   const needsMagnifierSource = activeTool === "magnifier" || hasMagnifierObjects;
 
@@ -1206,6 +1215,18 @@ export function AnnotationStage({
     if (!update) return;
     if (update.kind === "style") updateSelectedStyle(update.updates);
     else resizeObject(obj.id, update.updates);
+  }, []);
+
+  useEffect(() => {
+    const observer = (cursor: string) => {
+      if (!stagePointerInsideRef.current || lastNativeCursorRef.current === cursor) return;
+      lastNativeCursorRef.current = cursor;
+      cursorChangeRef.current?.(cursor);
+    };
+    stageCursorObserver = observer;
+    return () => {
+      if (stageCursorObserver === observer) stageCursorObserver = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -1366,6 +1387,10 @@ export function AnnotationStage({
       focusPreview = null;
     };
   }, [onWheel]);
+
+  useEffect(() => {
+    setStageCursor(stageCursorForTool(activeTool, activeStyle, colorPickerVisible));
+  }, [activeTool, activeStyle, colorPickerVisible]);
 
   useEffect(() => {
     magnifierScaleFactor = scaleFactor;
@@ -1628,6 +1653,18 @@ export function AnnotationStage({
       <div
         ref={containerRef}
         data-annotation-stage
+        onMouseEnter={() => {
+          stagePointerInsideRef.current = true;
+          lastNativeCursorRef.current = null;
+          setStageCursor(stageCursorForTool(activeTool, activeStyle, colorPickerVisible));
+        }}
+        onMouseLeave={() => {
+          stagePointerInsideRef.current = false;
+          if (lastNativeCursorRef.current !== "default") {
+            lastNativeCursorRef.current = "default";
+            cursorChangeRef.current?.("default");
+          }
+        }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}

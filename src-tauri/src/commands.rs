@@ -789,6 +789,39 @@ pub fn push_capture_cursor_macos(app: AppHandle) {
 }
 
 #[tauri::command]
+pub fn set_capture_cursor_macos(app: AppHandle, cursor: String) {
+    #[cfg(target_os = "macos")]
+    {
+        if let Err(e) = app.run_on_main_thread(move || {
+            crate::overlay_window::push_capture_cursor_for_style(&cursor)
+        }) {
+            tracing::warn!("failed to dispatch capture cursor update: {e}");
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, cursor);
+}
+
+#[tauri::command]
+pub fn capture_overlay_ready(
+    revision: String,
+    monitor_id: u32,
+    app: AppHandle,
+    mgr: State<'_, Arc<WindowMgr>>,
+) {
+    tracing::info!("capture overlay ready: revision={revision} monitor={monitor_id}");
+    let Some(monitor_ids) = mgr.mark_capture_overlay_ready(&revision, monitor_id) else {
+        return;
+    };
+    tracing::info!("all capture overlays ready: revision={revision}");
+    if let Err(e) = crate::overlay_window::reveal_capture_overlays(&app, &monitor_ids) {
+        tracing::warn!("failed to reveal ready capture overlays: {e}");
+        return;
+    }
+    let _ = app.emit("capture:revealed", revision);
+}
+
+#[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }

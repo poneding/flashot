@@ -252,6 +252,38 @@ describe("AnnotationStage selection movement", () => {
     expect(stageNode.style.cursor).toBe("text");
   });
 
+  it("keeps the native cursor synchronized while the pointer is inside the stage", () => {
+    const onCursorChange = vi.fn();
+    useAnnotation.getState().setActiveTool("text");
+    const { container } = render(
+      <AnnotationStage
+        selection={selection}
+        scaleFactor={2}
+        onCursorChange={onCursorChange}
+      />,
+    );
+    const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;
+
+    fireEvent.mouseEnter(stageNode);
+    expect(onCursorChange).toHaveBeenLastCalledWith("text");
+    const callsAfterEnter = onCursorChange.mock.calls.length;
+
+    act(() => useAnnotation.getState().setActiveStyle({ color: "#0099ff" }));
+    expect(onCursorChange).toHaveBeenCalledTimes(callsAfterEnter);
+
+    act(() => useAnnotation.getState().setActiveTool("eraser"));
+    expect(onCursorChange).toHaveBeenLastCalledWith("grab");
+
+    act(() => {
+      useAnnotation.getState().setActiveTool("magnifier");
+      useAnnotation.getState().setActiveStyle({ magnifierShape: "circle" });
+    });
+    expect(onCursorChange).toHaveBeenLastCalledWith("zoom-in");
+
+    fireEvent.mouseLeave(stageNode);
+    expect(onCursorChange).toHaveBeenLastCalledWith("default");
+  });
+
   it("lets empty committed screenshot drags move the whole selection", () => {
     const { container } = render(<MoveHarness />);
     const stageNode = container.querySelector("[data-annotation-stage]") as HTMLElement;

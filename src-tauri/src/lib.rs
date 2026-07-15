@@ -290,6 +290,8 @@ pub fn run() {
             commands::open_about_window,
             commands::open_updater_window,
             commands::push_capture_cursor_macos,
+            commands::set_capture_cursor_macos,
+            commands::capture_overlay_ready,
             commands::quit_app,
             commands::list_system_fonts,
             commands::pin_image,
@@ -719,6 +721,10 @@ struct CaptureStartPayload {
     session_mode: CaptureSessionMode,
     #[serde(rename = "monitorId")]
     monitor_id: u32,
+    #[serde(rename = "frameRevision")]
+    frame_revision: String,
+    #[serde(rename = "primaryCaptureScreen")]
+    primary_capture_screen: bool,
     #[serde(rename = "frameUrl")]
     frame_url: String,
     #[serde(rename = "monitorRect")]
@@ -804,110 +810,111 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
 
     let frame_revision = next_frame_revision();
 
-    // Process each monitor
-    tracing::info!("run_capture: processing {} monitors", monitors.len());
-    for (mon, frame) in monitors.iter().zip(frames) {
-        tracing::info!("run_capture: processing monitor {}", mon.id);
+    // PNG encoding dominates the post-capture latency on Retina displays.
+    // Encode every monitor concurrently, then preload all hidden overlays
+    // before revealing any of them so multi-display freeze is synchronized.
+    tracing::info!("run_capture: encoding {} monitor frames", frames.len());
+    let mut encode_tasks = tokio::task::JoinSet::new();
+    for frame in frames {
+        let frame_path = frame_asset_path(&cache_dir, frame.monitor_id, frame_revision);
+        encode_tasks.spawn_blocking(move || {
+            save_frame_as_png(&frame, &frame_path).context("Failed to save frame as PNG")?;
+            Ok::<_, anyhow::Error>(frame)
+        });
+    }
 
-        // Save frame as PNG before storing (store_frame moves ownership)
-        let frame_path = frame_asset_path(&cache_dir, mon.id, frame_revision);
-        tracing::info!("run_capture: saving frame to {:?}", frame_path);
-        save_frame_as_png(&frame, &frame_path).context("Failed to save frame as PNG")?;
-        tracing::info!("run_capture: frame saved successfully");
+    let mut encoded_frames = std::collections::HashMap::new();
+    while let Some(result) = encode_tasks.join_next().await {
+        let frame = result.context("Frame encoding task panicked")??;
+        encoded_frames.insert(frame.monitor_id, frame);
+    }
 
-        tracing::info!("run_capture: storing frame for monitor {}", mon.id);
+    let revision = frame_revision.to_string();
+    let cursor_display = current_cursor_display(&app, &monitors);
+    let primary_monitor_id = active_display_monitor(&monitors, cursor_display, None)
+        .map(|monitor| monitor.id)
+        .or_else(|| monitors.first().map(|monitor| monitor.id));
+    let corner_radius = settings_store::load()
+        .map(|s| s.corner_radius.min(60))
+        .unwrap_or(0);
+    let mut prepared_overlays = Vec::new();
+
+    for mon in &monitors {
+        let frame = encoded_frames
+            .remove(&mon.id)
+            .with_context(|| format!("Encoded frame for monitor {} is missing", mon.id))?;
         mgr.store_frame(frame);
 
-        // Convert to asset:// URL
-        let asset_url = frame_asset_url(&cache_dir, mon.id, frame_revision);
-        tracing::info!("run_capture: asset URL: {}", asset_url);
-
-        // Show overlay window
         let label = overlay_label(mon.id);
-        tracing::info!("run_capture: showing overlay window: {}", label);
-        match app.get_webview_window(&label) {
-            Some(window) => {
-                window
-                    .set_ignore_cursor_events(false)
-                    .context("Failed to enable cursor events")?;
-                overlay_window::show_capture_overlay(&window)
-                    .context("Failed to show overlay window")?;
-                if overlay_window::capture_overlay_should_take_focus()
-                    && let Err(e) = window.set_focus()
-                {
-                    tracing::warn!("run_capture: failed to focus overlay window {label}: {e}");
-                }
-                tracing::info!("run_capture: overlay window shown");
-
-                // Filter windows overlapping this monitor. Window rects and the
-                // monitor rect are physical on Windows; the overlay webview
-                // measures in logical CSS px, so convert both to logical before
-                // emitting.
-                let local_windows: Vec<_> = windows
-                    .iter()
-                    .filter(|w| rects_overlap(&w.rect, &mon.rect))
-                    .map(|w| types::WindowRect {
-                        rect: overlay_logical_rect(
-                            translate_to_monitor(&w.rect, &mon.rect),
-                            mon.scale_factor,
-                        ),
-                        title: w.title.clone(),
-                        app_name: w.app_name.clone(),
-                        pid: w.pid,
-                    })
-                    .collect();
-                tracing::info!(
-                    "run_capture: {} windows overlap monitor {}",
-                    local_windows.len(),
-                    mon.id
-                );
-
-                let corner_radius = settings_store::load()
-                    .map(|s| s.corner_radius.min(60))
-                    .unwrap_or(0);
-                tracing::info!("run_capture: emitting capture:start event");
-                app.emit_to(
-                    capture_start_target(&label),
-                    "capture:start",
-                    CaptureStartPayload {
-                        session_mode: CaptureSessionMode::Capture,
-                        monitor_id: mon.id,
-                        frame_url: asset_url,
-                        monitor_rect: overlay_logical_rect(mon.rect, mon.scale_factor),
-                        scale_factor: mon.scale_factor,
-                        corner_radius,
-                        toolbar_top_inset: 0.0,
-                        windows: local_windows,
-                    },
-                )
-                .context("Failed to emit capture:start event")?;
-                tracing::info!("run_capture: capture:start event emitted");
-            }
-            _ => {
-                tracing::warn!("run_capture: overlay window {} not found", label);
-            }
+        if app.get_webview_window(&label).is_none() {
+            tracing::warn!("run_capture: overlay window {} not found", label);
+            continue;
         }
+
+        let local_windows = windows
+            .iter()
+            .filter(|w| rects_overlap(&w.rect, &mon.rect))
+            .map(|w| types::WindowRect {
+                rect: overlay_logical_rect(
+                    translate_to_monitor(&w.rect, &mon.rect),
+                    mon.scale_factor,
+                ),
+                title: w.title.clone(),
+                app_name: w.app_name.clone(),
+                pid: w.pid,
+            })
+            .collect();
+        prepared_overlays.push((
+            label,
+            CaptureStartPayload {
+                session_mode: CaptureSessionMode::Capture,
+                monitor_id: mon.id,
+                frame_revision: revision.clone(),
+                primary_capture_screen: primary_monitor_id == Some(mon.id),
+                frame_url: frame_asset_url(&cache_dir, mon.id, frame_revision),
+                monitor_rect: overlay_logical_rect(mon.rect, mon.scale_factor),
+                scale_factor: mon.scale_factor,
+                corner_radius,
+                toolbar_top_inset: 0.0,
+                windows: local_windows,
+            },
+        ));
     }
 
-    // Activate Flashot so the overlay cursor is honored: macOS only displays
-    // the cursor owned by the frontmost app, so an overlay shown without
-    // activation never got its crosshair to stick. Activating here (after every
-    // overlay already covers its monitor) makes Flashot frontmost. Utility
-    // windows (Settings/About/Updater) are pinned to the floating level by
-    // design (see `commands.rs`), so activation does not visibly reshuffle
-    // them — they stay where the user expects. The original frontmost app is
-    // restored on session end. No-op off macOS.
-    app_activation::activate_flashot_for_capture(&app);
-    overlay_window::bring_all_capture_overlays_to_front(&app);
+    let monitor_ids = prepared_overlays
+        .iter()
+        .map(|(_, payload)| payload.monitor_id)
+        .collect::<Vec<_>>();
+    anyhow::ensure!(!monitor_ids.is_empty(), "No capture overlays are available");
+    mgr.prepare_capture_reveal(revision.clone(), monitor_ids.clone());
 
-    // Final cursor push after the loop: (a) backstop for monitors whose
-    // overlay window was not found above (that branch skips the per-show
-    // push), and (b) a last word after the loop's intervening work (PNG
-    // saves, event emits, window ordering) that can churn AppKit cursor
-    // state. No-op off macOS.
-    if let Err(e) = app.run_on_main_thread(overlay_window::push_capture_cursor) {
-        tracing::warn!("run_capture: failed to schedule capture cursor push: {e}");
+    for (label, payload) in prepared_overlays {
+        app.emit_to(
+            capture_start_target(&label),
+            "capture:start",
+            payload,
+        )
+        .context("Failed to emit capture:start event")?;
     }
+
+    // A failed image load must not leave the user trapped behind hidden
+    // overlays. The normal path reveals as soon as every webview reports that
+    // its frozen frame decoded; this timeout is only a recovery backstop.
+    let timeout_app = app.clone();
+    let timeout_mgr = mgr.clone();
+    let timeout_revision = revision.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let Some(monitor_ids) = timeout_mgr.force_capture_reveal(&timeout_revision) else {
+            return;
+        };
+        tracing::warn!("capture overlay preload timed out; revealing available frames");
+        if let Err(e) = overlay_window::reveal_capture_overlays(&timeout_app, &monitor_ids) {
+            tracing::warn!("failed to reveal capture overlays after timeout: {e}");
+            return;
+        }
+        let _ = timeout_app.emit("capture:revealed", timeout_revision);
+    });
 
     // Disarm the guard so it drops without ending the session. The session
     // will be ended later by crop_and_copy / crop_and_save / cancel_capture.
@@ -1008,6 +1015,8 @@ async fn run_board(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         CaptureStartPayload {
             session_mode: CaptureSessionMode::Board,
             monitor_id: monitor.id,
+            frame_revision: frame_revision.to_string(),
+            primary_capture_screen: true,
             frame_url: frame_asset_url(&cache_dir, monitor.id, frame_revision),
             monitor_rect: monitor.rect,
             scale_factor: monitor.scale_factor,
@@ -1907,49 +1916,48 @@ mod tests {
     }
 
     #[test]
-    fn capture_overlay_show_path_does_not_use_focus_activating_show() {
+    fn capture_preloads_hidden_overlays_before_reveal() {
         let source = include_str!("lib.rs").replace("\r\n", "\n");
         let body = function_body(&source, "run_capture");
 
         assert!(
-            body.contains("overlay_window::show_capture_overlay(&window)"),
-            "capture overlays must use the platform no-activation show path",
+            body.contains("mgr.prepare_capture_reveal")
+                && body.contains("\"capture:start\"")
+                && body.contains("force_capture_reveal"),
+            "capture must preload hidden overlays and wait for the shared reveal barrier",
         );
         assert!(
-            !body.contains("window.show().context(\"Failed to show overlay window\")"),
-            "Tauri show can activate the app and bring utility windows forward on macOS",
-        );
-    }
-
-    #[test]
-    fn capture_setup_ends_with_capture_cursor_push() {
-        let source = include_str!("lib.rs").replace("\r\n", "\n");
-        let body = function_body(&source, "run_capture");
-
-        assert!(
-            body.contains("overlay_window::push_capture_cursor"),
-            "run_capture must re-push the capture cursor after the overlay loop as the backstop for monitors whose per-show push was skipped",
+            !body.contains("show_capture_overlay(&window)"),
+            "no monitor overlay may be shown while another monitor is still preparing",
         );
     }
 
     #[test]
-    fn capture_reraises_overlays_after_macos_activation() {
-        let source = include_str!("lib.rs").replace("\r\n", "\n");
-        let body = function_body(&source, "run_capture");
+    fn capture_reveal_sets_cursor_in_the_same_native_phase() {
+        let source = include_str!("overlay_window.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "reveal_capture_overlays");
 
-        let activate_idx = body
-            .find("app_activation::activate_flashot_for_capture(&app)")
-            .expect("capture must activate Flashot for cursor ownership");
+        assert!(
+            body.contains("push_crosshair_cursor()"),
+            "the crosshair must be set during the synchronized native reveal",
+        );
+    }
+
+    #[test]
+    fn capture_reveal_sets_crosshair_before_mapping_overlays() {
+        let source = include_str!("overlay_window.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "reveal_capture_overlays");
+
         let raise_idx = body
-            .find("overlay_window::bring_all_capture_overlays_to_front(&app)")
-            .expect("capture must re-raise overlays after activation");
+            .find("bring_platform_overlay_to_front(window)")
+            .expect("capture must map every prepared overlay");
         let cursor_idx = body
-            .find("overlay_window::push_capture_cursor")
-            .expect("capture must push the cursor after final overlay ordering");
+            .find("push_crosshair_cursor()")
+            .expect("capture must set the cursor before overlay mapping");
 
         assert!(
-            activate_idx < raise_idx && raise_idx < cursor_idx,
-            "macOS activation can reorder native panels; overlays must be raised again before the final cursor push",
+            body.contains("activate_flashot_on_main_thread") && cursor_idx < raise_idx,
+            "screenshot reveal must establish stable cursor ownership before mapping overlays",
         );
     }
 
@@ -2016,6 +2024,21 @@ mod tests {
             body.contains("toolbar_top_inset") && body.contains("toolbarTopInset"),
             "CaptureStartPayload must carry the board-only safe-area offset",
         );
+        assert!(
+            body.contains("primary_capture_screen") && body.contains("primaryCaptureScreen"),
+            "CaptureStartPayload must identify the initial undimmed capture screen",
+        );
+    }
+
+    #[test]
+    fn screenshot_primary_screen_follows_the_cursor_display() {
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "run_capture");
+
+        assert!(body.contains("current_cursor_display(&app, &monitors)"));
+        assert!(body.contains("active_display_monitor(&monitors, cursor_display, None)"));
+        assert!(!body.contains("monitor_with_largest_overlap(&monitors, &window.rect)"));
+        assert!(body.contains("primary_capture_screen: primary_monitor_id == Some(mon.id)"));
     }
 
     #[test]

@@ -8,8 +8,10 @@ import {
   cropAndSave,
   getSettings,
   pinImage,
+  pushCaptureCursorMacos,
   requestColorCopy,
   requestColorFormatToggle,
+  setCaptureCursorMacos,
   startScrollSession,
 } from "@/lib/ipc";
 import type { CaptureStartPayload } from "@/lib/types";
@@ -27,6 +29,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const ipcListeners = vi.hoisted(() => ({
   captureStart: undefined as undefined | ((payload: CaptureStartPayload) => void),
+  captureRevealed: undefined as undefined | ((revision: string) => void),
   colorFormatToggleRequested: undefined as undefined | (() => void),
   colorCopyRequested: undefined as undefined | (() => void),
 }));
@@ -62,6 +65,10 @@ vi.mock("@/lib/ipc", () => ({
   cropAndSave: vi.fn().mockResolvedValue(null),
   getSettings: vi.fn().mockResolvedValue({ accentColor: "#0EA5E9" }),
   onCaptureEnd: vi.fn().mockResolvedValue(vi.fn()),
+  onCaptureRevealed: vi.fn((cb: (revision: string) => void) => {
+    ipcListeners.captureRevealed = cb;
+    return Promise.resolve(vi.fn());
+  }),
   onCaptureStart: vi.fn((cb: (payload: CaptureStartPayload) => void) => {
     ipcListeners.captureStart = cb;
     return Promise.resolve(vi.fn());
@@ -83,6 +90,7 @@ vi.mock("@/lib/ipc", () => ({
   requestColorCopy: vi.fn().mockResolvedValue(undefined),
   requestColorFormatToggle: vi.fn().mockResolvedValue(undefined),
   releaseSelection: vi.fn().mockResolvedValue(undefined),
+  setCaptureCursorMacos: vi.fn().mockResolvedValue(undefined),
   startScrollSession: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -106,6 +114,7 @@ vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
 const capture: CaptureStartPayload = {
   sessionMode: "capture",
   monitorId: 1,
+  frameRevision: "revision-1",
   frameUrl: "asset://localhost//Users/dp/Library/Caches/dev.flashot.app/frame_1.png",
   monitorRect: { x: 0, y: 0, width: 800, height: 600 },
   scaleFactor: 2,
@@ -124,6 +133,7 @@ describe("OverlayRoute", () => {
   beforeEach(() => {
     mockConvertFileSrc("macos");
     ipcListeners.captureStart = undefined;
+    ipcListeners.captureRevealed = undefined;
     ipcListeners.colorFormatToggleRequested = undefined;
     ipcListeners.colorCopyRequested = undefined;
     annotationStageMock.mockClear();
@@ -138,6 +148,7 @@ describe("OverlayRoute", () => {
     useAnnotation.getState().reset();
     useOverlay.getState().end();
     useOverlay.getState().start(capture);
+    useOverlay.getState().revealCapture("revision-1");
     resetColorFormat();
   });
 
@@ -157,6 +168,20 @@ describe("OverlayRoute", () => {
     expect(captureSurface?.style.background).toBe("transparent");
   });
 
+  it("does not focus or poll a hidden overlay during frame preload", async () => {
+    useOverlay.getState().start(capture);
+    vi.mocked(pushCaptureCursorMacos).mockClear();
+    vi.mocked(currentCursorPointInWindow).mockClear();
+
+    render(<OverlayRoute />);
+    await act(async () => {});
+
+    expect(webviewWindowMock.setFocus).not.toHaveBeenCalled();
+    expect(webviewWindowMock.setCursorIcon).not.toHaveBeenCalled();
+    expect(pushCaptureCursorMacos).not.toHaveBeenCalled();
+    expect(currentCursorPointInWindow).not.toHaveBeenCalled();
+  });
+
   it("draws a full-screen mask before this overlay owns a detected target", () => {
     const { container } = render(<OverlayRoute />);
     const fullScreenMask = Array.from(container.querySelectorAll("div")).find((element) => {
@@ -171,6 +196,17 @@ describe("OverlayRoute", () => {
     });
 
     expect(fullScreenMask).toBeDefined();
+  });
+
+  it("reveals the primary capture screen without a full-screen dim flash", () => {
+    useOverlay.getState().start({ ...capture, primaryCaptureScreen: true });
+    useOverlay.getState().revealCapture("revision-1");
+
+    const { container } = render(<OverlayRoute />);
+    const captureSurface = container.firstElementChild as HTMLElement;
+
+    expect(container.querySelector('[data-dim-mask="full"]')).toBeNull();
+    expect(captureSurface.style.cursor).toBe("crosshair");
   });
 
   it("renders an immutable full-screen board without screenshot selection chrome", async () => {
@@ -536,6 +572,63 @@ describe("OverlayRoute", () => {
     await waitFor(() => {
       expect(webviewWindowMock.setCursorIcon).toHaveBeenCalledWith("default");
     });
+  });
+
+  it("syncs annotation cursors to both the window and macOS AppKit", async () => {
+    useOverlay.getState().commit({ x: 100, y: 120, width: 200, height: 160 });
+    render(<OverlayRoute />);
+
+    await waitFor(() => expect(annotationStageMock).toHaveBeenCalled());
+    const onCursorChange = annotationStageMock.mock.calls.at(-1)?.[0].onCursorChange as
+      | ((cursor: string) => void)
+      | undefined;
+    expect(onCursorChange).toBeTypeOf("function");
+
+    webviewWindowMock.setCursorIcon.mockClear();
+    vi.mocked(setCaptureCursorMacos).mockClear();
+    act(() => onCursorChange?.("text"));
+    act(() => onCursorChange?.("grab"));
+    act(() => onCursorChange?.("zoom-in"));
+
+    expect(webviewWindowMock.setCursorIcon).toHaveBeenNthCalledWith(1, "text");
+    expect(webviewWindowMock.setCursorIcon).toHaveBeenNthCalledWith(2, "grab");
+    expect(webviewWindowMock.setCursorIcon).toHaveBeenNthCalledWith(3, "zoomIn");
+    expect(vi.mocked(setCaptureCursorMacos).mock.calls).toEqual([
+      ["text"],
+      ["grab"],
+      ["zoom-in"],
+    ]);
+  });
+
+  it("pushes crosshair immediately before the first cursor-owner poll", () => {
+    vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => { }));
+    render(<OverlayRoute />);
+
+    expect(pushCaptureCursorMacos).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not repeatedly push crosshair from an overlay outside the cursor display", async () => {
+    vi.useFakeTimers();
+    vi.mocked(currentCursorPointInWindow).mockResolvedValue(null);
+    render(<OverlayRoute />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120);
+    });
+
+    expect(pushCaptureCursorMacos).toHaveBeenCalledTimes(1);
+  });
+
+  it("globally reinforces crosshair only for the hover overlay under the cursor", async () => {
+    vi.useFakeTimers();
+    vi.mocked(currentCursorPointInWindow).mockResolvedValue({ x: 120, y: 80 });
+    render(<OverlayRoute />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120);
+    });
+
+    expect(pushCaptureCursorMacos).toHaveBeenCalledTimes(2);
   });
 
   it("broadcasts hover color format shortcuts instead of mutating the focused overlay", () => {

@@ -1,4 +1,5 @@
 import { useReleasableFrameSource } from "@/lib/frame-source";
+import { captureOverlayReady } from "@/lib/ipc";
 import {
   PREVIEW_IMAGE_ADJUSTMENTS_FILTER_ID,
   frozenLayerFilterForImageAdjustments,
@@ -48,6 +49,9 @@ function saturationMatrix(factor: number): string {
 
 export function FrozenLayer() {
   const url = useOverlay((s) => s.frameUrl);
+  const frameRevision = useOverlay((s) => s.frameRevision);
+  const monitorId = useOverlay((s) => s.monitorId);
+  const sessionMode = useOverlay((s) => s.sessionMode);
   const mode = useOverlay((s) => s.mode);
   const imageAdjustments = useOverlay((s) => s.imageAdjustments);
   const monitorRect = useOverlay((s) => s.monitorRect);
@@ -82,6 +86,12 @@ export function FrozenLayer() {
         src={source}
         alt=""
         data-frozen-layer
+        onLoad={() => {
+          if (sessionMode !== "capture" || !frameRevision || monitorId == null) return;
+          captureOverlayReady(frameRevision, monitorId).catch(() => {
+            /* the backend timeout still reveals the capture */
+          });
+        }}
         crossOrigin="anonymous"
         draggable={false}
         style={{

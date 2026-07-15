@@ -23,6 +23,8 @@ export type MonitorInfo = {
 export type CaptureStartPayload = {
   sessionMode: "capture" | "board";
   monitorId: number;
+  frameRevision?: string;
+  primaryCaptureScreen?: boolean;
   frameUrl: string;          // tauri asset:// url
   monitorRect: Rect;
   scaleFactor: number;

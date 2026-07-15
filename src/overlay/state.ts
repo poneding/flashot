@@ -26,6 +26,9 @@ type State = {
   sessionMode: CaptureStartPayload["sessionMode"];
   mode: Mode;
   monitorId: number | null;
+  frameRevision: string | null;
+  captureRevealed: boolean;
+  primaryCaptureScreen: boolean;
   monitorRect: Rect | null;
   scaleFactor: number;
   frameUrl: string | null;
@@ -47,6 +50,7 @@ type State = {
 
 type Actions = {
   start: (p: CaptureStartPayload) => void;
+  revealCapture: (revision: string) => void;
   setCursor: (p: Point) => void;
   setHover: (r: Rect | null, target?: HoverTarget) => void;
   clearHover: () => void;
@@ -140,6 +144,9 @@ export const useOverlay = create<State & Actions>((set, get) => ({
   sessionMode: "capture",
   mode: "idle",
   monitorId: null,
+  frameRevision: null,
+  captureRevealed: false,
+  primaryCaptureScreen: false,
   monitorRect: null,
   scaleFactor: 1,
   frameUrl: null,
@@ -162,17 +169,23 @@ export const useOverlay = create<State & Actions>((set, get) => ({
     const boardSelection = p.sessionMode === "board"
       ? localMonitorBounds(p.monitorRect)
       : null;
+    const primaryHover = p.sessionMode === "capture" && p.primaryCaptureScreen
+      ? localMonitorBounds(p.monitorRect)
+      : null;
     set({
       sessionMode: p.sessionMode,
       mode: p.sessionMode === "board" ? "committed" : "hover",
       monitorId: p.monitorId,
+      frameRevision: p.frameRevision ?? null,
+      captureRevealed: p.sessionMode === "board",
+      primaryCaptureScreen: p.sessionMode === "capture" && !!p.primaryCaptureScreen,
       monitorRect: p.monitorRect,
       scaleFactor: p.scaleFactor,
       frameUrl: p.frameUrl,
       windows: p.sessionMode === "board" ? [] : p.windows,
       cursor: null,
-      hoverRect: null,
-      hoverTarget: null,
+      hoverRect: primaryHover,
+      hoverTarget: primaryHover ? "monitor" : null,
       selection: boardSelection,
       dragStart: null,
       selectionInteraction: null,
@@ -185,6 +198,12 @@ export const useOverlay = create<State & Actions>((set, get) => ({
         : 0,
       imageAdjustments: DEFAULT_IMAGE_ADJUSTMENTS,
     });
+  },
+
+  revealCapture: (revision) => {
+    const state = get();
+    if (state.frameRevision !== revision || state.captureRevealed) return;
+    set({ captureRevealed: true });
   },
 
   setCursor: (p) => {
@@ -344,6 +363,9 @@ export const useOverlay = create<State & Actions>((set, get) => ({
       sessionMode: "capture",
       mode: "idle",
       monitorId: null,
+      frameRevision: null,
+      captureRevealed: false,
+      primaryCaptureScreen: false,
       monitorRect: null,
       frameUrl: null,
       windows: [],

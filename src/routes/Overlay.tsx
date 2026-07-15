@@ -8,6 +8,7 @@ import {
   cropAndCopy,
   cropAndSave,
   onCaptureEnd,
+  onCaptureRevealed,
   onCaptureStart,
   onColorCopyRequested,
   onColorFormatToggleRequested,
@@ -19,6 +20,7 @@ import {
   releaseSelection,
   requestColorCopy,
   requestColorFormatToggle,
+  setCaptureCursorMacos,
   startScrollSession,
 } from "@/lib/ipc";
 import type { Rect } from "@/lib/types";
@@ -106,6 +108,12 @@ function nativeCursorIcon(cursor: string): CursorIcon {
       return "text";
     case "move":
       return "move";
+    case "grab":
+      return "grab";
+    case "grabbing":
+      return "grabbing";
+    case "zoom-in":
+      return "zoomIn";
     case "nwse-resize":
       return "nwseResize";
     case "nesw-resize":
@@ -127,10 +135,18 @@ function setNativeOverlayCursor(cursor: string) {
     });
 }
 
+function setActiveAnnotationCursor(cursor: string) {
+  setNativeOverlayCursor(cursor);
+  setCaptureCursorMacos(cursor).catch(() => {
+    /* best effort; the window cursor remains as fallback */
+  });
+}
+
 export function OverlayRoute() {
   useStoredAccentColor();
   const locale = useStoredLanguage();
   const start = useOverlay((s) => s.start);
+  const revealCapture = useOverlay((s) => s.revealCapture);
   const end = useOverlay((s) => s.end);
   const startScroll = useOverlay((s) => s.startScroll);
   const activateScroll = useOverlay((s) => s.activateScroll);
@@ -143,6 +159,7 @@ export function OverlayRoute() {
   const updateSelectionInteraction = useOverlay((s) => s.updateSelectionInteraction);
   const finishSelectionInteraction = useOverlay((s) => s.finishSelectionInteraction);
   const mode = useOverlay((s) => s.mode);
+  const captureRevealed = useOverlay((s) => s.captureRevealed);
   const sessionMode = useOverlay((s) => s.sessionMode);
   const monitorId = useOverlay((s) => s.monitorId);
   const selection = useOverlay((s) => s.selection);
@@ -150,6 +167,7 @@ export function OverlayRoute() {
   const selectionInteraction = useOverlay((s) => s.selectionInteraction);
   const colorPickerVisible = useOverlay((s) => s.colorPickerVisible);
   const frameUrl = useOverlay((s) => s.frameUrl);
+  const frameRevision = useOverlay((s) => s.frameRevision);
   const scaleFactor = useOverlay((s) => s.scaleFactor);
   const cornerRadius = useOverlay((s) => s.cornerRadius);
   const toolbarTopInset = useOverlay((s) => s.toolbarTopInset);
@@ -157,10 +175,35 @@ export function OverlayRoute() {
   const [flashRect, setFlashRect] = useState<Rect | null>(null);
   const flashTimerRef = useRef<number | null>(null);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const initialPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const pointerMovedRef = useRef(false);
+
+  useEffect(() => {
+    initialPointerRef.current = null;
+    pointerMovedRef.current = false;
+    lastPointerRef.current = null;
+  }, [frameRevision]);
+
+  const shouldUpdateHoverForPointer = (point: { x: number; y: number }) => {
+    if (pointerMovedRef.current) return true;
+    const initial = initialPointerRef.current;
+    if (!initial) {
+      initialPointerRef.current = point;
+      useOverlay.getState().setCursor(point);
+      return false;
+    }
+    if (Math.abs(point.x - initial.x) <= 0.5 && Math.abs(point.y - initial.y) <= 0.5) {
+      useOverlay.getState().setCursor(point);
+      return false;
+    }
+    pointerMovedRef.current = true;
+    return true;
+  };
 
   useEffect(() => {
     document.body.classList.add("overlay");
     let unsubStart: undefined | (() => void);
+    let unsubRevealed: undefined | (() => void);
     let unsubEnd: undefined | (() => void);
     let unsubFlash: undefined | (() => void);
     // Wrap `start` so overlays try to own keyboard focus as soon as
@@ -172,8 +215,10 @@ export function OverlayRoute() {
         useAnnotation.getState().setActiveTool("draw");
       }
       start(payload);
-      focusCurrentOverlay();
     }).then((u) => (unsubStart = u));
+    onCaptureRevealed((revision) => {
+      revealCapture(revision);
+    }).then((u) => (unsubRevealed = u));
     onCaptureEnd(() => {
       useAnnotation.getState().reset();
       end();
@@ -194,10 +239,11 @@ export function OverlayRoute() {
         window.clearTimeout(flashTimerRef.current);
       }
       unsubStart?.();
+      unsubRevealed?.();
       unsubEnd?.();
       unsubFlash?.();
     };
-  }, [start, end]);
+  }, [start, revealCapture, end]);
 
   useEffect(() => {
     let unsubClaimed: undefined | (() => void);
@@ -339,7 +385,7 @@ export function OverlayRoute() {
   }, [mode, selection, monitorId, cornerRadius]);
 
   useEffect(() => {
-    if (mode !== "hover" || !frameUrl) return;
+    if (mode !== "hover" || !frameUrl || !captureRevealed) return;
     let cancelled = false;
     let warned = false;
 
@@ -352,6 +398,7 @@ export function OverlayRoute() {
           if (p) {
             if (!shouldUsePolledCursorPoint(p, lastPointerRef.current)) return;
             ensureCurrentOverlayFocus();
+            if (!shouldUpdateHoverForPointer(p)) return;
             state.updateHoverAt(p);
           } else {
             state.clearHover();
@@ -372,18 +419,42 @@ export function OverlayRoute() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [mode, frameUrl]);
+  }, [mode, frameUrl, captureRevealed]);
 
   // Enforce crosshair cursor on macOS during selection modes
   useEffect(() => {
-    if (mode !== "hover" && mode !== "dragging") return;
+    if (!captureRevealed || (mode !== "hover" && mode !== "dragging")) return;
+    let cancelled = false;
+    let ownerCheckInFlight = false;
+    pushCaptureCursorMacos().catch(() => {
+      /* best effort; the window cursor remains as fallback */
+    });
+    const pushForCursorOwner = () => {
+      if (ownerCheckInFlight) return;
+      ownerCheckInFlight = true;
+      currentCursorPointInWindow()
+        .then((point) => {
+          if (cancelled || !point) return;
+          const state = useOverlay.getState();
+          if (state.mode !== "hover" && state.mode !== "dragging") return;
+          if (!shouldUsePolledCursorPoint(point, lastPointerRef.current)) return;
+          return pushCaptureCursorMacos();
+        })
+        .catch(() => {
+          /* best effort */
+        })
+        .finally(() => {
+          ownerCheckInFlight = false;
+        });
+    };
     const interval = setInterval(() => {
-      pushCaptureCursorMacos().catch(() => {
-        /* best-effort */
-      });
+      pushForCursorOwner();
     }, 100);
-    return () => clearInterval(interval);
-  }, [mode]);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [mode, captureRevealed]);
 
   const handleCopy = async () => {
     if (monitorId == null || !selection) return;
@@ -465,7 +536,7 @@ export function OverlayRoute() {
     ensureOverlayFocus();
     const p = { x: e.clientX, y: e.clientY };
     lastPointerRef.current = p;
-    updateHoverAt(p);
+    if (shouldUpdateHoverForPointer(p)) updateHoverAt(p);
     const state = useOverlay.getState();
     if (state.selectionInteraction) {
       updateSelectionInteraction(p);
@@ -475,6 +546,7 @@ export function OverlayRoute() {
   };
   const onMouseLeave = () => {
     lastPointerRef.current = null;
+    if (!pointerMovedRef.current) return;
     useOverlay.getState().clearHover();
   };
   const onMouseDown = (e: React.MouseEvent) => {
@@ -544,11 +616,12 @@ export function OverlayRoute() {
   })();
 
   useEffect(() => {
+    if (sessionMode === "capture" && !captureRevealed) return;
     setNativeOverlayCursor(overlayCursor);
     return () => {
       setNativeOverlayCursor("default");
     };
-  }, [overlayCursor]);
+  }, [overlayCursor, sessionMode, captureRevealed]);
 
   if (mode === "idle") return flashRect ? <QuickShotFlash rect={flashRect} /> : null;
 
@@ -593,6 +666,7 @@ export function OverlayRoute() {
               frameSourceRect={selection}
               interacting={!!selectionInteraction}
               selectionEditable={sessionMode === "capture"}
+              onCursorChange={setActiveAnnotationCursor}
             />
             <AnnotationToolbar
               locale={locale}

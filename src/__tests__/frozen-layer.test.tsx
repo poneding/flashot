@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, waitFor } from "@testing-library/react";
-import { clearMocks, mockConvertFileSrc } from "@tauri-apps/api/mocks";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { clearMocks, mockConvertFileSrc, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FrozenLayer } from "@/overlay/FrozenLayer";
 import { useOverlay } from "@/overlay/state";
@@ -9,6 +9,7 @@ import type { CaptureStartPayload } from "@/lib/types";
 const capture: CaptureStartPayload = {
   sessionMode: "capture",
   monitorId: 3,
+  frameRevision: "revision-3",
   frameUrl: "asset://localhost//Users/dp/Library/Caches/dev.flashot.app/frame_3.png",
   monitorRect: { x: 0, y: 0, width: 800, height: 600 },
   scaleFactor: 2,
@@ -24,9 +25,14 @@ describe("FrozenLayer", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let createObjectURLMock: ReturnType<typeof vi.fn>;
   let revokeObjectURLMock: ReturnType<typeof vi.fn>;
+  let ipcCalls: Array<[string, unknown]>;
 
   beforeEach(() => {
     mockConvertFileSrc("macos");
+    ipcCalls = [];
+    mockIPC((cmd, args) => {
+      ipcCalls.push([cmd, args]);
+    });
     fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       blob: vi.fn().mockResolvedValue(new Blob(["png"], { type: "image/png" })),
@@ -82,6 +88,22 @@ describe("FrozenLayer", () => {
     unmount();
 
     expect(revokeObjectURLMock).toHaveBeenCalledWith("blob:flashot-frame");
+  });
+
+  it("reports the decoded frame before the synchronized overlay reveal", async () => {
+    const { container } = render(<FrozenLayer />);
+
+    const image = await waitFor(() => {
+      const node = container.querySelector<HTMLImageElement>("img[data-frozen-layer]");
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    fireEvent.load(image);
+
+    expect(ipcCalls).toContainEqual([
+      "capture_overlay_ready",
+      { revision: "revision-3", monitorId: 3 },
+    ]);
   });
 
   it("applies image adjustment previews through an adjusted overlay layer", async () => {
