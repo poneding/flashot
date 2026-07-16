@@ -1,7 +1,7 @@
 use crate::types::Rect;
 use anyhow::{anyhow, Result};
 use std::sync::mpsc;
-use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri::{AppHandle, CursorIcon, Manager, WebviewWindow};
 
 pub fn configure_capture_overlay(
     window: &WebviewWindow,
@@ -45,18 +45,33 @@ pub fn reveal_capture_overlays(app: &AppHandle, monitor_ids: &[u32]) -> Result<(
         .filter_map(|monitor_id| app.get_webview_window(&format!("overlay-{monitor_id}")))
         .collect::<Vec<_>>();
 
+    // Prime tao/wry's own cursor state before AppKit maps the windows. Without
+    // this, the newly-fronted WebView briefly contributes its default arrow
+    // cursor rect before the process-global NSCursor correction runs.
+    for window in &windows {
+        if let Err(e) = window.set_cursor_icon(CursorIcon::Crosshair) {
+            tracing::warn!("failed to prime capture window cursor: {e}");
+        }
+    }
+
     #[cfg(target_os = "macos")]
     {
         let (tx, rx) = mpsc::sync_channel(1);
         app.run_on_main_thread(move || {
             let result = (|| {
+                // Keep AppKit's intermediate arrow cursor invisible while
+                // ownership moves from the previous app to the capture
+                // overlays. This guard lasts only for the native reveal
+                // transaction, not for screen capture or image preloading.
+                let _cursor_visibility = PlatformCursorVisibilityGuard::hide();
                 crate::app_activation::activate_flashot_on_main_thread();
-                push_crosshair_cursor();
                 for window in &windows {
                     set_platform_overlay_alpha(window, 1.0)?;
                     set_platform_cursor_events(window, true)?;
+                    set_platform_crosshair_cursor_rect(window)?;
                     display_platform_overlay_if_needed(window)?;
                     bring_platform_overlay_to_front(window)?;
+                    set_platform_crosshair_cursor_rect(window)?;
                 }
                 push_crosshair_cursor();
                 Ok(())
@@ -84,6 +99,38 @@ pub fn reveal_capture_overlays(app: &AppHandle, monitor_ids: &[u32]) -> Result<(
         }
         Ok(())
     }
+}
+
+#[cfg(target_os = "macos")]
+struct PlatformCursorVisibilityGuard {
+    hidden: bool,
+}
+
+#[cfg(target_os = "macos")]
+impl PlatformCursorVisibilityGuard {
+    fn hide() -> Self {
+        let hidden = unsafe { CGDisplayHideCursor(0) } == 0;
+        if !hidden {
+            tracing::warn!("failed to hide cursor during capture overlay reveal");
+        }
+        Self { hidden }
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for PlatformCursorVisibilityGuard {
+    fn drop(&mut self) {
+        if self.hidden && unsafe { CGDisplayShowCursor(0) } != 0 {
+            tracing::warn!("failed to restore cursor after capture overlay reveal");
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGDisplayHideCursor(display: u32) -> i32;
+    fn CGDisplayShowCursor(display: u32) -> i32;
 }
 
 pub fn prepare_overlay_text_input(window: &WebviewWindow) -> Result<()> {
@@ -269,6 +316,38 @@ fn display_platform_overlay_if_needed(window: &WebviewWindow) -> Result<()> {
     let ns_window = window.ns_window()? as *mut Object;
     unsafe {
         (&*ns_window).send_message::<_, ()>(Sel::register("displayIfNeeded"), ())?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn set_platform_crosshair_cursor_rect(window: &WebviewWindow) -> Result<()> {
+    use objc::{
+        runtime::{Class, Object, Sel},
+        Message,
+    };
+
+    let ns_window = window.ns_window()? as *mut Object;
+    unsafe {
+        let content_view: *mut Object = (&*ns_window)
+            .send_message(Sel::register("contentView"), ())?;
+        if content_view.is_null() {
+            return Ok(());
+        }
+        let Some(cursor_class) = Class::get("NSCursor") else {
+            return Ok(());
+        };
+        let cursor: *mut Object = cursor_class
+            .send_message(Sel::register("crosshairCursor"), ())?;
+        if cursor.is_null() {
+            return Ok(());
+        }
+        let bounds: NSRect = (&*content_view).send_message(Sel::register("bounds"), ())?;
+        (&*content_view).send_message::<_, ()>(Sel::register("discardCursorRects"), ())?;
+        (&*content_view).send_message::<_, ()>(
+            Sel::register("addCursorRect:cursor:"),
+            (bounds, cursor),
+        )?;
     }
     Ok(())
 }
@@ -973,27 +1052,48 @@ mod tests {
     }
 
     #[test]
-    fn macos_capture_reveal_sets_cursor_before_mapping_windows() {
+    fn macos_capture_reveal_hides_intermediate_cursor_until_crosshair_is_ready() {
         let source = include_str!("overlay_window.rs").replace("\r\n", "\n");
         let body = function_body(&source, "reveal_capture_overlays");
 
         let activate = body
             .find("activate_flashot_on_main_thread()")
             .expect("capture reveal must activate Flashot for stable cursor ownership");
-        let first_cursor = body
-            .find("push_crosshair_cursor()")
-            .expect("capture reveal must set the cursor before mapping windows");
         let cursor = body
             .rfind("push_crosshair_cursor()")
             .expect("capture reveal must settle the cursor");
+        let hide = body
+            .find("PlatformCursorVisibilityGuard::hide()")
+            .expect("capture reveal must hide AppKit's intermediate cursor");
         let visible = body
             .find("set_platform_overlay_alpha(window, 1.0)")
             .expect("capture reveal must restore window opacity");
         let front = body
             .find("bring_platform_overlay_to_front(window)")
             .expect("capture reveal must map the prepared window");
-        assert!(activate < first_cursor && first_cursor < visible && visible < front && front < cursor);
+        assert!(hide < activate && activate < visible && visible < front && front < cursor);
         assert!(body.contains("display_platform_overlay_if_needed(window)"));
+        assert!(body.contains("set_platform_crosshair_cursor_rect(window)"));
+        assert!(body.contains("window.set_cursor_icon(CursorIcon::Crosshair)"));
+    }
+
+    #[test]
+    fn macos_reveal_cursor_visibility_guard_balances_hide_and_show() {
+        let source = include_str!("overlay_window.rs").replace("\r\n", "\n");
+
+        assert!(source.contains("CGDisplayHideCursor"));
+        assert!(source.contains("impl Drop for PlatformCursorVisibilityGuard"));
+        assert!(source.contains("CGDisplayShowCursor"));
+    }
+
+    #[test]
+    fn macos_capture_cursor_rect_uses_crosshair_not_webview_default() {
+        let source = include_str!("overlay_window.rs").replace("\r\n", "\n");
+        let body = function_body(&source, "set_platform_crosshair_cursor_rect");
+
+        assert!(body.contains("crosshairCursor"));
+        assert!(body.contains("discardCursorRects"));
+        assert!(body.contains("addCursorRect:cursor:"));
     }
 
     #[test]

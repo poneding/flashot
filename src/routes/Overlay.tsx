@@ -100,6 +100,10 @@ function shouldUsePolledCursorPoint(
   return !isOriginCursorPoint(polled) || isOriginCursorPoint(lastPointer);
 }
 
+function cursorPointIsInsideOverlay(point: { x: number; y: number }): boolean {
+  return point.x >= 0 && point.y >= 0 && point.x < window.innerWidth && point.y < window.innerHeight;
+}
+
 function nativeCursorIcon(cursor: string): CursorIcon {
   switch (cursor) {
     case "crosshair":
@@ -397,7 +401,7 @@ export function OverlayRoute() {
           if (state.mode !== "hover") return;
           if (p) {
             if (!shouldUsePolledCursorPoint(p, lastPointerRef.current)) return;
-            ensureCurrentOverlayFocus();
+            if (!cursorPointIsInsideOverlay(p)) return;
             if (!shouldUpdateHoverForPointer(p)) return;
             state.updateHoverAt(p);
           } else {
@@ -426,9 +430,6 @@ export function OverlayRoute() {
     if (!captureRevealed || (mode !== "hover" && mode !== "dragging")) return;
     let cancelled = false;
     let ownerCheckInFlight = false;
-    pushCaptureCursorMacos().catch(() => {
-      /* best effort; the window cursor remains as fallback */
-    });
     const pushForCursorOwner = () => {
       if (ownerCheckInFlight) return;
       ownerCheckInFlight = true;
@@ -438,6 +439,7 @@ export function OverlayRoute() {
           const state = useOverlay.getState();
           if (state.mode !== "hover" && state.mode !== "dragging") return;
           if (!shouldUsePolledCursorPoint(point, lastPointerRef.current)) return;
+          if (!cursorPointIsInsideOverlay(point)) return;
           return pushCaptureCursorMacos();
         })
         .catch(() => {
@@ -533,10 +535,11 @@ export function OverlayRoute() {
     ensureCurrentOverlayFocus();
   };
   const onMouseMove = (e: React.MouseEvent) => {
-    ensureOverlayFocus();
     const p = { x: e.clientX, y: e.clientY };
     lastPointerRef.current = p;
-    if (shouldUpdateHoverForPointer(p)) updateHoverAt(p);
+    if (shouldUpdateHoverForPointer(p)) {
+      updateHoverAt(p);
+    }
     const state = useOverlay.getState();
     if (state.selectionInteraction) {
       updateSelectionInteraction(p);
@@ -554,6 +557,7 @@ export function OverlayRoute() {
       e.preventDefault();
       return;
     }
+    ensureOverlayFocus();
     const p = { x: e.clientX, y: e.clientY };
     const state = useOverlay.getState();
 

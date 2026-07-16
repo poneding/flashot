@@ -1,5 +1,6 @@
 use crate::types::{FrozenFrame, MonitorInfo, Rect};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
+use core_graphics::display::CGDisplay;
 use xcap::Monitor;
 
 pub fn enumerate_monitors() -> Result<Vec<MonitorInfo>> {
@@ -28,10 +29,7 @@ pub fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
         );
 
         tracing::info!("capture_all_monitors: capturing monitor {}", info.id);
-        let img = mon.capture_image().context("Failed to capture monitor")?;
-        let (frame_width, frame_height) =
-            captured_frame_dimensions(img.width(), img.height(), info.rect.width, info.rect.height);
-        let rgba = img.into_raw();
+        let (rgba, frame_width, frame_height) = capture_display_without_cursor(info.id)?;
         tracing::info!(
             "capture_all_monitors: captured {} bytes for monitor {} ({}x{} physical)",
             rgba.len(),
@@ -52,6 +50,37 @@ pub fn capture_all_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
 
     tracing::info!("capture_all_monitors: completed successfully");
     Ok((infos, frames))
+}
+
+fn capture_display_without_cursor(display_id: u32) -> Result<(Vec<u8>, u32, u32)> {
+    // CGDisplayCreateImage samples the display framebuffer directly. Unlike
+    // the window-list compositor used by xcap on macOS, it does not composite
+    // the hardware cursor into the returned image, so the live cursor can stay
+    // visible until the frozen overlay replaces it with a crosshair.
+    let image = CGDisplay::new(display_id)
+        .image()
+        .ok_or_else(|| anyhow!("Failed to capture display {display_id}"))?;
+    if image.bits_per_pixel() != 32 {
+        return Err(anyhow!(
+            "Unsupported display pixel format: {} bits per pixel",
+            image.bits_per_pixel()
+        ));
+    }
+
+    let width = image.width();
+    let height = image.height();
+    let bytes_per_row = image.bytes_per_row();
+    let data = image.data();
+    let source = data.bytes();
+    let mut rgba = Vec::with_capacity(width * height * 4);
+    for row in source.chunks_exact(bytes_per_row).take(height) {
+        rgba.extend_from_slice(&row[..width * 4]);
+    }
+    for bgra in rgba.chunks_exact_mut(4) {
+        bgra.swap(0, 2);
+    }
+
+    Ok((rgba, width as u32, height as u32))
 }
 
 fn monitor_info(mon: &Monitor) -> Result<MonitorInfo> {
@@ -85,15 +114,6 @@ fn monitor_info_from_parts(
     }
 }
 
-fn captured_frame_dimensions(
-    image_width: u32,
-    image_height: u32,
-    _logical_width: u32,
-    _logical_height: u32,
-) -> (u32, u32) {
-    (image_width, image_height)
-}
-
 fn display_icc_profile(display_id: u32) -> Option<Vec<u8>> {
     use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
     use core_foundation::data::{CFData, CFDataRef};
@@ -125,14 +145,7 @@ fn display_icc_profile(display_id: u32) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{captured_frame_dimensions, monitor_info_from_parts};
-
-    #[test]
-    fn captured_frame_dimensions_use_image_pixels_not_monitor_logical_size() {
-        let (width, height) = captured_frame_dimensions(4608, 2592, 2304, 1296);
-
-        assert_eq!((width, height), (4608, 2592));
-    }
+    use super::monitor_info_from_parts;
 
     #[test]
     fn monitor_info_uses_native_display_id_instead_of_enumeration_index() {
@@ -144,5 +157,17 @@ mod tests {
             (-1800, 0, 1800, 1169)
         );
         assert_eq!(info.scale_factor, 2.0);
+    }
+
+    #[test]
+    fn display_capture_avoids_the_window_list_cursor_compositor() {
+        let source = include_str!("macos.rs");
+        let capture_start = source.find("pub fn capture_all_monitors").unwrap();
+        let capture_body = &source[capture_start..source.find("fn monitor_info").unwrap()];
+
+        assert!(capture_body.contains("capture_display_without_cursor"));
+        assert!(source.contains("CGDisplay::new(display_id)"));
+        assert!(!capture_body.contains("mon.capture_image()"));
+        assert!(!capture_body.contains("CGDisplayHideCursor"));
     }
 }

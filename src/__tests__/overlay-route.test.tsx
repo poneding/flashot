@@ -600,11 +600,11 @@ describe("OverlayRoute", () => {
     ]);
   });
 
-  it("pushes crosshair immediately before the first cursor-owner poll", () => {
+  it("leaves initial crosshair ownership to the synchronized native reveal", () => {
     vi.mocked(currentCursorPointInWindow).mockReturnValue(new Promise<null>(() => { }));
     render(<OverlayRoute />);
 
-    expect(pushCaptureCursorMacos).toHaveBeenCalledTimes(1);
+    expect(pushCaptureCursorMacos).not.toHaveBeenCalled();
   });
 
   it("does not repeatedly push crosshair from an overlay outside the cursor display", async () => {
@@ -616,7 +616,7 @@ describe("OverlayRoute", () => {
       await vi.advanceTimersByTimeAsync(120);
     });
 
-    expect(pushCaptureCursorMacos).toHaveBeenCalledTimes(1);
+    expect(pushCaptureCursorMacos).not.toHaveBeenCalled();
   });
 
   it("globally reinforces crosshair only for the hover overlay under the cursor", async () => {
@@ -628,7 +628,7 @@ describe("OverlayRoute", () => {
       await vi.advanceTimersByTimeAsync(120);
     });
 
-    expect(pushCaptureCursorMacos).toHaveBeenCalledTimes(2);
+    expect(pushCaptureCursorMacos).toHaveBeenCalledTimes(1);
   });
 
   it("broadcasts hover color format shortcuts instead of mutating the focused overlay", () => {

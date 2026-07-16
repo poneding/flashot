@@ -1944,7 +1944,7 @@ mod tests {
     }
 
     #[test]
-    fn capture_reveal_sets_crosshair_before_mapping_overlays() {
+    fn capture_reveal_hides_intermediate_cursor_until_overlays_are_mapped() {
         let source = include_str!("overlay_window.rs").replace("\r\n", "\n");
         let body = function_body(&source, "reveal_capture_overlays");
 
@@ -1953,11 +1953,16 @@ mod tests {
             .expect("capture must map every prepared overlay");
         let cursor_idx = body
             .find("push_crosshair_cursor()")
-            .expect("capture must set the cursor before overlay mapping");
+            .expect("capture must settle the crosshair during overlay mapping");
+        let hide_idx = body
+            .find("PlatformCursorVisibilityGuard::hide()")
+            .expect("capture must hide AppKit's intermediate cursor");
 
         assert!(
-            body.contains("activate_flashot_on_main_thread") && cursor_idx < raise_idx,
-            "screenshot reveal must establish stable cursor ownership before mapping overlays",
+            body.contains("activate_flashot_on_main_thread")
+                && hide_idx < raise_idx
+                && raise_idx < cursor_idx,
+            "screenshot reveal must hide cursor transitions and restore only the settled crosshair",
         );
     }
 
