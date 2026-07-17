@@ -1,7 +1,6 @@
 use crate::types::{FrozenFrame, MonitorInfo, Rect};
 use anyhow::{Context, Result, anyhow, bail};
 use image::RgbaImage;
-use std::sync::Arc;
 use xcap::Monitor;
 
 pub fn enumerate_monitors() -> Result<Vec<MonitorInfo>> {
@@ -77,7 +76,7 @@ fn capture_all_xcap_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)> {
         let img = mon.capture_image().context("Failed to capture monitor")?;
         let frame_width = img.width();
         let frame_height = img.height();
-        let rgba: Arc<[u8]> = img.into_raw().into();
+        let rgba = img.into_raw();
         frames.push(FrozenFrame {
             monitor_id: info.id,
             rgba,
@@ -130,7 +129,7 @@ fn capture_all_wayland_monitors() -> Result<(Vec<MonitorInfo>, Vec<FrozenFrame>)
 
         frames.push(FrozenFrame {
             monitor_id: info.id,
-            rgba: Arc::from(rgba_image.into_raw()),
+            rgba: rgba_image.into_raw(),
             width: frame_width,
             height: frame_height,
             scale_factor: info.scale_factor,
@@ -329,7 +328,7 @@ fn split_portal_screenshot(
 
         frames.push(FrozenFrame {
             monitor_id: adjusted_monitor.id,
-            rgba: Arc::from(frame_rgba),
+            rgba: frame_rgba,
             width: crop.width,
             height: crop.height,
             scale_factor,
