@@ -2,6 +2,7 @@ import type { AnnotationObject } from "@/annotation/types";
 import type { Point } from "@/lib/types";
 
 export const MARKER_BADGE_TEXT_COLOR = "#ffffff";
+export const MARKER_BADGE_DARK_TEXT_COLOR = "#111827";
 export const MARKER_BUBBLE_BACKGROUND = "#111827";
 export const MARKER_BUBBLE_TEXT_COLOR = "#ffffff";
 export const MARKER_DEFAULT_FONT_SIZE = 14;
@@ -20,6 +21,32 @@ export const MARKER_BUBBLE_FONT_FAMILY = "Arial, sans-serif";
 // editor lines up pixel-exactly with the rendered label glow.
 export const MARKER_LABEL_STROKE_WIDTH = 1.5;
 export const MARKER_GLOW_BLUR = 10;
+
+function hexColorRgb(color: string): [number, number, number] | null {
+  const hex = color.trim().replace(/^#/, "");
+  const expanded = hex.length === 3
+    ? hex.split("").map((channel) => channel + channel).join("")
+    : hex.slice(0, 6);
+  if ((hex.length !== 3 && hex.length !== 6 && hex.length !== 8) || !/^[0-9a-f]{6}$/i.test(expanded)) {
+    return null;
+  }
+  return [
+    Number.parseInt(expanded.slice(0, 2), 16),
+    Number.parseInt(expanded.slice(2, 4), 16),
+    Number.parseInt(expanded.slice(4, 6), 16),
+  ];
+}
+
+export function markerBadgeTextColor(fill: string): string {
+  const rgb = hexColorRgb(fill);
+  if (!rgb) return MARKER_BADGE_TEXT_COLOR;
+  const linear = rgb.map((channel) => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+  return luminance > 0.45 ? MARKER_BADGE_DARK_TEXT_COLOR : MARKER_BADGE_TEXT_COLOR;
+}
 
 export function markerBadgeFontSize(fontSize?: number, markerNumber = 1): number {
   const base = Number.isFinite(fontSize) ? Math.max(1, fontSize ?? MARKER_DEFAULT_FONT_SIZE) : MARKER_DEFAULT_FONT_SIZE;

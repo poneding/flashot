@@ -532,6 +532,25 @@ describe("useAnnotation store", () => {
     expect(useAnnotation.getState().activeStyle.arrow).toBe("none");
   });
 
+  it("clears an arrow endpoint when switching directly from arrow to line", () => {
+    useAnnotation.getState().setActiveTool("arrow");
+    expect(useAnnotation.getState().activeStyle.arrow).toBe("end");
+
+    useAnnotation.getState().setActiveTool("line");
+
+    expect(useAnnotation.getState().activeStyle.arrow).toBe("none");
+  });
+
+  it("keeps line and arrow endpoint semantics stable when styles are updated", () => {
+    useAnnotation.getState().setActiveTool("line");
+    useAnnotation.getState().setActiveStyle({ arrow: "both" });
+    expect(useAnnotation.getState().activeStyle.arrow).toBe("none");
+
+    useAnnotation.getState().setActiveTool("arrow");
+    useAnnotation.getState().setActiveStyle({ arrow: "none" });
+    expect(useAnnotation.getState().activeStyle.arrow).toBe("end");
+  });
+
   it("updateSelectedStyle updates selected object and remembers style for next annotation", () => {
     const obj = {
       id: "1",

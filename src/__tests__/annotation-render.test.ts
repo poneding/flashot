@@ -20,6 +20,7 @@ import {
   MARKER_BUBBLE_PADDING_Y,
   defaultMarkerLabelAnchor,
   markerBadgeRadius,
+  markerBadgeTextColor,
 } from "@/annotation/markerStyle";
 import { markerConnectorPoints, markerPartDragUpdates } from "@/annotation/tools/marker";
 
@@ -155,6 +156,27 @@ describe("annotation object rendering", () => {
     expect((group.findOne(".marker-number") as Konva.Text).text()).toBe("5");
     expect(group.findOne(".marker-label-part")).toBeUndefined();
     expect(group.findOne(".marker-connector")).toBeUndefined();
+  });
+
+  it("uses dark badge text for white marker fills", () => {
+    const node = renderObject(object({
+      id: "marker-white",
+      type: "marker",
+      start: { x: 30, y: 40 },
+      markerNumber: 8,
+      text: "",
+      style: { ...DEFAULT_STYLE, markerFill: "#ffffff" },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    })) as Konva.Group;
+
+    expect((node.findOne(".marker-number") as Konva.Text).fill()).toBe("#111827");
+    expect((node.findOne(".marker-badge") as Konva.Circle).stroke()).toBe("#111827");
+  });
+
+  it("keeps white badge text on dark and saturated marker fills", () => {
+    expect(markerBadgeTextColor("#000000")).toBe("#ffffff");
+    expect(markerBadgeTextColor("#ff0000")).toBe("#ffffff");
+    expect(markerBadgeTextColor("#fff")).toBe("#111827");
   });
 
   it("renders marker badge and label as separately draggable parts with a connector", () => {

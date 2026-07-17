@@ -3,7 +3,8 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import Konva from "konva";
 import { useAnnotation } from "@/annotation/store";
 import { onArrowEnd, onArrowMove, onArrowStart } from "@/annotation/tools/arrow";
-import { onLineEnd, onLineMove, onLineStart } from "@/annotation/tools/line";
+import { onLineEnd, onLineMove, onLineStart, renderLineObject } from "@/annotation/tools/line";
+import { DEFAULT_STYLE } from "@/annotation/types";
 
 const layer = {
   add: vi.fn(),
@@ -65,7 +66,9 @@ describe("line drawing tool", () => {
     const persistedLine = group.findOne(".main-line") as Konva.Line;
 
     expect(obj?.type).toBe("arrow");
+    expect(obj?.style.arrow).toBe("end");
     expect(obj?.style.lineShape).toBe("straight");
+    expect(group.getChildren()).toHaveLength(2);
     expect(persistedLine.points()).toEqual([0, 0, 120, 0]);
   });
 
@@ -89,5 +92,19 @@ describe("line drawing tool", () => {
     expect(obj?.style.lineStyle).toBe("solid");
     expect(previewLine.dash() ?? []).toEqual([]);
     expect(persistedLine.dash() ?? []).toEqual([]);
+  });
+
+  it("does not render a legacy arrow endpoint on a line object", () => {
+    const group = renderLineObject({
+      id: "legacy-line",
+      type: "line",
+      start: { x: 0, y: 0 },
+      end: { x: 120, y: 0 },
+      style: { ...DEFAULT_STYLE, arrow: "end" },
+      transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    });
+
+    expect(group.getChildren()).toHaveLength(1);
+    expect(group.findOne(".main-line")).not.toBeNull();
   });
 });

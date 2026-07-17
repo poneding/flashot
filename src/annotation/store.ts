@@ -207,10 +207,10 @@ function normalizeMagnifierStyle(style: AnnotationStyle): AnnotationStyle {
 function normalizeActiveStyleForTool(tool: ToolType, style: AnnotationStyle): AnnotationStyle {
   style = normalizeMagnifierStyle(normalizeSpotlightStyle(normalizeTextStyle(style)));
   if (tool === "line") {
-    return { ...style, ...lineToolStyle(style) };
+    return { ...style, ...lineToolStyle(style), arrow: "none" };
   }
   if (tool === "arrow") {
-    return { ...style, lineShape: "straight", ...arrowToolStyle(style) };
+    return { ...style, lineShape: "straight", ...arrowToolStyle(style), arrow: "end" };
   }
   if (tool === "measure") {
     return {

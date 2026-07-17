@@ -1,6 +1,5 @@
 import Konva from "konva";
 import {
-  MARKER_BADGE_TEXT_COLOR,
   MARKER_BUBBLE_BACKGROUND,
   MARKER_BUBBLE_FONT_FAMILY,
   MARKER_BUBBLE_LINE_HEIGHT,
@@ -13,6 +12,7 @@ import {
   MARKER_LABEL_STROKE_WIDTH,
   markerBadgeFontSize,
   markerBadgeRadius,
+  markerBadgeTextColor,
   markerBadgeVisualRadius,
   markerLabelAnchor,
   markerLabelMetrics,
@@ -140,6 +140,7 @@ export function renderMarkerObject(obj: AnnotationObject): Konva.Group {
   const transform = obj.transform;
   const markerNumber = obj.markerNumber ?? 1;
   const fill = markerFill(obj.style);
+  const badgeTextColor = markerBadgeTextColor(fill);
   const badgeRadius = markerBadgeVisualRadius(obj.style.fontSize);
   const badgeLayoutRadius = markerBadgeRadius(obj.style.fontSize);
   const badgeFontSize = markerBadgeFontSize(obj.style.fontSize, markerNumber);
@@ -169,7 +170,7 @@ export function renderMarkerObject(obj: AnnotationObject): Konva.Group {
     y: 0,
     radius: badgeRadius,
     fill,
-    stroke: MARKER_BADGE_TEXT_COLOR,
+    stroke: badgeTextColor,
     strokeWidth: 1.5,
   }));
   badgePart.add(new Konva.Text({
@@ -183,7 +184,7 @@ export function renderMarkerObject(obj: AnnotationObject): Konva.Group {
     fontStyle: "700",
     align: "center",
     verticalAlign: "middle",
-    fill: MARKER_BADGE_TEXT_COLOR,
+    fill: badgeTextColor,
     listening: false,
   }));
 

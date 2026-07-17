@@ -195,26 +195,21 @@ export function onLineMove(x: number, y: number) {
 
   // Show arrowhead preview during drawing
   currentGroup.find(".temp-arrow").forEach((n) => n.destroy());
-  const showArrow = activeTool === "arrow" || activeStyle.arrow === "end" || activeStyle.arrow === "both";
-  const showStart = activeStyle.arrow === "start" || activeStyle.arrow === "both";
-  if (showArrow || showStart) {
+  if (activeTool === "arrow") {
     const angle = Math.atan2(y - startY, x - startX);
-    if (showArrow) {
-      const head = createArrowHead(x, y, angle, activeStyle);
-      head.name("temp-arrow");
-      currentGroup.add(head);
-    }
-    if (showStart) {
-      const tail = createArrowHead(startX, startY, angle + Math.PI, activeStyle);
-      tail.name("temp-arrow");
-      currentGroup.add(tail);
-    }
+    const head = createArrowHead(x, y, angle, activeStyle);
+    head.name("temp-arrow");
+    currentGroup.add(head);
   }
 
   getLayer()?.batchDraw();
 }
 
-export function onLineEnd(x: number, y: number): AnnotationObject | null {
+export function onLineEnd(
+  x: number,
+  y: number,
+  type: "line" | "arrow" = "line",
+): AnnotationObject | null {
   if (!currentGroup || (Math.abs(x - startX) < 4 && Math.abs(y - startY) < 4)) {
     currentGroup?.destroy();
     currentGroup = null;
@@ -222,14 +217,17 @@ export function onLineEnd(x: number, y: number): AnnotationObject | null {
   }
 
   const { activeStyle } = useAnnotation.getState();
+  const objectStyle: AnnotationStyle = type === "arrow"
+    ? { ...activeStyle, arrow: "end", lineShape: "straight" }
+    : { ...activeStyle, arrow: "none" };
   const id = crypto.randomUUID();
 
   const obj: AnnotationObject = {
     id,
-    type: "line",
+    type,
     start: { x: startX, y: startY },
     end: { x, y },
-    style: { ...activeStyle },
+    style: objectStyle,
     transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
   };
 
@@ -280,10 +278,10 @@ function buildLineObjectChildren(group: Konva.Group, obj: AnnotationObject) {
   const startAngle = obj.points && obj.points.length >= 2
     ? Math.atan2(localControl.y, localControl.x)
     : Math.atan2(dy, dx);
-  if (style.arrow === "end" || style.arrow === "both") {
+  if (obj.type === "arrow" && (style.arrow === "end" || style.arrow === "both")) {
     group.add(createArrowHead(dx, dy, endAngle, style));
   }
-  if (style.arrow === "start" || style.arrow === "both") {
+  if (obj.type === "arrow" && (style.arrow === "start" || style.arrow === "both")) {
     group.add(createArrowHead(0, 0, startAngle + Math.PI, style));
   }
 }
