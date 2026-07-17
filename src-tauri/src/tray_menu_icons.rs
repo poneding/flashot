@@ -50,6 +50,7 @@ impl MenuIconSlot {
 /// at 96 DPI; we scale linearly so the glyph tracks the DPI-scaled menu font
 /// instead of staying pinned at 16 physical px. Clamped so a bogus DPI can't ask
 /// for an enormous bitmap. e.g. 96→16, 120→20, 144→24, 192→32.
+#[cfg(any(target_os = "windows", test))]
 fn target_icon_edge(dpi: u32) -> u32 {
     const BASE_ICON_LOGICAL: f64 = 16.0;
     let dpi = if dpi == 0 { 96 } else { dpi };
