@@ -14,6 +14,7 @@ const temporaryDir = await mkdtemp(path.join(tmpdir(), "flashot-icons-"));
 try {
   const appOutput = path.join(temporaryDir, "app");
   const trayOutput = path.join(temporaryDir, "tray");
+  const coloredTrayOutput = path.join(temporaryDir, "colored-tray");
 
   // Generate in a temporary directory: Flashot only ships desktop assets.
   generateIcons([appLogo, "--output", appOutput]);
@@ -21,6 +22,13 @@ try {
     path.join(iconDir, "menubar-logo.svg"),
     "--output",
     trayOutput,
+    "--png",
+    "32",
+  ]);
+  generateIcons([
+    path.join(iconDir, "menubar-colored-logo.svg"),
+    "--output",
+    coloredTrayOutput,
     "--png",
     "32",
   ]);
@@ -32,7 +40,7 @@ try {
   }
 
   await copyFile(path.join(trayOutput, "32x32.png"), path.join(iconDir, "menubar-logo.png"));
-  await copyFile(path.join(appOutput, "32x32.png"), path.join(iconDir, "menubar-colored-logo.png"));
+  await copyFile(path.join(coloredTrayOutput, "32x32.png"), path.join(iconDir, "menubar-colored-logo.png"));
   await copyFile(appLogo, path.join(root, "public/app-logo.svg"));
   await copyFile(appLogo, path.join(root, "docs/public/app-logo.svg"));
 

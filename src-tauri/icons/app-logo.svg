@@ -4,12 +4,6 @@
     <clipPath id="tileClip">
       <use xlink:href="#tileShape"/>
     </clipPath>
-    <linearGradient id="tileEdge" x1="3" y1="0" x2="20" y2="24" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#c2d8ed" stop-opacity="0.62"/>
-      <stop offset="0.32" stop-color="#c2d8ed" stop-opacity="0.18"/>
-      <stop offset="0.68" stop-color="#c2d8ed" stop-opacity="0.05"/>
-      <stop offset="1" stop-color="#c2d8ed" stop-opacity="0.02"/>
-    </linearGradient>
     <linearGradient id="tileFace" x1="5" y1="0" x2="18" y2="26" gradientUnits="userSpaceOnUse">
       <stop stop-color="#324b6a"/>
       <stop offset="0.38" stop-color="#1e314b"/>
@@ -76,7 +70,7 @@
     <use xlink:href="#tileShape" fill="url(#tileLight)"/>
     <use xlink:href="#tileShape" fill="url(#surfaceGrain)" opacity="0.4"/>
     <g clip-path="url(#tileClip)">
-      <use xlink:href="#tileShape" fill="none" stroke="url(#tileEdge)" stroke-width="0.34"/>
+      <use xlink:href="#tileShape" fill="none" stroke="#94acc4" stroke-width="0.34"/>
     </g>
 
     <!-- Keep both original transforms so the flash retains its exact size and position. -->

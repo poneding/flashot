@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 16 16" role="img" aria-label="Flashot colored tray icon">
+  <!-- A solid plate keeps the mark legible on light and dark system panels. -->
+  <rect x="0.5" y="0.5" width="15" height="15" rx="3.25" fill="#192638"/>
+  <g transform="translate(1.3333333333 1.3333333333) scale(0.5555555556)">
+    <!-- Two-pixel scan strokes on the 16 px grid; the flash path is unchanged. -->
+    <g fill="none" stroke="#f5f7fa" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
+      <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+      <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
+      <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+    </g>
+    <path fill="#ffd348" d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>
+  </g>
+</svg>
