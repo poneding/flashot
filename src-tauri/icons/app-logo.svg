@@ -1,100 +1,111 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 24 24" role="img" aria-label="Flashot app logo">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 24 24" role="img" aria-label="Flashot app logo">
   <defs>
-    <clipPath id="iconClip">
-      <rect x="0" y="0" width="24" height="24" rx="5.6"/>
+    <path id="tileShape" d="M6.5 0h11C22.3 0 24 1.7 24 6.5v11c0 4.8-1.7 6.5-6.5 6.5h-11C1.7 24 0 22.3 0 17.5v-11C0 1.7 1.7 0 6.5 0Z"/>
+    <clipPath id="tileClip">
+      <use xlink:href="#tileShape"/>
     </clipPath>
-    <linearGradient id="nightGradient" x1="3" y1="0.5" x2="21" y2="24" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#334a76"/>
-      <stop offset="0.38" stop-color="#13213b"/>
-      <stop offset="0.74" stop-color="#070b18"/>
-      <stop offset="1" stop-color="#1d273d"/>
+    <linearGradient id="tileEdge" x1="3" y1="0" x2="20" y2="24" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#c2d8ed" stop-opacity="0.62"/>
+      <stop offset="0.32" stop-color="#c2d8ed" stop-opacity="0.18"/>
+      <stop offset="0.68" stop-color="#c2d8ed" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#c2d8ed" stop-opacity="0.02"/>
     </linearGradient>
-    <radialGradient id="skyBloom" cx="24%" cy="12%" r="78%">
-      <stop offset="0" stop-color="#5874aa" stop-opacity="0.78"/>
-      <stop offset="0.46" stop-color="#182844" stop-opacity="0.28"/>
-      <stop offset="1" stop-color="#02040b" stop-opacity="0"/>
+    <linearGradient id="tileFace" x1="5" y1="0" x2="18" y2="26" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#324b6a"/>
+      <stop offset="0.38" stop-color="#1e314b"/>
+      <stop offset="0.76" stop-color="#101d31"/>
+      <stop offset="1" stop-color="#1b2d47"/>
+    </linearGradient>
+    <radialGradient id="tileLight" cx="3" cy="1" r="20" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#afcfec" stop-opacity="0.25"/>
+      <stop offset="0.6" stop-color="#8eb5db" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#8eb5db" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="lowerGlow" cx="70%" cy="88%" r="70%">
-      <stop offset="0" stop-color="#31415d" stop-opacity="0.7"/>
-      <stop offset="0.62" stop-color="#080d18" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="glassRim" x1="3" y1="1" x2="20" y2="23" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.62"/>
-      <stop offset="0.42" stop-color="#c3d5f3" stop-opacity="0.16"/>
-      <stop offset="0.7" stop-color="#000000" stop-opacity="0.28"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0.24"/>
+    <linearGradient id="scanSide" x1="4" y1="3" x2="20" y2="22" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a0b5ce"/>
+      <stop offset="1" stop-color="#71859e"/>
     </linearGradient>
-    <linearGradient id="cornerIce" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="0.44" stop-color="#dce9fb"/>
-      <stop offset="1" stop-color="#9fb3d4"/>
+    <linearGradient id="scanFace" x1="5" y1="3" x2="18" y2="22" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="0.48" stop-color="#edf5fc"/>
+      <stop offset="1" stop-color="#c6d6e9"/>
     </linearGradient>
-    <linearGradient id="flashGold" x1="6" y1="2" x2="18" y2="22" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#fffbc9"/>
-      <stop offset="0.28" stop-color="#ffdc62"/>
-      <stop offset="0.58" stop-color="#ffad24"/>
-      <stop offset="0.82" stop-color="#e57510"/>
-      <stop offset="1" stop-color="#923906"/>
+    <linearGradient id="scanLight" x1="4" y1="3" x2="18" y2="21" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#f0f7ff" stop-opacity="0.12"/>
     </linearGradient>
-    <linearGradient id="softGoldSheen" x1="5" y1="2" x2="18" y2="18" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#fff3a8" stop-opacity="0.5"/>
-      <stop offset="0.35" stop-color="#ffe071" stop-opacity="0.36"/>
-      <stop offset="0.68" stop-color="#ffc13c" stop-opacity="0.16"/>
-      <stop offset="1" stop-color="#ff9a1f" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="warmGoldDepth" x1="9" y1="7" x2="18" y2="22" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffce4c" stop-opacity="0"/>
-      <stop offset="0.45" stop-color="#e88918" stop-opacity="0.18"/>
-      <stop offset="0.82" stop-color="#9f4309" stop-opacity="0.32"/>
-      <stop offset="1" stop-color="#5a1c04" stop-opacity="0.16"/>
-    </linearGradient>
-    <filter id="softCardShadow" x="-18%" y="-18%" width="136%" height="136%">
-      <feDropShadow dx="0" dy="0.45" stdDeviation="0.7" flood-color="#000000" flood-opacity="0.42"/>
+    <filter id="tileShadow" x="-20%" y="-20%" width="140%" height="145%">
+      <feDropShadow dx="0" dy="0.4" stdDeviation="0.48" flood-color="#050b16" flood-opacity="0.28"/>
     </filter>
-    <filter id="flashDepth" x="-32%" y="-32%" width="164%" height="164%">
-      <feDropShadow dx="0.34" dy="0.9" stdDeviation="0.55" flood-color="#000000" flood-opacity="0.43"/>
-      <feDropShadow dx="-0.16" dy="-0.28" stdDeviation="0.24" flood-color="#fff0a0" flood-opacity="0.42"/>
+    <filter id="scanShadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0.08" dy="0.35" stdDeviation="0.22" flood-color="#020916" flood-opacity="0.52"/>
+    </filter>
+    <pattern id="surfaceGrain" width="0.9" height="0.9" patternUnits="userSpaceOnUse">
+      <image width="0.9" height="0.9" xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAD30lEQVR4nF2X15LFIAxDmSH0//9eNkXHaO9DJhXjIslOSimNvXe7j3of675/jnwf/b6/7nN97u/r57vnvJ7nz/X9/NK7ovdF91XrnvdLa6q+e/aa9/HYH0mGiow/C/pzLwe6jBV90+Xc0EbT3j/X8z6355C9qm+77VG0Z38PGWnytJjxruwMbXDJwazvLhlbih5HhrK4cFLPqmx6Jh57kaImo1UpHkrhVHRLzyhJVqRDa4Y28zVVdqfeD2Wimv130yFvhlJfKYeiZcFgI6Iwh7oM4ki2gLqVYalMQ9ev8fhYxpZtQroA3dIanmVdF73vZEqZrFrTDTfgISe9bD+eNmWjYEALPUvUu2qzBWsMnETKM4DZLXuvkUC16rcMqVOLhyK6DEA4W0C/AiqUQY4506j961TSgy6vpurC4mrRZtGyGRM4nAFoB2eoOIL7n3104609Gzc2MVZcKk1Qx6LD2JKzCAzOhHPKwjSQk6UvQqsf99lRLoNTxsY+gkJ6UUecpWwEBli7Alo6R/2yGVhmmJqC8raPdI999CC4rcgIggwV2Ww6fwL1w2v4X/BUDsBxMoRyNsNONcrh6DCb/7JJFhN0kfc0CsDXheJlBuA22SEaSjPT6R2ArRswu2x0WHDt0yTodKgjfQKaIkB0NyIEuKQYYCO/aESoKqUJFqTTMKBUcFZONFsMbaknfO8WEGzA1iIQZfrrN/IUqkGnos2zqAUusjkJmmndzBV0RkTK5wEH+Cd6htJhxqjRSEfh0HtAR31JJdpf0lFQWjVNKmR4Q+F9ZBXlQpqrvKQ1F3MSJcQ5ak0GUFH04NqnnTuWLiaivg+ffcP8g2iykA2sjG4uLmxKN8U5MMRAEyUIkKUz57EJ6UVGccznPDSfsQ2BquYoQSBKnRIgpygcG7oIgXxoyvWEKSYylzJAObwnxFiWjryHt9BmyYCrGkygXTc9L3Kk6fuYiCxj6D8ZWZbJhg4wMECrmGDTmedIPTjxaNB5HG37dNACdvbpiKjl6wCInXB8nyE1pzPdUh6QDMCWbYZ2OCVB/2UO0VuiG1LXsc8EAyjhfgBuH5nFidANywo9g3LSlKJ3JHVD2qiLBJvxZxN9QhnhGXSjtj6G5+Rt90h3t6AX7Ri+8wGOeITMBaS37zNk0LTaPt2wGt9bbHjk/gtm//+vK/J4qRy0XDS82EaM2aGQlj0wcdnhcwFzREcH3Etqz++V/wPEuL3PUAJ9mSmQb+4ZRmFZln0yn5jfkWBSuyw6qMV/QbZvrp/10+7DaQJNpzV/M6elDLrQPv2nFGAhTD6E4sA0IDNFEQT2A5Tg4w9JUEtqGZ5afwAAAABJRU5ErkJggg=="/>
+    </pattern>
+    <!-- Preserve the original flash material, including its highlights and shadow. -->
+    <linearGradient id="flashGold" x1="6" y1="2" x2="18" y2="22" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fffbc9" />
+      <stop offset="0.28" stop-color="#ffdc62" />
+      <stop offset="0.58" stop-color="#ffad24" />
+      <stop offset="0.82" stop-color="#e57510" />
+      <stop offset="1" stop-color="#923906" />
+    </linearGradient>
+<linearGradient id="softGoldSheen" x1="5" y1="2" x2="18" y2="18" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff3a8" stop-opacity="0.5" />
+      <stop offset="0.35" stop-color="#ffe071" stop-opacity="0.36" />
+      <stop offset="0.68" stop-color="#ffc13c" stop-opacity="0.16" />
+      <stop offset="1" stop-color="#ff9a1f" stop-opacity="0" />
+    </linearGradient>
+<linearGradient id="warmGoldDepth" x1="9" y1="7" x2="18" y2="22" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffce4c" stop-opacity="0" />
+      <stop offset="0.45" stop-color="#e88918" stop-opacity="0.18" />
+      <stop offset="0.82" stop-color="#9f4309" stop-opacity="0.32" />
+      <stop offset="1" stop-color="#5a1c04" stop-opacity="0.16" />
+    </linearGradient>
+<filter id="flashDepth" x="-32%" y="-32%" width="164%" height="164%">
+      <feDropShadow dx="0.34" dy="0.9" stdDeviation="0.55" flood-color="#000000" flood-opacity="0.43" />
+      <feDropShadow dx="-0.16" dy="-0.28" stdDeviation="0.24" flood-color="#fff0a0" flood-opacity="0.42" />
     </filter>
   </defs>
 
   <g id="appIconTile" transform="translate(1.92 1.92) scale(0.84)">
-  <g clip-path="url(#iconClip)" filter="url(#softCardShadow)">
-    <rect x="0" y="0" width="24" height="24" rx="5.6" fill="url(#nightGradient)"/>
-    <rect x="0" y="0" width="24" height="24" rx="5.6" fill="url(#skyBloom)"/>
-    <rect x="0" y="0" width="24" height="24" rx="5.6" fill="url(#lowerGlow)"/>
-    <circle cx="5.12" cy="4.38" r="0.2" fill="#ffffff" opacity="0.86"/>
-    <circle cx="8.04" cy="6.62" r="0.12" fill="#ffffff" opacity="0.44"/>
-    <circle cx="17.92" cy="4.08" r="0.18" fill="#ffffff" opacity="0.76"/>
-    <circle cx="20.18" cy="8.52" r="0.13" fill="#ffffff" opacity="0.52"/>
-    <circle cx="4.1" cy="17.95" r="0.16" fill="#ffffff" opacity="0.48"/>
-    <circle cx="15.86" cy="19.65" r="0.17" fill="#ffffff" opacity="0.42"/>
-    <circle cx="19.6" cy="18.18" r="0.1" fill="#ffffff" opacity="0.36"/>
-  </g>
-
-  <rect x="0.55" y="0.55" width="22.9" height="22.9" rx="5.05" fill="none" stroke="url(#glassRim)" stroke-width="1.1"/>
-  <path id="topLeftArcGlow" d="M0 7.6V5.15C0 2.3 2.3 0 5.15 0h7.55C9.44 0.66 6.46 1.72 3.94 3.28 2.06 4.45 0.78 5.9 0 7.6z" fill="#ffffff" opacity="0.072"/>
-  <path id="lowerRightArcGlow" d="M24 15.7v3.1c0 2.86-2.34 5.2-5.2 5.2h-6.15c2.8-.66 5.24-1.66 7.34-3.04 1.86-1.22 3.08-2.9 4.01-5.26z" fill="#d8e7ff" opacity="0.052"/>
-
-  <g id="foregroundMark" transform="translate(1.44 1.44) scale(0.88)">
-    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-      <g transform="translate(0.14 0.22)" stroke="#020510" stroke-width="2.55" opacity="0.5">
-        <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
-        <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
-        <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
-        <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
-      </g>
-      <g stroke="url(#cornerIce)" stroke-width="2.08" opacity="0.96">
-        <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
-        <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
-        <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
-        <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
-      </g>
+    <!-- Keep the gradient face outside the shadow filter to avoid color banding. -->
+    <use xlink:href="#tileShape" fill="#101d31" filter="url(#tileShadow)"/>
+    <use xlink:href="#tileShape" fill="url(#tileFace)"/>
+    <use xlink:href="#tileShape" fill="url(#tileLight)"/>
+    <use xlink:href="#tileShape" fill="url(#surfaceGrain)" opacity="0.4"/>
+    <g clip-path="url(#tileClip)">
+      <use xlink:href="#tileShape" fill="none" stroke="url(#tileEdge)" stroke-width="0.34"/>
     </g>
 
-    <path transform="translate(0.38 0.52)" fill="#02040a" opacity="0.54" d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>
-    <path filter="url(#flashDepth)" fill="url(#flashGold)" d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>
-    <path fill="url(#softGoldSheen)" d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>
-    <path fill="url(#warmGoldDepth)" d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>
-  </g>
+    <!-- Keep both original transforms so the flash retains its exact size and position. -->
+    <g id="foregroundMark" transform="translate(1.44 1.44) scale(0.88)">
+      <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <g transform="translate(0 0.22)" stroke="url(#scanSide)" stroke-width="2.12" filter="url(#scanShadow)">
+          <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
+        <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+        <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
+        <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+        </g>
+        <g stroke="url(#scanFace)" stroke-width="2.08">
+          <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
+        <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+        <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
+        <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+        </g>
+        <g transform="translate(-0.08 -0.1)" stroke="url(#scanLight)" stroke-width="1.68">
+          <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
+        <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+        <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
+        <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+        </g>
+      </g>
+
+      <path transform="translate(0.38 0.52)" fill="#02040a" opacity="0.54" d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+<path filter="url(#flashDepth)" fill="url(#flashGold)" d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+<path fill="url(#softGoldSheen)" d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+<path fill="url(#warmGoldDepth)" d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+    </g>
   </g>
 </svg>
