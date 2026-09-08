@@ -181,6 +181,7 @@ export function OverlayRoute() {
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const initialPointerRef = useRef<{ x: number; y: number } | null>(null);
   const pointerMovedRef = useRef(false);
+  const outputSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     initialPointerRef.current = null;
@@ -223,7 +224,8 @@ export function OverlayRoute() {
     onCaptureRevealed((revision) => {
       revealCapture(revision);
     }).then((u) => (unsubRevealed = u));
-    onCaptureEnd(() => {
+    onCaptureEnd((sessionId) => {
+      if (useOverlay.getState().frameRevision !== sessionId) return;
       useAnnotation.getState().reset();
       end();
     }).then((u) => (unsubEnd = u));
@@ -253,9 +255,11 @@ export function OverlayRoute() {
     let unsubClaimed: undefined | (() => void);
     let unsubReleased: undefined | (() => void);
     onSelectionClaimed((p) => {
+      if (useOverlay.getState().frameRevision !== p.sessionId) return;
       useOverlay.getState().lockToPeer(p.monitorId);
     }).then((u) => (unsubClaimed = u));
     onSelectionReleased((p) => {
+      if (useOverlay.getState().frameRevision !== p.sessionId) return;
       useOverlay.getState().unlockFromPeer(p.monitorId);
     }).then((u) => (unsubReleased = u));
 
@@ -322,7 +326,7 @@ export function OverlayRoute() {
       const active = document.activeElement;
       if (isTextInputLike(active)) return;
 
-      if (e.key === "Escape") { e.preventDefault(); cancelCapture(); return; }
+      if (e.key === "Escape") { e.preventDefault(); handleClose(); return; }
 
       // Read mode from the store directly — NOT from the closure.
       // The closure's `mode` can be stale: capture:start updates the
@@ -458,71 +462,62 @@ export function OverlayRoute() {
     };
   }, [mode, captureRevealed]);
 
-  const handleCopy = async () => {
-    if (monitorId == null || !selection) return;
-    const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await cropAndCopy(
-      monitorId,
-      selection,
-      annotationPng ?? undefined,
-      cornerRadius,
-      useOverlay.getState().imageAdjustments,
-    );
+  const handleOutput = async (action: typeof cropAndCopy | typeof cropAndSave | typeof pinImage) => {
+    const snapshot = useOverlay.getState();
+    const sessionId = snapshot.frameRevision;
+    if (!sessionId || snapshot.mode !== "committed" || snapshot.monitorId == null || !snapshot.selection) return;
+    if (outputSessionRef.current === sessionId) return;
+    outputSessionRef.current = sessionId;
+    try {
+      const annotationPng = await exportAnnotationLayer(snapshot.scaleFactor);
+      if (useOverlay.getState().frameRevision !== sessionId) return;
+      await action(sessionId, snapshot.monitorId, snapshot.selection, annotationPng ?? undefined,
+        snapshot.cornerRadius, snapshot.imageAdjustments);
+    } finally {
+      if (outputSessionRef.current === sessionId) outputSessionRef.current = null;
+    }
   };
 
-  const handleSave = async () => {
-    if (monitorId == null || !selection) return;
-    const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await cropAndSave(
-      monitorId,
-      selection,
-      annotationPng ?? undefined,
-      cornerRadius,
-      useOverlay.getState().imageAdjustments,
-    );
-  };
-
-  const handlePin = async () => {
-    if (monitorId == null || !selection) return;
-    const annotationPng = await exportAnnotationLayer(scaleFactor);
-    await pinImage(
-      monitorId,
-      selection,
-      annotationPng ?? undefined,
-      cornerRadius,
-      useOverlay.getState().imageAdjustments,
-    );
-  };
+  const handleCopy = () => handleOutput(cropAndCopy);
+  const handleSave = () => handleOutput(cropAndSave);
+  const handlePin = () => handleOutput(pinImage);
 
   const handleScroll = async () => {
-    if (monitorId == null || !selection) return;
+    if (monitorId == null || !selection || !frameRevision) return;
+    const sessionId = frameRevision;
     const scrollSelection = selection;
+    const current = () => useOverlay.getState().frameRevision === sessionId;
     startScroll();
     try {
       await waitForOverlayPaint();
       await new Promise((resolve) => window.setTimeout(resolve, SCROLL_CAPTURE_START_DELAY_MS));
+      if (!current() || useOverlay.getState().mode !== "scrollStarting") return;
       activateScroll();
       await waitForOverlayPaint();
-      await startScrollSession(monitorId, scrollSelection);
+      if (!current()) return;
+      await startScrollSession(sessionId, monitorId, scrollSelection);
     } catch (error) {
-      useOverlay.getState().commit(scrollSelection);
+      if (current()) useOverlay.getState().commit(scrollSelection);
       console.warn("Failed to start scrolling screenshot", error);
     }
   };
 
   const handleClose = () => {
-    cancelCapture();
+    const sessionId = useOverlay.getState().frameRevision;
+    if (sessionId) void cancelCapture(sessionId);
   };
 
   const claimCurrentOverlay = (claimedMonitorId: number | null) => {
-    if (claimedMonitorId == null) return;
-    claimSelection(claimedMonitorId).catch((error) => {
+    const sessionId = useOverlay.getState().frameRevision;
+    if (claimedMonitorId == null || !sessionId) return;
+    claimSelection(sessionId, claimedMonitorId).catch((error) => {
       console.warn("Failed to claim capture selection", error);
     });
   };
   const releaseCurrentOverlay = (claimedMonitorId: number | null) => {
-    if (claimedMonitorId == null) return;
-    releaseSelection(claimedMonitorId).catch((error) => {
+    const sessionId = useOverlay.getState().frameRevision;
+    if (claimedMonitorId == null || !sessionId) return;
+    releaseSelection(sessionId, claimedMonitorId).catch((error) => {
       console.warn("Failed to release capture selection", error);
     });
   };

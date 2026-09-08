@@ -47,10 +47,11 @@ describe("ipc wrappers", () => {
       return "pin-1";
     });
 
-    await expect(pinImage(7, rect, annotationPng)).resolves.toBe("pin-1");
+    await expect(pinImage("revision-1", 7, rect, annotationPng)).resolves.toBe("pin-1");
     expect(invocation).toEqual({
       cmd: "pin_image",
       payload: {
+        sessionId: "revision-1",
         monitorId: 7,
         rect,
         annotationPng: [1, 2, 255],
@@ -70,9 +71,9 @@ describe("ipc wrappers", () => {
     };
     const invocations = captureInvocations();
 
-    await cropAndCopy(1, rect, undefined, 0, adjustments);
-    await cropAndSave(1, rect, undefined, 0, adjustments);
-    await pinImage(1, rect, undefined, 0, adjustments);
+    await cropAndCopy("revision-1", 1, rect, undefined, 0, adjustments);
+    await cropAndSave("revision-1", 1, rect, undefined, 0, adjustments);
+    await pinImage("revision-1", 1, rect, undefined, 0, adjustments);
 
     expect(invocations).toEqual([
       {
@@ -168,7 +169,7 @@ describe("ipc wrappers", () => {
     it("forwards cornerRadius to crop_and_copy", async () => {
       const invocations = captureInvocations();
 
-      await cropAndCopy(1, { x: 0, y: 0, width: 10, height: 10 }, undefined, 12);
+      await cropAndCopy("revision-1", 1, { x: 0, y: 0, width: 10, height: 10 }, undefined, 12);
 
       expect(invocations[invocations.length - 1]).toEqual({
         cmd: "crop_and_copy",
@@ -179,7 +180,7 @@ describe("ipc wrappers", () => {
     it("forwards cornerRadius to crop_and_save", async () => {
       const invocations = captureInvocations();
 
-      await cropAndSave(1, { x: 0, y: 0, width: 10, height: 10 }, undefined, 8);
+      await cropAndSave("revision-1", 1, { x: 0, y: 0, width: 10, height: 10 }, undefined, 8);
 
       expect(invocations[invocations.length - 1]).toEqual({
         cmd: "crop_and_save",
@@ -190,7 +191,7 @@ describe("ipc wrappers", () => {
     it("forwards cornerRadius to pin_image", async () => {
       const invocations = captureInvocations();
 
-      await pinImage(1, { x: 0, y: 0, width: 10, height: 10 }, undefined, 4);
+      await pinImage("revision-1", 1, { x: 0, y: 0, width: 10, height: 10 }, undefined, 4);
 
       expect(invocations[invocations.length - 1]).toEqual({
         cmd: "pin_image",

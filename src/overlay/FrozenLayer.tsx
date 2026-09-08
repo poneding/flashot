@@ -1,3 +1,4 @@
+import { ImageAdjustmentsFilter } from "@/overlay/ImageAdjustmentsFilter";
 import { useReleasableFrameSource } from "@/lib/frame-source";
 import { captureOverlayReady } from "@/lib/ipc";
 import {
@@ -6,46 +7,6 @@ import {
   normalizeImageAdjustments,
 } from "@/overlay/imageAdjustments";
 import { useOverlay } from "@/overlay/state";
-
-function formatFilterNumber(value: number): string {
-  return Number(value.toFixed(4)).toString();
-}
-
-function channelTransfer(slope: number, intercept: number) {
-  const formattedSlope = formatFilterNumber(slope);
-  const formattedIntercept = formatFilterNumber(intercept);
-
-  return (
-    <feComponentTransfer>
-      <feFuncR type="linear" slope={formattedSlope} intercept={formattedIntercept} />
-      <feFuncG type="linear" slope={formattedSlope} intercept={formattedIntercept} />
-      <feFuncB type="linear" slope={formattedSlope} intercept={formattedIntercept} />
-    </feComponentTransfer>
-  );
-}
-
-function grayscaleMatrix(): string {
-  return [
-    0.299, 0.587, 0.114, 0, 0,
-    0.299, 0.587, 0.114, 0, 0,
-    0.299, 0.587, 0.114, 0, 0,
-    0, 0, 0, 1, 0,
-  ].map(formatFilterNumber).join(" ");
-}
-
-function saturationMatrix(factor: number): string {
-  const inverse = 1 - factor;
-  const lr = 0.299;
-  const lg = 0.587;
-  const lb = 0.114;
-
-  return [
-    lr * inverse + factor, lg * inverse, lb * inverse, 0, 0,
-    lr * inverse, lg * inverse + factor, lb * inverse, 0, 0,
-    lr * inverse, lg * inverse, lb * inverse + factor, 0, 0,
-    0, 0, 0, 1, 0,
-  ].map(formatFilterNumber).join(" ");
-}
 
 export function FrozenLayer() {
   const url = useOverlay((s) => s.frameUrl);
@@ -124,31 +85,12 @@ export function FrozenLayer() {
           }}
         >
           <defs>
-            <filter
+            <ImageAdjustmentsFilter
               id={PREVIEW_IMAGE_ADJUSTMENTS_FILTER_ID}
-              colorInterpolationFilters="sRGB"
-              filterUnits="userSpaceOnUse"
-              x={0}
-              y={0}
+              adjustments={normalized}
               width={previewWidth}
               height={previewHeight}
-            >
-              {normalized.grayscale && (
-                <feColorMatrix type="matrix" values={grayscaleMatrix()} />
-              )}
-              {normalized.brightness !== 0 && channelTransfer(1, normalized.brightness / 100)}
-              {normalized.contrast !== 0 &&
-                channelTransfer(
-                  1 + normalized.contrast / 100,
-                  (128 / 255) * (1 - (1 + normalized.contrast / 100)),
-                )}
-              {normalized.saturation !== 0 && (
-                <feColorMatrix
-                  type="matrix"
-                  values={saturationMatrix(1 + normalized.saturation / 100)}
-                />
-              )}
-            </filter>
+            />
           </defs>
           <image
             href={source}

@@ -14,7 +14,7 @@ import {
 import { useStoredAccentColor, useStoredLanguage } from "@/settings/useStoredAccentColor";
 import { CheckIcon } from "lucide-react";
 
-function parseScrollChromeRoute(): { monitorId: number } | null {
+function parseScrollChromeRoute(): { monitorId: number; sessionId: string } | null {
   const h = window.location.hash || "";
   const prefix = "#/scroll-chrome/";
   if (!h.startsWith(prefix)) return null;
@@ -22,7 +22,9 @@ function parseScrollChromeRoute(): { monitorId: number } | null {
   const idPart = rest.split(/[/?#]/)[0];
   const monitorId = Number(idPart);
   if (!Number.isFinite(monitorId)) return null;
-  return { monitorId };
+  const sessionId = new URLSearchParams(rest.split("?")[1] ?? "").get("session");
+  if (!sessionId) return null;
+  return { monitorId, sessionId };
 }
 
 const panelStyle: CSSProperties = {
@@ -113,12 +115,12 @@ export function ScrollChromeRoute() {
   // ensures scroll_pin (which consumes the session) runs at most once even
   // if the signal lands in the same instant as a click.
   const finishPin = useCallback(() => {
-    if (finishingRef.current) return;
+    if (!parsed || finishingRef.current) return;
     finishingRef.current = true;
-    scrollPin().catch(() => {
+    scrollPin(parsed.sessionId).catch(() => {
       finishingRef.current = false;
     });
-  }, []);
+  }, [parsed]);
 
   useEffect(() => {
     const sub = onScrollProgress((p) => setProgress(p));

@@ -42,7 +42,7 @@ vi.mock("@/lib/ipc", () => ({
 
 describe("ScrollChromeRoute", () => {
   beforeEach(() => {
-    window.location.hash = "#/scroll-chrome/1";
+    window.location.hash = "#/scroll-chrome/1?session=revision-1";
     scrollProgressListener.current = undefined;
     scrollMaxHeightListener.current = undefined;
     vi.clearAllMocks();

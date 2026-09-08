@@ -14,7 +14,7 @@ import {
 } from "@/annotation/markerStyle";
 import type { AnnotationObject } from "@/annotation/types";
 import type { Rect } from "@/lib/types";
-import { beginTextInputSession, endTextInputSession } from "@/lib/ipc";
+import { useTextInputSession } from "@/annotation/useTextInputSession";
 
 type Props = {
   object: AnnotationObject;
@@ -22,9 +22,10 @@ type Props = {
   onConfirm: (text: string) => void;
   onCancel: () => void;
   viewportOrigin?: { x: number; y: number };
+  displayScale?: number;
 };
 
-export function MarkerTextOverlay({ object, selection, onConfirm, onCancel, viewportOrigin }: Props) {
+export function MarkerTextOverlay({ object, selection, onConfirm, onCancel, viewportOrigin, displayScale = 1 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const confirmedRef = useRef(false);
   const composingRef = useRef(false);
@@ -32,34 +33,24 @@ export function MarkerTextOverlay({ object, selection, onConfirm, onCancel, view
   const [textValue, setTextValue] = useState(object.text ?? "");
   const textValueRef = useRef(object.text ?? "");
   const origin = viewportOrigin ?? { x: selection.x, y: selection.y };
-  const fontSize = object.style.fontSize ?? MARKER_DEFAULT_FONT_SIZE;
+  const fontSize = (object.style.fontSize ?? MARKER_DEFAULT_FONT_SIZE) * displayScale;
   const markerFill = object.style.markerFill ?? object.style.color;
   const anchor = markerLabelAnchor(object);
   const metrics = markerLabelMetrics(textValue, fontSize);
-  const left = origin.x + anchor.x + object.transform.x;
-  const top = origin.y + anchor.y + object.transform.y;
+  const left = origin.x + (anchor.x + object.transform.x) * displayScale;
+  const top = origin.y + (anchor.y + object.transform.y) * displayScale;
 
   const updateTextValue = (value: string) => {
     textValueRef.current = value;
     setTextValue(value);
   };
 
-  useEffect(() => {
-    beginTextInputSession().catch((error) => {
-      console.warn("Failed to prepare marker text input session", error);
-    });
-    return () => {
-      endTextInputSession().catch((error) => {
-        console.warn("Failed to restore marker text input session", error);
-      });
-    };
-  }, []);
+  useTextInputSession(textareaRef);
 
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.setSelectionRange(el.value.length, el.value.length);
-    setTimeout(() => el.focus(), 0);
   }, []);
 
   const confirm = () => {
@@ -76,6 +67,7 @@ export function MarkerTextOverlay({ object, selection, onConfirm, onCancel, view
     }
     if (e.key === "Escape") {
       e.stopPropagation();
+      confirmedRef.current = true;
       onCancel();
     }
   };

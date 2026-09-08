@@ -167,4 +167,5 @@ export const en = {
   "scroll.done": "Done",
   "scroll.cancel": "Cancel",
   "scroll.finishPin": "Finish scrolling screenshot",
+  "settings.saveError": "Could not save settings: {error}",
 } as const;

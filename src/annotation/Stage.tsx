@@ -81,6 +81,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 type Props = {
   selection: Rect;
   scaleFactor: number;
+  displayScale?: number;
   frameUrl?: string | null;
   frameSourceRect?: Rect | null;
   interacting?: boolean;
@@ -1166,6 +1167,7 @@ function syncLayerWithStore(prevObjects: AnnotationObject[] = []) {
 export function AnnotationStage({
   selection,
   scaleFactor,
+  displayScale = 1,
   frameUrl,
   frameSourceRect,
   interacting,
@@ -1186,9 +1188,32 @@ export function AnnotationStage({
   const stagePointerInsideRef = useRef(false);
   const lastNativeCursorRef = useRef<string | null>(null);
   const cursorChangeRef = useRef(onCursorChange);
+  const lastDrawingPointer = useRef({ clientX: 0, clientY: 0 });
+  const gestureHandlers = useRef<{
+    move: (event: Pick<MouseEvent, "clientX" | "clientY" | "stopPropagation">) => void;
+    up: (event: Pick<MouseEvent, "clientX" | "clientY" | "stopPropagation">) => void;
+  } | null>(null);
   cursorChangeRef.current = onCursorChange;
   const viewportOrigin = viewportOriginForStage(containerRef.current, selection);
   const needsMagnifierSource = activeTool === "magnifier" || hasMagnifierObjects;
+
+  useEffect(() => {
+    const outsideMove = (event: MouseEvent) => {
+      if (useAnnotation.getState().drawingState !== "active") return;
+      if (event.target instanceof Node && containerRef.current?.contains(event.target)) return;
+      gestureHandlers.current?.move(event);
+    };
+    const release = (event: MouseEvent) => gestureHandlers.current?.up(event);
+    const blur = () => gestureHandlers.current?.up({ ...lastDrawingPointer.current, stopPropagation() {} });
+    window.addEventListener("mousemove", outsideMove);
+    window.addEventListener("mouseup", release);
+    window.addEventListener("blur", blur);
+    return () => {
+      window.removeEventListener("mousemove", outsideMove);
+      window.removeEventListener("mouseup", release);
+      window.removeEventListener("blur", blur);
+    };
+  }, []);
 
   const openMarkerEditor = (object: AnnotationObject) => {
     useAnnotation.getState().setSelectedObject(null);
@@ -1204,6 +1229,7 @@ export function AnnotationStage({
     if (!obj) return;
 
     e.preventDefault();
+    e.stopPropagation();
 
     // Accumulate raw deltaY so a trackpad gesture (dozens of small-delta
     // events) advances one step per threshold crossing instead of racing.
@@ -1450,6 +1476,7 @@ export function AnnotationStage({
     selection.width,
     selection.height,
     scaleFactor,
+    displayScale,
     frameSourceRect?.x,
     frameSourceRect?.y,
     frameSourceRect?.width,
@@ -1500,8 +1527,9 @@ export function AnnotationStage({
 
     const { activeTool: tool, activeStyle, objects, selectedObjectId, setSelectedObject, setDrawingState } = useAnnotation.getState();
     const rect = containerRef.current!.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const x = (e.clientX - rect.left) / displayScale;
+    const y = (e.clientY - rect.top) / displayScale;
+    lastDrawingPointer.current = { clientX: e.clientX, clientY: e.clientY };
     const stageInst = getStage();
     const hitTarget = stageInst?.getIntersection({ x, y }) ?? null;
     if (isEditOverlayNode(hitTarget)) {
@@ -1528,9 +1556,9 @@ export function AnnotationStage({
     // Keep single-click available for selecting/dragging text. Double-click reopens editing.
     if (tool === "text" && hitObject?.type === "text" && hitNode && e.detail >= 2) {
       e.stopPropagation();
-      hitNode.destroy();
+      hitNode.hide();
       getLayer()?.batchDraw();
-      useAnnotation.getState().deleteObject(hitObject.id);
+      setSelectedObject(null);
       textKeyRef.current++;
       setTextEditing({ position: { x: e.clientX, y: e.clientY }, editingObject: hitObject, key: textKeyRef.current });
       return;
@@ -1591,14 +1619,15 @@ export function AnnotationStage({
     }
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handleMouseMove = (e: Pick<MouseEvent, "clientX" | "clientY" | "stopPropagation">) => {
     const { activeTool: tool, drawingState } = useAnnotation.getState();
     if (drawingState !== "active") return;
 
     e.stopPropagation();
     const rect = containerRef.current!.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const x = Math.max(0, Math.min(selection.width, (e.clientX - rect.left) / displayScale));
+    const y = Math.max(0, Math.min(selection.height, (e.clientY - rect.top) / displayScale));
+    lastDrawingPointer.current = { clientX: e.clientX, clientY: e.clientY };
 
     if (tool === "eraser") {
       onEraserMove(x, y);
@@ -1612,15 +1641,15 @@ export function AnnotationStage({
     }
   };
 
-  const handleMouseUp = (e: React.MouseEvent) => {
+  const handleMouseUp = (e: Pick<MouseEvent, "clientX" | "clientY" | "stopPropagation">) => {
     const { activeTool: tool, drawingState, setDrawingState, addObject, setSelectedObject } = useAnnotation.getState();
 
     if (drawingState !== "active") return;
 
     e.stopPropagation();
     const rect = containerRef.current!.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const x = Math.max(0, Math.min(selection.width, (e.clientX - rect.left) / displayScale));
+    const y = Math.max(0, Math.min(selection.height, (e.clientY - rect.top) / displayScale));
 
     if (tool === "eraser") {
       onEraserEnd();
@@ -1646,6 +1675,7 @@ export function AnnotationStage({
     setDrawingState("idle");
   };
 
+  gestureHandlers.current = { move: handleMouseMove, up: handleMouseUp };
   const cursor = stageCursorForTool(activeTool, activeStyle, colorPickerVisible);
 
   return (
@@ -1653,6 +1683,7 @@ export function AnnotationStage({
       <div
         ref={containerRef}
         data-annotation-stage
+        data-annotation-display-scale={displayScale}
         onMouseEnter={() => {
           stagePointerInsideRef.current = true;
           lastNativeCursorRef.current = null;
@@ -1674,6 +1705,8 @@ export function AnnotationStage({
           top: selection.y,
           width: selection.width,
           height: selection.height,
+          transform: displayScale === 1 ? undefined : `scale(${displayScale})`,
+          transformOrigin: "top left",
           cursor,
           pointerEvents: interacting ? "none" : "auto",
           visibility: "visible",
@@ -1685,6 +1718,7 @@ export function AnnotationStage({
           object={markerEditing.object}
           selection={selection}
           viewportOrigin={viewportOrigin}
+          displayScale={displayScale}
           onConfirm={(text) => {
             const editingObject = markerEditing.object;
             useAnnotation.getState().resizeObject(editingObject.id, {
@@ -1707,13 +1741,23 @@ export function AnnotationStage({
           selection={selection}
           editingObject={textEditing.editingObject}
           viewportOrigin={viewportOrigin}
+          displayScale={displayScale}
           flushRef={textFlushRef}
           onConfirm={(obj) => {
-            addTextToLayer(obj);
-            useAnnotation.getState().addObject(obj);
+            if (textEditing.editingObject) {
+              findRenderedObjectNode(obj.id)?.show();
+              useAnnotation.getState().resizeObject(obj.id, { text: obj.text });
+            } else {
+              addTextToLayer(obj);
+              useAnnotation.getState().addObject(obj);
+            }
             setTextEditing(null);
           }}
-          onCancel={() => setTextEditing(null)}
+          onCancel={() => {
+            if (textEditing.editingObject) findRenderedObjectNode(textEditing.editingObject.id)?.show();
+            getLayer()?.batchDraw();
+            setTextEditing(null);
+          }}
         />
       )}
     </>

@@ -3,15 +3,66 @@
 use crate::capture::capture_monitor_region;
 use crate::scroll_stitch::{IngestResult, ScrollStitcher};
 use crate::types::Rect;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, EventTarget};
+use tauri::{AppHandle, Emitter, EventTarget, Manager, WebviewWindow};
 use tokio::sync::Mutex as AsyncMutex;
-use tokio::time::{interval, MissedTickBehavior};
+use tokio::time::{MissedTickBehavior, interval};
 
 const TICK_MS: u64 = 60;
 const PROGRESS_THROTTLE_MS: u64 = 100;
+
+pub(crate) struct ScrollCaptureSource {
+    pub app: AppHandle,
+    pub session_id: String,
+    pub monitor_id: u32,
+    pub rect: Rect,
+    pub overlapping_preview: Option<WebviewWindow>,
+}
+
+struct PreviewCaptureGuard<'a> {
+    source: &'a ScrollCaptureSource,
+    restore: bool,
+}
+
+impl Drop for PreviewCaptureGuard<'_> {
+    fn drop(&mut self) {
+        if self.restore
+            && self
+                .source
+                .app
+                .state::<Arc<crate::window_mgr::WindowMgr>>()
+                .is_current(&self.source.session_id)
+            && let Some(window) = &self.source.overlapping_preview
+        {
+            let _ = window.show();
+        }
+    }
+}
+
+impl ScrollCaptureSource {
+    pub fn capture(&self) -> anyhow::Result<Vec<u8>> {
+        let mut guard = PreviewCaptureGuard {
+            source: self,
+            restore: false,
+        };
+        if let Some(window) = &self.overlapping_preview {
+            // Also supersede a queued restore from the previous frame.
+            window.hide()?;
+            guard.restore = true;
+            let hidden_deadline = Instant::now() + Duration::from_secs(1);
+            while window.is_visible()? {
+                anyhow::ensure!(Instant::now() < hidden_deadline, "scroll preview is still visible");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            // Wait for the compositor to remove our preview before sampling.
+            // Side/above/below placements avoid this transition entirely.
+            std::thread::sleep(Duration::from_millis(35));
+        }
+        capture_monitor_region(self.monitor_id, self.rect)
+    }
+}
 /// Width of the encoded progress preview PNG in pixels.
 pub(crate) const PREVIEW_TARGET_WIDTH: u32 = 640;
 /// Floor for the per-session preview tail height (source rows at
@@ -71,10 +122,9 @@ pub(crate) fn emit_initial_progress(
     );
 }
 
-pub fn spawn_loop(
+pub(crate) fn spawn_loop(
     app: AppHandle,
-    monitor_id: u32,
-    rect: Rect,
+    source: ScrollCaptureSource,
     preview_tail_rows: u32,
     progress_target: EventTarget,
     stitcher: Arc<AsyncMutex<ScrollStitcher>>,
@@ -97,7 +147,7 @@ pub fn spawn_loop(
                 break;
             }
 
-            let frame = match capture_monitor_region(monitor_id, rect) {
+            let frame = match source.capture() {
                 Ok(f) => f,
                 Err(e) => {
                     tracing::warn!("scroll capture failed: {e}");

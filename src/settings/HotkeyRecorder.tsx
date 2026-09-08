@@ -48,6 +48,10 @@ export function HotkeyRecorder({
     if (recording) return;
     setEditing(false);
     setRecording(true);
+  };
+
+  useEffect(() => {
+    if (!recording) return;
     const handler = (e: KeyboardEvent) => {
       if (MOD_NAMES.includes(e.key)) return; // wait for non-modifier
       e.preventDefault();
@@ -58,25 +62,27 @@ export function HotkeyRecorder({
       if (e.ctrlKey) parts.push("Ctrl");
       if (e.altKey) parts.push("Alt");
       if (e.shiftKey) parts.push("Shift");
-      const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+      const key = /^Key[A-Z]$/.test(e.code) ? e.code.slice(3)
+        : /^Digit[0-9]$/.test(e.code) ? e.code.slice(5)
+        : e.code || (e.key === " " ? "Space" : e.key.length === 1 ? e.key.toUpperCase() : e.key);
       parts.push(key);
       const nextValue = parts.join("+");
       setDraftValue(nextValue);
       onChange(nextValue);
       setRecording(false);
-      window.removeEventListener("keydown", handler);
     };
     window.addEventListener("keydown", handler);
-  };
+    return () => window.removeEventListener("keydown", handler);
+  }, [recording, onChange]);
 
-  const displayValue = editing ? draftValue : formatHotkeyForPlatform(value);
+  const displayValue = recording ? "" : editing ? draftValue : formatHotkeyForPlatform(value);
 
   const updateManualValue = (nextValue: string) => {
     setDraftValue(nextValue);
-    onChange(nextValue);
   };
 
   const clearHotkey = () => {
+    setRecording(false);
     setDraftValue("");
     onChange("");
   };
@@ -88,7 +94,16 @@ export function HotkeyRecorder({
           aria-label={inputLabel}
           className="h-7 w-36 rounded-md border border-input bg-background pl-2 pr-14 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           inputMode="text"
-          onBlur={() => setEditing(false)}
+          onBlur={() => {
+            setEditing(false);
+            if (!recording && draftValue !== value) onChange(draftValue);
+          }}
+          onKeyDown={(event) => {
+            if (!recording && event.key === "Enter") {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
+          }}
           onChange={(event) => updateManualValue(event.currentTarget.value)}
           onFocus={() => {
             setEditing(true);

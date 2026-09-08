@@ -32,7 +32,9 @@ export function createCommandStack(): CommandStack {
       if (direction === "forward") {
         return objects.filter((o) => o.id !== objectId);
       }
-      return [...objects, cmd.before as AnnotationObject];
+      const restored = [...objects];
+      restored.splice(cmd.objectIndex ?? objects.length, 0, cmd.before as AnnotationObject);
+      return restored;
     }
 
     return objects.map((o) =>
@@ -42,6 +44,9 @@ export function createCommandStack(): CommandStack {
 
   return {
     execute(cmd, objects) {
+      if (cmd.type === "delete") {
+        cmd = { ...cmd, objectIndex: objects.findIndex((object) => object.id === cmd.objectId) };
+      }
       history.splice(index + 1);
       history.push(cmd);
       index++;

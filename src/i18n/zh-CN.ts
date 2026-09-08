@@ -167,4 +167,5 @@ export const zhCN = {
   "scroll.done": "完成",
   "scroll.cancel": "取消",
   "scroll.finishPin": "完成滚动截图",
+  "settings.saveError": "设置保存失败：{error}",
 } as const;

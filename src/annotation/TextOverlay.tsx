@@ -9,7 +9,7 @@ import {
 import { useAnnotation } from "@/annotation/store";
 import type { AnnotationObject } from "@/annotation/types";
 import type { Rect } from "@/lib/types";
-import { beginTextInputSession, endTextInputSession } from "@/lib/ipc";
+import { useTextInputSession } from "@/annotation/useTextInputSession";
 
 type Props = {
   position: { x: number; y: number };
@@ -19,9 +19,10 @@ type Props = {
   editingObject?: AnnotationObject | null;
   flushRef?: MutableRefObject<(() => void) | null>;
   viewportOrigin?: { x: number; y: number };
+  displayScale?: number;
 };
 
-export function TextOverlay({ position, selection, onConfirm, onCancel, editingObject, flushRef, viewportOrigin }: Props) {
+export function TextOverlay({ position, selection, onConfirm, onCancel, editingObject, flushRef, viewportOrigin, displayScale = 1 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { activeStyle } = useAnnotation.getState();
   const style = normalizeTextStyle(editingObject?.style ?? activeStyle);
@@ -29,30 +30,21 @@ export function TextOverlay({ position, selection, onConfirm, onCancel, editingO
   const confirmedRef = useRef(false);
   const composingRef = useRef(false);
   const pendingBlurRef = useRef(false);
-  const fontSize = style.fontSize ?? 24;
+  const fontSize = (style.fontSize ?? 24) * displayScale;
   const editorHeight = textEditorHeight(fontSize);
   const fontFamily = resolveTextFontFamily(style.fontFamily);
   const origin = viewportOrigin ?? { x: selection.x, y: selection.y };
   const editorPosition = editingObject?.start
     ? {
-        x: origin.x + editingObject.start.x + editingObject.transform.x,
-        y: origin.y + editingObject.start.y + editingObject.transform.y,
+        x: origin.x + (editingObject.start.x + editingObject.transform.x) * displayScale,
+        y: origin.y + (editingObject.start.y + editingObject.transform.y) * displayScale,
       }
     : {
         x: position.x,
         y: position.y - textHotspotOffset(fontSize),
       };
 
-  useEffect(() => {
-    beginTextInputSession().catch((error) => {
-      console.warn("Failed to prepare text input session", error);
-    });
-    return () => {
-      endTextInputSession().catch((error) => {
-        console.warn("Failed to restore text input session", error);
-      });
-    };
-  }, []);
+  useTextInputSession(textareaRef);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -62,7 +54,6 @@ export function TextOverlay({ position, selection, onConfirm, onCancel, editingO
       el.style.height = Math.max(el.scrollHeight, editorHeight) + "px";
       el.setSelectionRange(initialText.length, initialText.length);
     }
-    setTimeout(() => el.focus(), 0);
   }, []);
 
   useEffect(() => {
@@ -84,6 +75,7 @@ export function TextOverlay({ position, selection, onConfirm, onCancel, editingO
     }
     if (e.key === "Escape") {
       e.stopPropagation();
+      confirmedRef.current = true;
       onCancel();
     }
   };
@@ -110,7 +102,7 @@ export function TextOverlay({ position, selection, onConfirm, onCancel, editingO
     const obj: AnnotationObject = {
       id: editingObject?.id ?? crypto.randomUUID(),
       type: "text",
-      start: editingObject?.start ?? { x: editorPosition.x - origin.x, y: editorPosition.y - origin.y },
+      start: editingObject?.start ?? { x: (editorPosition.x - origin.x) / displayScale, y: (editorPosition.y - origin.y) / displayScale },
       text,
       style: { ...style },
       transform: editingObject?.transform ?? { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },

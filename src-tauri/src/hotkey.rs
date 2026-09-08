@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use global_hotkey::{
-    hotkey::{Code, HotKey, Modifiers},
     GlobalHotKeyEvent, GlobalHotKeyManager,
+    hotkey::{Code, HotKey, Modifiers},
 };
 use parking_lot::Mutex;
 use std::cell::RefCell;
@@ -33,27 +33,8 @@ impl HotkeyService {
         })
     }
 
-    fn register_hotkey(&self, hotkey: HotKey, cur: &mut Vec<HotKey>) -> Result<u32> {
-        self.mgr.register(hotkey)?;
-        let id = hotkey.id();
-        cur.push(hotkey);
-        Ok(id)
-    }
-
     pub fn set(&self, accelerator: &str) -> Result<u32> {
-        let parsed = parse_accelerator(accelerator)?;
-        let mut cur = self.current.lock();
-        for old in cur.drain(..) {
-            let _ = self.mgr.unregister(old);
-        }
-        let id = self.register_hotkey(parsed, &mut cur)?;
-        store_current_ids(RegisteredHotkeyIds {
-            capture: id,
-            board: 0,
-            fullscreen: 0,
-            active_window: 0,
-        });
-        Ok(id)
+        Ok(self.set_all(accelerator, "", "", "")?.capture)
     }
 
     pub fn set_all(
@@ -64,39 +45,29 @@ impl HotkeyService {
         active_window: &str,
     ) -> Result<RegisteredHotkeyIds> {
         let parsed = parse_configured_hotkeys(capture, board, fullscreen, active_window)?;
-        let mut cur = self.current.lock();
-        for old in cur.drain(..) {
-            let _ = self.mgr.unregister(old);
-        }
-
-        let mut ids = RegisteredHotkeyIds {
-            capture: self.register_hotkey(parsed.capture, &mut cur)?,
-            board: 0,
-            fullscreen: 0,
-            active_window: 0,
+        let mut requested = [
+            parsed.capture,
+            parsed.board,
+            parsed.fullscreen,
+            parsed.active_window,
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+        let mut seen = std::collections::HashSet::new();
+        requested.retain(|key| seen.insert(key.id()));
+        replace_registered_hotkeys(
+            &mut self.current.lock(),
+            &requested,
+            |key| self.mgr.register(key).map_err(Into::into),
+            |key| self.mgr.unregister(key).map_err(Into::into),
+        )?;
+        let ids = RegisteredHotkeyIds {
+            capture: parsed.capture.map(|key| key.id()).unwrap_or(0),
+            board: parsed.board.map(|key| key.id()).unwrap_or(0),
+            fullscreen: parsed.fullscreen.map(|key| key.id()).unwrap_or(0),
+            active_window: parsed.active_window.map(|key| key.id()).unwrap_or(0),
         };
-
-        if let Some(hotkey) = parsed.board {
-            match self.register_hotkey(hotkey, &mut cur) {
-                Ok(id) => ids.board = id,
-                Err(e) => tracing::warn!("failed to register board hotkey: {e}"),
-            }
-        }
-
-        if let Some(hotkey) = parsed.fullscreen {
-            match self.register_hotkey(hotkey, &mut cur) {
-                Ok(id) => ids.fullscreen = id,
-                Err(e) => tracing::warn!("failed to register fullscreen hotkey: {e}"),
-            }
-        }
-
-        if let Some(hotkey) = parsed.active_window {
-            match self.register_hotkey(hotkey, &mut cur) {
-                Ok(id) => ids.active_window = id,
-                Err(e) => tracing::warn!("failed to register active window hotkey: {e}"),
-            }
-        }
-
         store_current_ids(ids);
         Ok(ids)
     }
@@ -151,12 +122,12 @@ impl HotkeyService {
                 *cur = None;
                 Ok(())
             }
-            (Err(toggle_error), Ok(())) => {
-                Err(anyhow!("failed to unregister color format hotkey: {toggle_error}"))
-            }
-            (Ok(()), Err(copy_error)) => {
-                Err(anyhow!("failed to unregister color copy hotkey: {copy_error}"))
-            }
+            (Err(toggle_error), Ok(())) => Err(anyhow!(
+                "failed to unregister color format hotkey: {toggle_error}"
+            )),
+            (Ok(()), Err(copy_error)) => Err(anyhow!(
+                "failed to unregister color copy hotkey: {copy_error}"
+            )),
             (Err(toggle_error), Err(copy_error)) => Err(anyhow!(
                 "failed to unregister color picker hotkeys: format={toggle_error}; copy={copy_error}"
             )),
@@ -168,6 +139,57 @@ impl HotkeyService {
     pub fn receiver(&self) -> &'static crossbeam_channel::Receiver<GlobalHotKeyEvent> {
         GlobalHotKeyEvent::receiver()
     }
+}
+
+// Register additions before releasing anything that currently works. This also
+// supports swapping two configured shortcuts without re-registering either key.
+fn replace_registered_hotkeys(
+    current: &mut Vec<HotKey>,
+    requested: &[HotKey],
+    mut register: impl FnMut(HotKey) -> Result<()>,
+    mut unregister: impl FnMut(HotKey) -> Result<()>,
+) -> Result<()> {
+    let mut added = Vec::new();
+    for key in requested.iter().filter(|key| !current.contains(key)) {
+        if let Err(error) = register(*key) {
+            for key in added {
+                let _ = unregister(key);
+            }
+            return Err(error);
+        }
+        added.push(*key);
+    }
+    let mut removed = Vec::new();
+    for key in current.iter().filter(|key| !requested.contains(key)) {
+        if let Err(error) = unregister(*key) {
+            for key in removed {
+                let _ = register(key);
+            }
+            for key in added {
+                let _ = unregister(key);
+            }
+            return Err(error);
+        }
+        removed.push(*key);
+    }
+    *current = requested.to_vec();
+    Ok(())
+}
+
+pub fn validate_configured_hotkeys(shortcuts: [&str; 4]) -> Result<()> {
+    let mut seen = std::collections::HashSet::new();
+    for shortcut in shortcuts
+        .into_iter()
+        .filter(|value| !value.trim().is_empty())
+    {
+        let key = parse_accelerator(shortcut)?;
+        if !seen.insert(key.id()) {
+            return Err(anyhow!(
+                "Shortcut {shortcut} is assigned to more than one action"
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub fn initialize() -> Result<()> {
@@ -203,6 +225,51 @@ pub fn set_all(
             .ok_or_else(|| anyhow!("hotkey service has not been initialized"))?;
         service.set_all(capture, board, fullscreen, active_window)
     })
+}
+
+pub fn set_startup(
+    capture: &str,
+    board: &str,
+    fullscreen: &str,
+    active_window: &str,
+) -> Result<RegisteredHotkeyIds> {
+    register_available_shortcuts(
+        [capture, board, fullscreen, active_window],
+        |[capture, board, fullscreen, active_window]| {
+            set_all(capture, board, fullscreen, active_window)
+        },
+    )
+}
+
+fn register_available_shortcuts(
+    requested: [&str; 4],
+    mut register: impl FnMut([&str; 4]) -> Result<RegisteredHotkeyIds>,
+) -> Result<RegisteredHotkeyIds> {
+    if let Ok(ids) = register(requested) {
+        return Ok(ids);
+    }
+    let mut accepted = [""; 4];
+    let mut ids = RegisteredHotkeyIds::default();
+    let mut last_error = None;
+    for (index, shortcut) in requested.into_iter().enumerate() {
+        if shortcut.trim().is_empty() {
+            continue;
+        }
+        accepted[index] = shortcut;
+        match register(accepted) {
+            Ok(next) => ids = next,
+            Err(error) => {
+                tracing::warn!("startup shortcut {shortcut} is unavailable: {error}");
+                accepted[index] = "";
+                last_error = Some(error);
+            }
+        }
+    }
+    if ids == RegisteredHotkeyIds::default() {
+        Err(last_error.unwrap_or_else(|| anyhow!("no configured shortcut is available")))
+    } else {
+        Ok(ids)
+    }
 }
 
 pub fn set_capture_cancel_enabled(enabled: bool) -> Result<()> {
@@ -328,7 +395,7 @@ fn color_copy_hotkey() -> HotKey {
 
 #[derive(Debug, Clone, Copy)]
 struct ParsedHotkeys {
-    capture: HotKey,
+    capture: Option<HotKey>,
     board: Option<HotKey>,
     fullscreen: Option<HotKey>,
     active_window: Option<HotKey>,
@@ -341,7 +408,11 @@ fn parse_configured_hotkeys(
     active_window: &str,
 ) -> Result<ParsedHotkeys> {
     Ok(ParsedHotkeys {
-        capture: parse_accelerator(capture)?,
+        capture: if capture.trim().is_empty() {
+            None
+        } else {
+            Some(parse_accelerator(capture)?)
+        },
         board: parse_optional_accelerator(board),
         fullscreen: parse_optional_accelerator(fullscreen),
         active_window: parse_optional_accelerator(active_window),
@@ -375,6 +446,9 @@ pub fn parse_accelerator(s: &str) -> Result<HotKey> {
                 }
             }
             other => {
+                if code.is_some() {
+                    return Err(anyhow!("shortcut must contain exactly one key: {s}"));
+                }
                 code = Some(parse_code(other)?);
             }
         }
@@ -432,7 +506,41 @@ fn parse_code(s: &str) -> Result<Code> {
             .parse::<Code>()
             .map_err(|_| anyhow!("unknown key code '{s}'"));
     }
-    Err(anyhow!("unknown key code '{s}'"))
+    let key = match s.as_str() {
+        "SPACE" => Code::Space,
+        "PRINTSCREEN" | "PRTSC" | "SNAPSHOT" => Code::PrintScreen,
+        "ESCAPE" | "ESC" => Code::Escape,
+        "ENTER" | "RETURN" => Code::Enter,
+        "TAB" => Code::Tab,
+        "BACKSPACE" => Code::Backspace,
+        "DELETE" | "DEL" => Code::Delete,
+        "INSERT" => Code::Insert,
+        "HOME" => Code::Home,
+        "END" => Code::End,
+        "PAGEUP" => Code::PageUp,
+        "PAGEDOWN" => Code::PageDown,
+        "ARROWUP" | "UP" => Code::ArrowUp,
+        "ARROWDOWN" | "DOWN" => Code::ArrowDown,
+        "ARROWLEFT" | "LEFT" => Code::ArrowLeft,
+        "ARROWRIGHT" | "RIGHT" => Code::ArrowRight,
+        "MINUS" => Code::Minus,
+        "EQUAL" => Code::Equal,
+        "COMMA" => Code::Comma,
+        "PERIOD" => Code::Period,
+        "SLASH" => Code::Slash,
+        "BACKSLASH" => Code::Backslash,
+        "SEMICOLON" => Code::Semicolon,
+        "QUOTE" => Code::Quote,
+        "BRACKETLEFT" => Code::BracketLeft,
+        "BRACKETRIGHT" => Code::BracketRight,
+        "BACKQUOTE" => Code::Backquote,
+        "CAPSLOCK" => Code::CapsLock,
+        "NUMLOCK" => Code::NumLock,
+        "SCROLLLOCK" => Code::ScrollLock,
+        "PAUSE" => Code::Pause,
+        _ => return Err(anyhow!("unknown key code '{s}'")),
+    };
+    Ok(key)
 }
 
 #[cfg(test)]
@@ -485,7 +593,7 @@ mod tests {
     fn blank_quick_shot_hotkeys_do_not_block_capture_hotkey() {
         let parsed = parse_configured_hotkeys("F1", " ", " ", " ").unwrap();
 
-        assert_eq!(parsed.capture.id(), id_for("F1"));
+        assert_eq!(parsed.capture.unwrap().id(), id_for("F1"));
         assert!(parsed.board.is_none());
         assert!(parsed.fullscreen.is_none());
         assert!(parsed.active_window.is_none());
@@ -493,15 +601,11 @@ mod tests {
 
     #[test]
     fn invalid_quick_shot_hotkeys_do_not_block_capture_hotkey() {
-        let parsed = parse_configured_hotkeys(
-            "Cmd+Shift+A",
-            "also-not-a-key",
-            "not-a-key",
-            "Ctrl+Shift",
-        )
-        .unwrap();
+        let parsed =
+            parse_configured_hotkeys("Cmd+Shift+A", "also-not-a-key", "not-a-key", "Ctrl+Shift")
+                .unwrap();
 
-        assert_eq!(parsed.capture.id(), id_for("Cmd+Shift+A"));
+        assert_eq!(parsed.capture.unwrap().id(), id_for("Cmd+Shift+A"));
         assert!(parsed.board.is_none());
         assert!(parsed.fullscreen.is_none());
         assert!(parsed.active_window.is_none());
@@ -618,5 +722,96 @@ mod tests {
 
         assert_eq!(action_for_event(ids.fullscreen, ids, true), None);
         assert_eq!(action_for_event(ids.active_window, ids, true), None);
+    }
+
+    #[test]
+    fn clearing_capture_keeps_the_other_shortcuts_configurable() {
+        let parsed = parse_configured_hotkeys("", "F2", "F3", "F4").unwrap();
+        assert!(parsed.capture.is_none());
+        assert_eq!(parsed.board.unwrap().id(), id_for("F2"));
+        assert_eq!(parsed.fullscreen.unwrap().id(), id_for("F3"));
+        validate_configured_hotkeys(["", "F2", "F3", "F4"]).unwrap();
+        assert!(validate_configured_hotkeys(["F2", "F2", "", ""]).is_err());
+    }
+
+    #[test]
+    fn startup_conflicts_do_not_disable_available_shortcuts() {
+        let ids = register_available_shortcuts(["F1", "F2", "F3", ""], |keys| {
+            if keys.contains(&"F2") {
+                return Err(anyhow!("reserved by the desktop"));
+            }
+            Ok(RegisteredHotkeyIds {
+                capture: if keys[0] == "F1" { 1 } else { 0 },
+                fullscreen: if keys[2] == "F3" { 3 } else { 0 },
+                ..RegisteredHotkeyIds::default()
+            })
+        })
+        .unwrap();
+        assert_eq!(ids.capture, 1);
+        assert_eq!(ids.board, 0);
+        assert_eq!(ids.fullscreen, 3);
+    }
+
+    #[test]
+    fn recorder_key_codes_are_supported_and_multiple_keys_are_rejected() {
+        for key in [
+            "PrintScreen",
+            "Space",
+            "Escape",
+            "Enter",
+            "PageDown",
+            "ArrowLeft",
+            "Equal",
+        ] {
+            assert!(parse_accelerator(&format!("Ctrl+{key}")).is_ok(), "{key}");
+        }
+        assert!(parse_accelerator("Ctrl+A+B").is_err());
+        assert!(validate_configured_hotkeys(["F1", "not-a-key", "", ""]).is_err());
+    }
+
+    #[test]
+    fn registration_conflicts_roll_back_additions_without_losing_old_shortcuts() {
+        use std::cell::RefCell;
+        let old = [
+            parse_accelerator("F1").unwrap(),
+            parse_accelerator("F2").unwrap(),
+        ];
+        let added = parse_accelerator("F3").unwrap();
+        let occupied = parse_accelerator("F4").unwrap();
+        let registry = RefCell::new(old.to_vec());
+        let mut current = old.to_vec();
+        let result = replace_registered_hotkeys(
+            &mut current,
+            &[added, occupied],
+            |key| {
+                if key == occupied {
+                    return Err(anyhow!("shortcut occupied"));
+                }
+                registry.borrow_mut().push(key);
+                Ok(())
+            },
+            |key| {
+                registry.borrow_mut().retain(|item| *item != key);
+                Ok(())
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(current, old);
+        assert_eq!(*registry.borrow(), old);
+    }
+
+    #[test]
+    fn swapping_shortcut_actions_keeps_native_registrations() {
+        let a = parse_accelerator("F1").unwrap();
+        let b = parse_accelerator("F2").unwrap();
+        let mut current = vec![a, b];
+        replace_registered_hotkeys(
+            &mut current,
+            &[b, a],
+            |_| panic!("existing shortcut must not be registered again"),
+            |_| panic!("existing shortcut must not be released"),
+        )
+        .unwrap();
+        assert_eq!(current, [b, a]);
     }
 }

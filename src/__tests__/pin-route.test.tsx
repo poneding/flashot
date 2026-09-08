@@ -393,10 +393,10 @@ describe("PinRoute", () => {
       contrast: -10,
       saturation: 30,
     });
-    expect(screenshot.style.filter).toContain("grayscale(1)");
-    expect(screenshot.style.filter).toContain("brightness(125%)");
-    expect(screenshot.style.filter).toContain("contrast(90%)");
-    expect(screenshot.style.filter).toContain("saturate(130%)");
+    expect(screenshot.style.filter).toContain("#preview-image-adjustments-filter");
+    const matrix = document.querySelector("#preview-image-adjustments-filter feColorMatrix")!.getAttribute("values")!.split(" ").map(Number);
+    expect(matrix[0]).toBeCloseTo(0.299 * 0.9);
+    expect(matrix[4]).toBeCloseTo(0.9 * 0.25 + (128 / 255) * 0.1);
   });
 
   it("toggles pin edit mode off when the edit button is clicked again", async () => {

@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
+use parking_lot::Mutex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fs;
+static SETTINGS_LOCK: Mutex<()> = Mutex::new(());
 use std::path::PathBuf;
 
 #[cfg(target_os = "macos")]
@@ -170,6 +172,11 @@ impl Default for Settings {
 }
 
 pub fn load() -> Result<Settings> {
+    let _guard = SETTINGS_LOCK.lock();
+    load_unlocked()
+}
+
+fn load_unlocked() -> Result<Settings> {
     let path = settings_path()?;
     if !path.exists() {
         return Ok(Settings::default());
@@ -181,13 +188,53 @@ pub fn load() -> Result<Settings> {
 }
 
 pub fn save(settings: &Settings) -> Result<()> {
+    let _guard = SETTINGS_LOCK.lock();
+    save_unlocked(settings)
+}
+
+pub fn update(change: impl FnOnce(&mut Settings) -> Result<()>) -> Result<Settings> {
+    let _guard = SETTINGS_LOCK.lock();
+    let mut settings = load_unlocked()?;
+    change(&mut settings)?;
+    save_unlocked(&settings)?;
+    Ok(settings)
+}
+
+pub fn apply_patch(
+    settings: &Settings,
+    patch: serde_json::Map<String, serde_json::Value>,
+) -> Result<Settings> {
+    let mut value = serde_json::to_value(settings)?;
+    let fields = value
+        .as_object_mut()
+        .expect("settings serialize as an object");
+    for (key, value) in patch {
+        let field = fields
+            .get_mut(&key)
+            .ok_or_else(|| anyhow::anyhow!("unknown setting: {key}"))?;
+        *field = value;
+    }
+    let mut next: Settings = serde_json::from_value(value)?;
+    next.corner_radius = next.corner_radius.min(60);
+    next.update_check_interval_hours = next.update_check_interval_hours.clamp(1, 168);
+    Ok(next)
+}
+
+fn save_unlocked(settings: &Settings) -> Result<()> {
     let path = settings_path()?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).context("Failed to create settings directory")?;
     }
     let json = serde_json::to_string_pretty(settings).context("Failed to serialize settings")?;
-    fs::write(&path, json).context("Failed to write settings file")?;
-    Ok(())
+    let temporary = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| {
+        fs::write(&temporary, json).context("Failed to write settings file")?;
+        fs::rename(&temporary, &path).context("Failed to replace settings file")
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 fn settings_path() -> Result<PathBuf> {
@@ -381,5 +428,34 @@ mod tests {
         let settings: Settings = serde_json::from_str(r#"{}"#).unwrap();
         assert_eq!(settings.accent_color, DEFAULT_ACCENT_COLOR);
         assert_eq!(settings.language, Language::En);
+    }
+
+    #[test]
+    fn preference_patches_preserve_updates_from_other_windows_and_services() {
+        let latest = Settings {
+            corner_radius: 24,
+            last_update_check_at: Some(1234),
+            ..Settings::default()
+        };
+        let patch = serde_json::json!({"launchAtLogin": true})
+            .as_object()
+            .unwrap()
+            .clone();
+        let result = apply_patch(&latest, patch).unwrap();
+        assert!(result.launch_at_login);
+        assert_eq!(result.corner_radius, 24);
+        assert_eq!(result.last_update_check_at, Some(1234));
+        assert!(!latest.launch_at_login);
+    }
+
+    #[test]
+    fn patches_reject_unknown_or_invalid_fields() {
+        for patch in [
+            serde_json::json!({"theme": "invalid"}),
+            serde_json::json!({"launchAtLogin": "yes"}),
+            serde_json::json!({"unknown": true}),
+        ] {
+            assert!(apply_patch(&Settings::default(), patch.as_object().unwrap().clone()).is_err());
+        }
     }
 }

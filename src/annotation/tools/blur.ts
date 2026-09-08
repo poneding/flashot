@@ -85,13 +85,18 @@ function getFrozenLayerGeometry(): FrozenLayerGeometry | null {
   // The frozen layer image covers the full monitor. The annotation stage
   // coordinates are relative to the selection rect. We need to map stage-local
   // coords to the image's natural pixel coords.
-  const scaleX = bgImg.naturalWidth / bgImg.clientWidth;
-  const scaleY = bgImg.naturalHeight / bgImg.clientHeight;
-
-  // Get selection offset — the annotation stage is positioned at selection.x/y
   const stageEl = document.querySelector("[data-annotation-stage]") as HTMLElement | null;
-  const offsetX = stageEl ? parseFloat(stageEl.style.left || "0") : 0;
-  const offsetY = stageEl ? parseFloat(stageEl.style.top || "0") : 0;
+  const displayScale = Number(stageEl?.dataset.annotationDisplayScale ?? 1);
+  const imageRect = bgImg.getBoundingClientRect();
+  const stageRect = stageEl?.getBoundingClientRect();
+  const scaleX = bgImg.naturalWidth / (imageRect.width || bgImg.clientWidth) * displayScale;
+  const scaleY = bgImg.naturalHeight / (imageRect.height || bgImg.clientHeight) * displayScale;
+  const offsetX = stageRect?.width
+    ? (stageRect.left - imageRect.left) / displayScale
+    : parseFloat(stageEl?.style.left || "0");
+  const offsetY = stageRect?.height
+    ? (stageRect.top - imageRect.top) / displayScale
+    : parseFloat(stageEl?.style.top || "0");
 
   return { bgImg, scaleX, scaleY, offsetX, offsetY };
 }

@@ -104,14 +104,16 @@ fn clamp_corner_radius(radius: u32) -> u32 {
 struct CaptureCleanupGuard<'a> {
     app: &'a AppHandle,
     mgr: &'a WindowMgr,
+    session_id: &'a str,
     armed: bool,
 }
 
 impl<'a> CaptureCleanupGuard<'a> {
-    fn end_deactivating_app(app: &'a AppHandle, mgr: &'a WindowMgr) -> Self {
+    fn end_deactivating_app(app: &'a AppHandle, mgr: &'a WindowMgr, session_id: &'a str) -> Self {
         Self {
             app,
             mgr,
+            session_id,
             armed: true,
         }
     }
@@ -127,22 +129,25 @@ impl Drop for CaptureCleanupGuard<'_> {
             return;
         }
 
-        self.mgr.end_session_deactivating_app(self.app);
+        self.mgr
+            .end_session_deactivating_app(self.app, self.session_id);
     }
 }
 
 struct ScrollCaptureCleanupGuard<'a> {
     app: &'a AppHandle,
     mgr: &'a WindowMgr,
+    session_id: &'a str,
     monitor_id: u32,
     armed: bool,
 }
 
 impl<'a> ScrollCaptureCleanupGuard<'a> {
-    fn new(app: &'a AppHandle, mgr: &'a WindowMgr, monitor_id: u32) -> Self {
+    fn new(app: &'a AppHandle, mgr: &'a WindowMgr, session_id: &'a str, monitor_id: u32) -> Self {
         Self {
             app,
             mgr,
+            session_id,
             monitor_id,
             armed: true,
         }
@@ -159,9 +164,31 @@ impl Drop for ScrollCaptureCleanupGuard<'_> {
             return;
         }
 
-        close_scroll_chrome(self.app, self.monitor_id);
-        let _ = self.mgr.take_scroll();
-        self.mgr.end_session_deactivating_app(self.app);
+        close_scroll_chrome(self.app, self.session_id, self.monitor_id);
+        let _ = self.mgr.take_scroll(self.session_id);
+        self.mgr
+            .end_session_deactivating_app(self.app, self.session_id);
+    }
+}
+
+struct ScrollStartGuard<'a> {
+    app: &'a AppHandle,
+    mgr: &'a WindowMgr,
+    session_id: &'a str,
+    monitor_id: u32,
+    armed: bool,
+}
+
+impl Drop for ScrollStartGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        close_scroll_chrome(self.app, self.session_id, self.monitor_id);
+        self.mgr.abort_scroll_start(self.session_id);
+        if self.mgr.is_current(self.session_id) {
+            crate::app_activation::activate_flashot_for_capture(self.app);
+        }
     }
 }
 
@@ -434,7 +461,9 @@ fn configure_pin_window_before_show(_window: &WebviewWindow) -> Result<(), Strin
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri injects app/state alongside the capture payload.
 pub async fn crop_and_copy(
+    session_id: String,
     monitor_id: u32,
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
@@ -443,18 +472,14 @@ pub async fn crop_and_copy(
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
-    let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr);
+    let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr, &session_id);
     let corner_radius = clamp_corner_radius(corner_radius);
-    let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let frame = mgr
+        .frame(&session_id, monitor_id)
+        .ok_or("no frame for monitor")?;
     let scale_factor = frame.scale_factor;
-    let mut cropped = crop_rgba(
-        &frame.rgba,
-        frame.width,
-        frame.height,
-        rect,
-        scale_factor,
-    )
-    .ok_or("crop failed")?;
+    let mut cropped = crop_rgba(&frame.rgba, frame.width, frame.height, rect, scale_factor)
+        .ok_or("crop failed")?;
     drop(frame);
     crate::image_adjust::apply_image_adjustments(
         &mut cropped.rgba,
@@ -473,15 +498,20 @@ pub async fn crop_and_copy(
         corner_radius,
         scale_factor,
     );
+    if !mgr.is_current(&session_id) {
+        return Err("capture session expired".into());
+    }
     clipboard::copy_image(final_image.rgba, final_image.width, final_image.height)
         .map_err(|e| e.to_string())?;
-    mgr.end_session_deactivating_app(&app);
+    mgr.end_session_deactivating_app(&app, &session_id);
     cleanup.disarm();
     Ok(())
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Keep the copy/save/pin IPC payloads consistent.
 pub async fn crop_and_save(
+    session_id: String,
     monitor_id: u32,
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
@@ -490,18 +520,14 @@ pub async fn crop_and_save(
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
-    let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr);
+    let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr, &session_id);
     let corner_radius = clamp_corner_radius(corner_radius);
-    let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let frame = mgr
+        .frame(&session_id, monitor_id)
+        .ok_or("no frame for monitor")?;
     let scale_factor = frame.scale_factor;
-    let mut cropped = crop_rgba(
-        &frame.rgba,
-        frame.width,
-        frame.height,
-        rect,
-        scale_factor,
-    )
-    .ok_or("crop failed")?;
+    let mut cropped = crop_rgba(&frame.rgba, frame.width, frame.height, rect, scale_factor)
+        .ok_or("crop failed")?;
     drop(frame);
     crate::image_adjust::apply_image_adjustments(
         &mut cropped.rgba,
@@ -520,8 +546,10 @@ pub async fn crop_and_save(
         corner_radius,
         scale_factor,
     );
-    let mut settings = settings_store::load().unwrap_or_default();
-    mgr.end_session(&app);
+    let settings = settings_store::load().unwrap_or_default();
+    let previous = mgr
+        .end_session(&app, &session_id)
+        .ok_or("capture session expired")?;
     cleanup.disarm();
     let path = saver::save_image_dialog(
         final_image.rgba,
@@ -532,24 +560,31 @@ pub async fn crop_and_save(
     // The save dialog needs Flashot active, so we hide overlays above but keep
     // it frontmost while the dialog runs; now restore the previously-frontmost
     // app so utility windows return to their background z-order.
-    mgr.restore_focus_to_previous_app(&app);
+    mgr.restore_focus_to_previous_app(&app, &previous);
     let path = path.map_err(|e| e.to_string())?;
     if path.is_some()
         && let Some(saved_path) = path.as_deref()
     {
-        saver::remember_last_save_dir(&mut settings, saved_path);
-        settings_store::save(&settings).map_err(|e| e.to_string())?;
+        settings_store::update(|latest| {
+            saver::remember_last_save_dir(latest, saved_path);
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
         let _ = app.emit("settings:changed", ());
     }
     Ok(path.map(|p| p.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
-pub async fn cancel_capture(app: AppHandle, mgr: State<'_, Arc<WindowMgr>>) -> Result<(), String> {
-    if let Some(mid) = mgr.scroll_ref(|s| s.monitor_id) {
-        close_scroll_chrome(&app, mid);
+pub async fn cancel_capture(
+    session_id: String,
+    app: AppHandle,
+    mgr: State<'_, Arc<WindowMgr>>,
+) -> Result<(), String> {
+    if let Some(mid) = mgr.scroll_ref(&session_id, |s| s.monitor_id) {
+        close_scroll_chrome(&app, &session_id, mid);
     }
-    mgr.end_session_deactivating_app(&app);
+    mgr.end_session_deactivating_app(&app, &session_id);
     Ok(())
 }
 
@@ -561,12 +596,82 @@ pub fn get_settings(app: AppHandle) -> Result<Settings, String> {
 }
 
 #[tauri::command]
-pub fn set_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
+pub async fn set_settings(
+    app: AppHandle,
+    settings: serde_json::Map<String, serde_json::Value>,
+) -> Result<Settings, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(apply_settings_patch(&handle, settings));
+    })
+    .map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?
+}
+
+fn apply_settings_patch(
+    app: &AppHandle,
+    patch: serde_json::Map<String, serde_json::Value>,
+) -> Result<Settings, String> {
     let autolaunch = app.autolaunch();
-    apply_launch_at_login(&*autolaunch, settings.launch_at_login)?;
-    settings_store::save(&settings).map_err(|e| e.to_string())?;
-    refresh_open_utility_windows_appearance(&app, &settings);
+    let mut rollback: Option<(Settings, bool, Option<bool>)> = None;
+    let result = settings_store::update(|current| {
+        let next = settings_store::apply_patch(current, patch.clone())?;
+        let hotkeys_changed = settings_hotkeys(current) != settings_hotkeys(&next);
+        if hotkeys_changed {
+            crate::hotkey::validate_configured_hotkeys(settings_hotkeys(&next))?;
+        }
+        let launch_before = if patch.contains_key("launchAtLogin") {
+            Some(autolaunch.is_enabled()?)
+        } else {
+            None
+        };
+        rollback = Some((current.clone(), hotkeys_changed, launch_before));
+        if hotkeys_changed {
+            register_settings_hotkeys(&next)?;
+        }
+        if let Some(enabled) = launch_before
+            && enabled != next.launch_at_login
+        {
+            apply_launch_at_login(&*autolaunch, next.launch_at_login)
+                .map_err(anyhow::Error::msg)?;
+        }
+        *current = next;
+        Ok(())
+    });
+    let settings = match result {
+        Ok(settings) => settings,
+        Err(error) => {
+            if let Some((previous, hotkeys_changed, launch_before)) = rollback {
+                if hotkeys_changed && let Err(e) = register_settings_hotkeys(&previous) {
+                    tracing::error!("failed to restore hotkeys after settings error: {e}");
+                }
+                if let Some(enabled) = launch_before
+                    && let Err(e) = apply_launch_at_login(&*autolaunch, enabled)
+                {
+                    tracing::error!("failed to restore autostart after settings error: {e}");
+                }
+            }
+            return Err(error.to_string());
+        }
+    };
+    refresh_open_utility_windows_appearance(app, &settings);
     let _ = app.emit("settings:changed", ());
+    Ok(settings)
+}
+
+fn settings_hotkeys(settings: &Settings) -> [&str; 4] {
+    [
+        &settings.capture_hotkey,
+        &settings.board_hotkey,
+        &settings.fullscreen_hotkey,
+        &settings.active_window_hotkey,
+    ]
+}
+
+fn register_settings_hotkeys(settings: &Settings) -> anyhow::Result<()> {
+    let [capture, board, fullscreen, active_window] = settings_hotkeys(settings);
+    crate::hotkey::set_all(capture, board, fullscreen, active_window)?;
     Ok(())
 }
 
@@ -614,33 +719,60 @@ fn apply_launch_at_login(
     }
 }
 
-fn update_endpoints(allow_beta: bool) -> Result<Vec<Url>, String> {
-    let mut endpoints = Vec::new();
-    if allow_beta {
-        endpoints.push(
-            Url::parse(BETA_UPDATE_ENDPOINT)
-                .map_err(|e| format!("Invalid updater endpoint {BETA_UPDATE_ENDPOINT}: {e}"))?,
-        );
+async fn update_from_endpoint(
+    app: &AppHandle,
+    endpoint: &str,
+) -> Result<Option<tauri_plugin_updater::Update>, String> {
+    app.updater_builder()
+        .endpoints(vec![Url::parse(endpoint).map_err(|e| e.to_string())?])
+        .map_err(|e| e.to_string())?
+        .build()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+fn newest_channel_update<T>(
+    results: Vec<Result<Option<T>, String>>,
+    version: impl Fn(&T) -> &str,
+) -> Result<Option<T>, String> {
+    let mut checked = false;
+    let mut best: Option<(semver::Version, T)> = None;
+    let mut errors = Vec::new();
+    for result in results {
+        match result {
+            Ok(Some(update)) => {
+                let version =
+                    semver::Version::parse(version(&update)).map_err(|e| e.to_string())?;
+                checked = true;
+                if best.as_ref().is_none_or(|(current, _)| version > *current) {
+                    best = Some((version, update));
+                }
+            }
+            Ok(None) => checked = true,
+            Err(error) => errors.push(error),
+        }
     }
-    endpoints.push(
-        Url::parse(STABLE_UPDATE_ENDPOINT)
-            .map_err(|e| format!("Invalid updater endpoint {STABLE_UPDATE_ENDPOINT}: {e}"))?,
-    );
-    Ok(endpoints)
+    if checked {
+        Ok(best.map(|(_, update)| update))
+    } else {
+        Err(errors.join("; "))
+    }
 }
 
 async fn update_for_channel(
     app: &AppHandle,
     allow_beta: bool,
 ) -> Result<Option<tauri_plugin_updater::Update>, String> {
-    let updater = app
-        .updater_builder()
-        .endpoints(update_endpoints(allow_beta)?)
-        .map_err(|e| e.to_string())?
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    updater.check().await.map_err(|e| e.to_string())
+    if !allow_beta {
+        return update_from_endpoint(app, STABLE_UPDATE_ENDPOINT).await;
+    }
+    let (beta, stable) = tokio::join!(
+        update_from_endpoint(app, BETA_UPDATE_ENDPOINT),
+        update_from_endpoint(app, STABLE_UPDATE_ENDPOINT),
+    );
+    newest_channel_update(vec![beta, stable], |update| &update.version)
 }
 
 impl From<tauri_plugin_updater::Update> for UpdateInfo {
@@ -741,16 +873,22 @@ fn open_flashot_window(app: AppHandle, tab: &str, check_updates: bool) -> Result
 
 #[tauri::command]
 pub fn begin_text_input_session(
+    input_id: String,
+    session_id: Option<String>,
     window: WebviewWindow,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
-    // Release the session-scoped X/C hotkeys so they can be typed into the
-    // annotation text field (macOS-only; no-op elsewhere).
+    let Some(session_id) = session_id else {
+        return Ok(());
+    };
+    if !mgr.begin_text_input(&session_id, input_id.clone()) {
+        return Err("capture session expired".into());
+    }
+    crate::set_capture_cancel_hotkey(window.app_handle(), false);
     crate::set_color_picker_hotkeys(window.app_handle(), false);
     if let Err(e) = overlay_window::prepare_overlay_text_input(&window) {
-        // The editor never opened, so end_text_input_session will not run;
-        // re-arm the hotkeys or X/C would stay dead for the rest of the session.
-        if mgr.in_session() {
+        if mgr.end_text_input(&session_id, &input_id) {
+            crate::set_capture_cancel_hotkey(window.app_handle(), true);
             crate::set_color_picker_hotkeys(window.app_handle(), true);
         }
         return Err(e.to_string());
@@ -760,15 +898,20 @@ pub fn begin_text_input_session(
 
 #[tauri::command]
 pub fn end_text_input_session(
+    input_id: String,
+    session_id: Option<String>,
     window: WebviewWindow,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<(), String> {
-    // Re-arm the color picker hotkeys only while a capture session is still
-    // active; otherwise leave them unregistered.
-    if mgr.in_session() {
+    let Some(session_id) = session_id else {
+        return Ok(());
+    };
+    if mgr.end_text_input(&session_id, &input_id) {
+        crate::set_capture_cancel_hotkey(window.app_handle(), true);
         crate::set_color_picker_hotkeys(window.app_handle(), true);
+        overlay_window::restore_overlay_after_text_input(&window).map_err(|e| e.to_string())?;
     }
-    overlay_window::restore_overlay_after_text_input(&window).map_err(|e| e.to_string())
+    Ok(())
 }
 
 #[tauri::command]
@@ -825,7 +968,7 @@ pub fn capture_overlay_ready(
         return;
     };
     tracing::info!("all capture overlays ready: revision={revision}");
-    if let Err(e) = crate::overlay_window::reveal_capture_overlays(&app, &monitor_ids) {
+    if let Err(e) = crate::overlay_window::reveal_capture_overlays(&app, &monitor_ids, &revision) {
         tracing::warn!("failed to reveal ready capture overlays: {e}");
         return;
     }
@@ -855,6 +998,7 @@ pub fn list_system_fonts() -> Vec<String> {
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn pin_image(
+    session_id: String,
     monitor_id: u32,
     rect: Rect,
     annotation_png: Option<Vec<u8>>,
@@ -864,18 +1008,14 @@ pub async fn pin_image(
     mgr: State<'_, Arc<WindowMgr>>,
     pin_mgr: State<'_, Arc<PinManager>>,
 ) -> Result<String, String> {
-    let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr);
+    let cleanup = CaptureCleanupGuard::end_deactivating_app(&app, &mgr, &session_id);
     let corner_radius = clamp_corner_radius(corner_radius);
-    let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
+    let frame = mgr
+        .frame(&session_id, monitor_id)
+        .ok_or("no frame for monitor")?;
     let scale_factor = frame.scale_factor;
-    let mut cropped = crop_rgba(
-        &frame.rgba,
-        frame.width,
-        frame.height,
-        rect,
-        scale_factor,
-    )
-    .ok_or("crop failed")?;
+    let mut cropped = crop_rgba(&frame.rgba, frame.width, frame.height, rect, scale_factor)
+        .ok_or("crop failed")?;
     drop(frame);
     crate::image_adjust::apply_image_adjustments(
         &mut cropped.rgba,
@@ -884,6 +1024,9 @@ pub async fn pin_image(
         adjustments.unwrap_or_default(),
     );
 
+    if !mgr.is_current(&session_id) {
+        return Err("capture session expired".into());
+    }
     let pin_id = create_pin_from_image(
         &app,
         &pin_mgr,
@@ -893,7 +1036,7 @@ pub async fn pin_image(
         annotation_png,
         corner_radius,
     )?;
-    mgr.end_session_deactivating_app(&app);
+    mgr.end_session_deactivating_app(&app, &session_id);
     cleanup.disarm();
     Ok(pin_id)
 }
@@ -1102,7 +1245,7 @@ pub async fn save_pin(
             &paths.image_path,
         )?,
     )?;
-    let mut settings = settings_store::load().unwrap_or_default();
+    let settings = settings_store::load().unwrap_or_default();
     let path = saver::save_image_dialog(
         final_image.rgba,
         final_image.width,
@@ -1112,8 +1255,11 @@ pub async fn save_pin(
     .map_err(|e| e.to_string())?;
 
     if let Some(saved_path) = path.as_deref() {
-        saver::remember_last_save_dir(&mut settings, saved_path);
-        settings_store::save(&settings).map_err(|e| e.to_string())?;
+        settings_store::update(|latest| {
+            saver::remember_last_save_dir(latest, saved_path);
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
         let _ = app.emit("settings:changed", ());
     }
 
@@ -1321,19 +1467,18 @@ pub(crate) fn crop_rgba(
     rect: Rect,
     scale_factor: f32,
 ) -> Option<CroppedImage> {
-    let s = scale_factor.max(1.0);
-    let px = (rect.x as f32 * s).round() as u32;
-    let py = (rect.y as f32 * s).round() as u32;
-    let pw = (rect.width as f32 * s).round() as u32;
-    let ph = (rect.height as f32 * s).round() as u32;
-
-    if pw == 0 || ph == 0 || px + pw > src_width || py + ph > src_height {
+    let rect = physical_crop_rect(rect, src_width, src_height, scale_factor)?;
+    let (px, py, pw, ph) = (rect.x as u32, rect.y as u32, rect.width, rect.height);
+    let source_len = (src_width as usize)
+        .checked_mul(src_height as usize)?
+        .checked_mul(4)?;
+    if src.len() < source_len {
         return None;
     }
 
-    let mut out = Vec::with_capacity((pw * ph * 4) as usize);
+    let mut out = Vec::with_capacity(pw as usize * ph as usize * 4);
     for row in 0..ph {
-        let src_row_start = ((py + row) * src_width + px) as usize * 4;
+        let src_row_start = ((py + row) as usize * src_width as usize + px as usize) * 4;
         let src_row_end = src_row_start + (pw as usize) * 4;
         out.extend_from_slice(&src[src_row_start..src_row_end]);
     }
@@ -1342,6 +1487,32 @@ pub(crate) fn crop_rgba(
         rgba: out,
         width: pw,
         height: ph,
+    })
+}
+
+fn physical_crop_rect(rect: Rect, width: u32, height: u32, scale: f32) -> Option<Rect> {
+    if !scale.is_finite() || scale <= 0.0 || rect.x < 0 || rect.y < 0 {
+        return None;
+    }
+    let scale = f64::from(scale);
+    let right = i64::from(rect.x) + i64::from(rect.width);
+    let bottom = i64::from(rect.y) + i64::from(rect.height);
+    // The UI rounds the logical monitor size. Permit that edge, but reject
+    // genuinely out-of-bounds selections instead of silently shifting them.
+    if right > (f64::from(width) / scale).round() as i64
+        || bottom > (f64::from(height) / scale).round() as i64
+    {
+        return None;
+    }
+    let left = (f64::from(rect.x) * scale).round().min(f64::from(width)) as u32;
+    let top = (f64::from(rect.y) * scale).round().min(f64::from(height)) as u32;
+    let right = (right as f64 * scale).round().min(f64::from(width)) as u32;
+    let bottom = (bottom as f64 * scale).round().min(f64::from(height)) as u32;
+    (right > left && bottom > top).then_some(Rect {
+        x: left as i32,
+        y: top as i32,
+        width: right.saturating_sub(left),
+        height: bottom.saturating_sub(top),
     })
 }
 
@@ -1383,6 +1554,7 @@ fn composite_annotation(
 
 #[tauri::command]
 pub async fn start_scroll_session(
+    session_id: String,
     monitor_id: u32,
     rect: Rect,
     app: AppHandle,
@@ -1394,14 +1566,21 @@ pub async fn start_scroll_session(
     use tokio::sync::Mutex as AsyncMutex;
 
     // 1. Derive scale and physical rect from the frozen frame we already have.
-    let frame = mgr.frame(monitor_id).ok_or("no frame for monitor")?;
-    let scale = frame.scale_factor.max(1.0);
+    let frame = mgr
+        .frame(&session_id, monitor_id)
+        .ok_or("no frame for monitor")?;
+    let phys_rect = physical_crop_rect(rect, frame.width, frame.height, frame.scale_factor)
+        .ok_or("invalid scroll selection")?;
     drop(frame);
-    let phys_rect = Rect {
-        x: (rect.x as f32 * scale).round() as i32,
-        y: (rect.y as f32 * scale).round() as i32,
-        width: (rect.width as f32 * scale).round() as u32,
-        height: (rect.height as f32 * scale).round() as u32,
+    if !mgr.reserve_scroll(&session_id) {
+        return Err("scroll capture already active or expired".into());
+    }
+    let mut startup = ScrollStartGuard {
+        app: &app,
+        mgr: &mgr,
+        session_id: &session_id,
+        monitor_id,
+        armed: true,
     };
 
     // 2. Spawn the chrome window (status bar + preview) anchored next to the
@@ -1409,31 +1588,48 @@ pub async fn start_scroll_session(
     //    selection outline) but is made mouse-transparent and the whole app
     //    is deactivated on macOS so scroll-wheel events flow to the underlying
     //    app instead of being intercepted by our key window.
-    let (chrome_w, chrome_h) = spawn_scroll_chrome(&app, monitor_id, phys_rect)?;
+    let (chrome_w, chrome_h, overlaps) =
+        spawn_scroll_chrome(&app, &session_id, monitor_id, phys_rect)?;
     // Size the progress preview tail to THIS session's chrome viewport (see
     // tail_rows_for_chrome). The chrome is clamped to the monitor, so the
     // tail — and with it the per-emit encode cost — stays bounded no matter
     // how tall the stitched canvas grows.
     let preview_tail_rows = tail_rows_for_chrome(chrome_w, chrome_h);
-    let progress_target = tauri::EventTarget::webview_window(scroll_chrome_label(monitor_id));
+    let progress_target =
+        tauri::EventTarget::webview_window(scroll_chrome_label(&session_id, monitor_id));
     if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
         let _ = w.set_ignore_cursor_events(true);
     }
     // Reactivate the underlying app so wheel events flow to it instead of
     // being intercepted by our overlay. Borrow (don't consume) so the eventual
     // scroll-end restore can reactivate it again.
-    mgr.reactivate_previous_app(&app);
+    mgr.reactivate_previous_app(&app, &session_id);
 
     // 3. Give macOS a moment to actually compose the screen without the
     //    frozen overlay layer (frontend hides FrozenLayer when entering
     //    scrolling mode). Empirically 80ms is enough.
     tokio::time::sleep(std::time::Duration::from_millis(80)).await;
 
-    // 4. Capture the initial frame from the live screen.
-    let initial = match crate::capture::capture_monitor_region(monitor_id, phys_rect) {
+    if !mgr.is_current(&session_id) {
+        close_scroll_chrome(&app, &session_id, monitor_id);
+        return Err("capture session expired".into());
+    }
+    // 4. Sample with no preview pixels in the selected region.
+    let source = crate::scroll_session::ScrollCaptureSource {
+        app: app.clone(),
+        session_id: session_id.clone(),
+        monitor_id,
+        rect: phys_rect,
+        overlapping_preview: if overlaps {
+            app.get_webview_window(&scroll_chrome_label(&session_id, monitor_id))
+        } else {
+            None
+        },
+    };
+    let initial = match source.capture() {
         Ok(initial) => initial,
         Err(e) => {
-            close_scroll_chrome(&app, monitor_id);
+            close_scroll_chrome(&app, &session_id, monitor_id);
             return Err(format!("initial capture failed: {e}"));
         }
     };
@@ -1451,23 +1647,27 @@ pub async fn start_scroll_session(
         crate::scroll_session::emit_initial_progress(&app, &progress_target, preview_tail_rows, &s);
     }
 
+    if !mgr.set_scroll(
+        &session_id,
+        ScrollState {
+            monitor_id,
+            logical_rect: rect,
+            stitcher: stitcher.clone(),
+            cancel: cancel.clone(),
+        },
+    ) {
+        close_scroll_chrome(&app, &session_id, monitor_id);
+        return Err("capture session expired".into());
+    }
+    startup.armed = false;
     crate::scroll_session::spawn_loop(
         app.clone(),
-        monitor_id,
-        phys_rect,
+        source,
         preview_tail_rows,
         progress_target,
-        stitcher.clone(),
-        cancel.clone(),
-    );
-
-    mgr.set_scroll(ScrollState {
-        monitor_id,
-        rect: phys_rect,
-        logical_rect: rect,
         stitcher,
         cancel,
-    });
+    );
     Ok(())
 }
 
@@ -1558,6 +1758,24 @@ fn scroll_chrome_position(
         };
     }
 
+    let aligned_x = clamp_f64(
+        selection_right - chrome_w,
+        monitor_left + gap,
+        monitor_right - chrome_w - gap,
+    );
+    if selection_top - gap - chrome_h >= monitor_top + gap {
+        return LogicalChromePosition {
+            x: aligned_x,
+            y: selection_top - gap - chrome_h,
+        };
+    }
+    if selection_bottom + gap + chrome_h <= monitor_bottom - gap {
+        return LogicalChromePosition {
+            x: aligned_x,
+            y: selection_bottom + gap,
+        };
+    }
+
     LogicalChromePosition {
         x: clamp_f64(
             selection_right + gap,
@@ -1566,6 +1784,20 @@ fn scroll_chrome_position(
         ),
         y: lower_top,
     }
+}
+
+fn scroll_chrome_overlaps_selection(
+    position: LogicalChromePosition,
+    size: (f64, f64),
+    selection: Rect,
+    monitor: Rect,
+) -> bool {
+    let left = f64::from(monitor.x) + f64::from(selection.x);
+    let top = f64::from(monitor.y) + f64::from(selection.y);
+    position.x < left + f64::from(selection.width)
+        && position.x + size.0 > left
+        && position.y < top + f64::from(selection.height)
+        && position.y + size.1 > top
 }
 
 fn logical_selection_for_monitor(phys_rect: Rect, scale_factor: f64) -> Rect {
@@ -1603,8 +1835,8 @@ fn monitor_logical_rect(rect: Rect, _scale_factor: f64) -> Rect {
 /// Label of the always-on-top chrome window that hosts the live scroll
 /// preview for `monitor_id`. Shared with `scroll_session`, which targets its
 /// progress events at exactly this window.
-pub(crate) fn scroll_chrome_label(monitor_id: u32) -> String {
-    format!("overlay-chrome-{monitor_id}")
+pub(crate) fn scroll_chrome_label(session_id: &str, monitor_id: u32) -> String {
+    format!("overlay-chrome-{session_id}-{monitor_id}")
 }
 
 /// Spawn the always-on-top chrome window that hosts the live scroll preview.
@@ -1614,10 +1846,11 @@ pub(crate) fn scroll_chrome_label(monitor_id: u32) -> String {
 /// progress preview tail to the viewport it will be displayed in.
 fn spawn_scroll_chrome(
     app: &AppHandle,
+    session_id: &str,
     monitor_id: u32,
     phys_rect: Rect,
-) -> Result<(f64, f64), String> {
-    let chrome_label = scroll_chrome_label(monitor_id);
+) -> Result<(f64, f64, bool), String> {
+    let chrome_label = scroll_chrome_label(session_id, monitor_id);
 
     let mon = crate::capture::enumerate_monitors()
         .ok()
@@ -1632,59 +1865,67 @@ fn spawn_scroll_chrome(
     let mon_rect = monitor_logical_rect(mon.rect, mon.scale_factor as f64);
     let logical_selection = logical_selection_for_monitor(phys_rect, mon.scale_factor as f64);
     let (chrome_w, chrome_h) = scroll_chrome_size(logical_selection, mon_rect, gap);
-    if app.get_webview_window(&chrome_label).is_some() {
-        return Ok((chrome_w, chrome_h));
-    }
     let pos = scroll_chrome_position(logical_selection, mon_rect, (chrome_w, chrome_h), gap);
+    let overlaps =
+        scroll_chrome_overlaps_selection(pos, (chrome_w, chrome_h), logical_selection, mon_rect);
+    if app.get_webview_window(&chrome_label).is_some() {
+        return Ok((chrome_w, chrome_h, overlaps));
+    }
 
     tauri::WebviewWindowBuilder::new(
         app,
         &chrome_label,
-        tauri::WebviewUrl::App(format!("index.html#/scroll-chrome/{monitor_id}").into()),
+        tauri::WebviewUrl::App(
+            format!("index.html#/scroll-chrome/{monitor_id}?session={session_id}").into(),
+        ),
     )
     .transparent(true)
     .decorations(false)
     .always_on_top(true)
     .skip_taskbar(true)
     .resizable(false)
+    .focused(false)
     .accept_first_mouse(true)
     .inner_size(chrome_w, chrome_h)
     .position(pos.x, pos.y)
     .build()
     .map_err(|e| e.to_string())?;
 
-    Ok((chrome_w, chrome_h))
+    Ok((chrome_w, chrome_h, overlaps))
 }
 
 /// Tear down the chrome window for `monitor_id` (if any) and restore mouse
 /// events on the underlying overlay so the next capture session works.
-fn close_scroll_chrome(app: &AppHandle, monitor_id: u32) {
-    if let Some(w) = app.get_webview_window(&scroll_chrome_label(monitor_id)) {
+fn close_scroll_chrome(app: &AppHandle, session_id: &str, monitor_id: u32) {
+    if let Some(w) = app.get_webview_window(&scroll_chrome_label(session_id, monitor_id)) {
         let _ = w.close();
     }
-    if let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}")) {
+    if app.state::<Arc<WindowMgr>>().is_current(session_id)
+        && let Some(w) = app.get_webview_window(&format!("overlay-{monitor_id}"))
+    {
         let _ = w.set_ignore_cursor_events(false);
     }
 }
 
 #[tauri::command]
 pub async fn stop_scroll_session(
+    session_id: String,
     commit: bool,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<ScrollResult>, String> {
     // Grab the cancel handle + stitcher Arc clones without taking the state out.
     let (cancel, stitcher_arc) = mgr
-        .scroll_ref(|s| (s.cancel.clone(), s.stitcher.clone()))
+        .scroll_ref(&session_id, |s| (s.cancel.clone(), s.stitcher.clone()))
         .ok_or("no active scroll session")?;
     cancel.store(true, std::sync::atomic::Ordering::SeqCst);
 
     if !commit {
-        if let Some(mid) = mgr.scroll_ref(|s| s.monitor_id) {
-            close_scroll_chrome(&app, mid);
+        if let Some(mid) = mgr.scroll_ref(&session_id, |s| s.monitor_id) {
+            close_scroll_chrome(&app, &session_id, mid);
         }
-        let _ = mgr.take_scroll();
-        mgr.end_session_deactivating_app(&app);
+        let _ = mgr.take_scroll(&session_id);
+        mgr.end_session_deactivating_app(&app, &session_id);
         return Ok(None);
     }
 
@@ -1702,17 +1943,18 @@ pub async fn stop_scroll_session(
 
 #[tauri::command]
 pub async fn scroll_pin(
+    session_id: String,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
     pin_mgr: State<'_, Arc<PinManager>>,
 ) -> Result<String, String> {
     let (monitor_id, logical_rect) = mgr
-        .scroll_ref(|s| (s.monitor_id, s.logical_rect))
+        .scroll_ref(&session_id, |s| (s.monitor_id, s.logical_rect))
         .ok_or("no active scroll session")?;
-    let cleanup = ScrollCaptureCleanupGuard::new(&app, &mgr, monitor_id);
-    let img = materialize_scroll_image(&mgr).await?;
-    let _ = mgr.take_scroll();
-    close_scroll_chrome(&app, monitor_id);
+    let cleanup = ScrollCaptureCleanupGuard::new(&app, &mgr, &session_id, monitor_id);
+    let img = materialize_scroll_image(&mgr, &session_id).await?;
+    let _ = mgr.take_scroll(&session_id);
+    close_scroll_chrome(&app, &session_id, monitor_id);
 
     let display_scale = if logical_rect.width > 0 {
         (img.width as f64 / logical_rect.width as f64).max(1.0)
@@ -1739,20 +1981,24 @@ pub async fn scroll_pin(
         None,
         0,
     );
-    mgr.end_session_deactivating_app(&app);
+    mgr.end_session_deactivating_app(&app, &session_id);
     cleanup.disarm();
     pin_id
 }
 
 async fn materialize_scroll_image(
     mgr: &WindowMgr,
+    session_id: &str,
 ) -> Result<crate::scroll_stitch::StitchedImage, String> {
     let (cancel, stitcher_arc) = mgr
-        .scroll_ref(|s| (s.cancel.clone(), s.stitcher.clone()))
+        .scroll_ref(session_id, |s| (s.cancel.clone(), s.stitcher.clone()))
         .ok_or("no active scroll session")?;
     cancel.store(true, std::sync::atomic::Ordering::SeqCst);
 
     let s = stitcher_arc.lock().await;
+    if !mgr.is_current(session_id) {
+        return Err("capture session expired".into());
+    }
     Ok(crate::scroll_stitch::StitchedImage {
         rgba: s.canvas_bytes_clone(),
         width: s.width(),
@@ -1761,16 +2007,21 @@ async fn materialize_scroll_image(
 }
 
 #[tauri::command]
-pub async fn scroll_copy(app: AppHandle, mgr: State<'_, Arc<WindowMgr>>) -> Result<(), String> {
-    let monitor_id = mgr.scroll_ref(|s| s.monitor_id);
-    let cleanup = monitor_id.map(|mid| ScrollCaptureCleanupGuard::new(&app, &mgr, mid));
-    let img = materialize_scroll_image(&mgr).await?;
-    let _ = mgr.take_scroll();
+pub async fn scroll_copy(
+    session_id: String,
+    app: AppHandle,
+    mgr: State<'_, Arc<WindowMgr>>,
+) -> Result<(), String> {
+    let monitor_id = mgr.scroll_ref(&session_id, |s| s.monitor_id);
+    let cleanup =
+        monitor_id.map(|mid| ScrollCaptureCleanupGuard::new(&app, &mgr, &session_id, mid));
+    let img = materialize_scroll_image(&mgr, &session_id).await?;
+    let _ = mgr.take_scroll(&session_id);
     if let Some(mid) = monitor_id {
-        close_scroll_chrome(&app, mid);
+        close_scroll_chrome(&app, &session_id, mid);
     }
     clipboard::copy_image(img.rgba, img.width, img.height).map_err(|e| e.to_string())?;
-    mgr.end_session_deactivating_app(&app);
+    mgr.end_session_deactivating_app(&app, &session_id);
     if let Some(cleanup) = cleanup {
         cleanup.disarm();
     }
@@ -1779,12 +2030,14 @@ pub async fn scroll_copy(app: AppHandle, mgr: State<'_, Arc<WindowMgr>>) -> Resu
 
 #[tauri::command]
 pub async fn scroll_save(
+    session_id: String,
     app: AppHandle,
     mgr: State<'_, Arc<WindowMgr>>,
 ) -> Result<Option<String>, String> {
-    let monitor_id = mgr.scroll_ref(|s| s.monitor_id);
-    let path_cleanup = monitor_id.map(|mid| ScrollCaptureCleanupGuard::new(&app, &mgr, mid));
-    let mut settings = settings_store::load().unwrap_or_default();
+    let monitor_id = mgr.scroll_ref(&session_id, |s| s.monitor_id);
+    let path_cleanup =
+        monitor_id.map(|mid| ScrollCaptureCleanupGuard::new(&app, &mgr, &session_id, mid));
+    let settings = settings_store::load().unwrap_or_default();
     let path = match saver::choose_save_path(&settings) {
         Ok(Some(path)) => path,
         Ok(None) => {
@@ -1799,19 +2052,23 @@ pub async fn scroll_save(
     if let Some(cleanup) = path_cleanup {
         cleanup.disarm();
     }
-    let cleanup = monitor_id.map(|mid| ScrollCaptureCleanupGuard::new(&app, &mgr, mid));
-    let img = materialize_scroll_image(&mgr).await?;
-    let _ = mgr.take_scroll();
+    let cleanup =
+        monitor_id.map(|mid| ScrollCaptureCleanupGuard::new(&app, &mgr, &session_id, mid));
+    let img = materialize_scroll_image(&mgr, &session_id).await?;
+    let _ = mgr.take_scroll(&session_id);
     if let Some(mid) = monitor_id {
-        close_scroll_chrome(&app, mid);
+        close_scroll_chrome(&app, &session_id, mid);
     }
-    mgr.end_session_deactivating_app(&app);
+    mgr.end_session_deactivating_app(&app, &session_id);
     if let Some(cleanup) = cleanup {
         cleanup.disarm();
     }
     saver::save_image_to_path(img.rgba, img.width, img.height, &path).map_err(|e| e.to_string())?;
-    saver::remember_last_save_dir(&mut settings, &path);
-    settings_store::save(&settings).map_err(|e| e.to_string())?;
+    settings_store::update(|latest| {
+        saver::remember_last_save_dir(latest, &path);
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
     let _ = app.emit("settings:changed", ());
     Ok(Some(path.to_string_lossy().to_string()))
 }
@@ -1894,6 +2151,56 @@ mod tests {
     }
 
     #[test]
+    fn fractional_scale_crops_rounded_monitor_edges_without_losing_pixels() {
+        let src = rgba_frame(2560, 3);
+        let full = crop_rgba(
+            &src,
+            2560,
+            3,
+            Rect {
+                x: 0,
+                y: 0,
+                width: 1707,
+                height: 2,
+            },
+            1.5,
+        )
+        .unwrap();
+        assert_eq!((full.width, full.height), (2560, 3));
+        assert_eq!(full.rgba, src);
+        let edge = crop_rgba(
+            &src,
+            2560,
+            3,
+            Rect {
+                x: 1700,
+                y: 0,
+                width: 7,
+                height: 2,
+            },
+            1.5,
+        )
+        .unwrap();
+        assert_eq!(edge.width, 10);
+        assert_eq!(&edge.rgba[..4], &src[2550 * 4..2551 * 4]);
+        assert!(
+            crop_rgba(
+                &src,
+                2560,
+                3,
+                Rect {
+                    x: 0,
+                    y: 0,
+                    width: 1710,
+                    height: 2
+                },
+                1.5
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
     fn crop_and_save_ends_capture_before_opening_save_dialog() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let start = source.find("pub async fn crop_and_save").unwrap();
@@ -1904,7 +2211,7 @@ mod tests {
         let body = &source[start..end];
 
         let crop_idx = body.find("crop_rgba").unwrap();
-        let end_session_idx = body.find("mgr.end_session(&app);").unwrap();
+        let end_session_idx = body.find(".end_session(&app, &session_id)").unwrap();
         let save_dialog_idx = body.find("saver::save_image_dialog").unwrap();
 
         assert!(
@@ -1929,14 +2236,14 @@ mod tests {
         ] {
             let body = function_body(&source, name);
             assert!(
-                body.contains("mgr.end_session_deactivating_app(&app);"),
+                body.contains("mgr.end_session_deactivating_app(&app, &session_id);"),
                 "{name} must end capture and deactivate the app so existing utility windows do not surface",
             );
         }
 
         let stop_body = function_body(&source, "stop_scroll_session");
         assert!(
-            stop_body.contains("mgr.end_session_deactivating_app(&app);"),
+            stop_body.contains("mgr.end_session_deactivating_app(&app, &session_id);"),
             "canceling a scroll session must also deactivate after hiding overlays",
         );
     }
@@ -1947,7 +2254,7 @@ mod tests {
         for name in ["crop_and_copy", "crop_and_save", "pin_image"] {
             let body = function_body(&source, name);
             assert!(
-                body.contains("CaptureCleanupGuard::end_deactivating_app(&app, &mgr)"),
+                body.contains("CaptureCleanupGuard::end_deactivating_app(&app, &mgr, &session_id)"),
                 "{name} must install a cleanup guard before fallible output work",
             );
             assert!(
@@ -1975,7 +2282,7 @@ mod tests {
         let body = function_body(&source, "end_text_input_session");
 
         assert!(
-            body.contains("mgr.in_session()"),
+            body.contains("mgr.end_text_input(&session_id, &input_id)"),
             "re-enabling without the session guard would leak X/C as permanent \
              global hotkeys after capture ends",
         );
@@ -1985,10 +2292,12 @@ mod tests {
     fn save_paths_restore_focus_after_user_facing_dialogs() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let crop_body = function_body(&source, "crop_and_save");
-        let crop_end_idx = crop_body.find("mgr.end_session(&app);").unwrap();
+        let crop_end_idx = crop_body
+            .find(".end_session(&app, &session_id)")
+            .unwrap();
         let dialog_idx = crop_body.find("saver::save_image_dialog").unwrap();
         let crop_restore_idx = crop_body
-            .find("mgr.restore_focus_to_previous_app(&app);")
+            .find("mgr.restore_focus_to_previous_app(&app, &previous);")
             .expect("crop_and_save must restore focus after the save dialog returns");
         assert!(
             crop_end_idx < dialog_idx && dialog_idx < crop_restore_idx,
@@ -1998,7 +2307,7 @@ mod tests {
         let scroll_body = function_body(&source, "scroll_save");
         let scroll_dialog_idx = scroll_body.find("saver::choose_save_path").unwrap();
         let scroll_end_idx = scroll_body
-            .find("mgr.end_session_deactivating_app(&app);")
+            .find("mgr.end_session_deactivating_app(&app, &session_id);")
             .expect(
                 "scroll_save must reactivate the previous app and hide overlays in one main-thread task; \
                  unlike crop_and_save, its path dialog completes BEFORE the session ends, \
@@ -2111,8 +2420,11 @@ mod tests {
             .unwrap();
         let body = &source[start..end];
 
-        let capture_idx = body.find("capture_monitor_region").unwrap();
-        let cleanup_idx = body.find("close_scroll_chrome(&app, monitor_id)").unwrap();
+        let capture_idx = body.find("source.capture()").unwrap();
+        let cleanup_idx = body[capture_idx..]
+            .find("close_scroll_chrome(&app, &session_id, monitor_id)")
+            .map(|index| capture_idx + index)
+            .unwrap();
 
         assert!(
             capture_idx < cleanup_idx,
@@ -2219,7 +2531,7 @@ mod tests {
     }
 
     #[test]
-    fn scroll_chrome_position_clamps_inside_monitor_when_neither_side_fits() {
+    fn scroll_chrome_position_uses_vertical_space_when_neither_side_fits() {
         let pos = scroll_chrome_position(
             Rect {
                 x: 40,
@@ -2237,8 +2549,8 @@ mod tests {
             12.0,
         );
 
-        assert_eq!(pos.x, 868.0);
-        assert_eq!(pos.y, 600.0);
+        assert_eq!(pos.x, 860.0);
+        assert_eq!(pos.y, 528.0);
     }
 
     #[test]
@@ -2382,7 +2694,7 @@ mod tests {
         let body = &source[start..end];
 
         assert!(
-            body.contains("mgr.reactivate_previous_app(&app)"),
+            body.contains("mgr.reactivate_previous_app(&app, &session_id)"),
             "start_scroll_session must reactivate the underlying app via the manager (without ending the session) so wheel events are not intercepted",
         );
         assert!(
@@ -2456,8 +2768,8 @@ mod tests {
         let copy_body = &source[copy_start..save_start];
         let save_body = &source[save_start..];
 
-        assert!(copy_body.contains("materialize_scroll_image(&mgr).await"));
-        assert!(save_body.contains("materialize_scroll_image(&mgr).await"));
+        assert!(copy_body.contains("materialize_scroll_image(&mgr, &session_id).await"));
+        assert!(save_body.contains("materialize_scroll_image(&mgr, &session_id).await"));
     }
 
     #[test]
@@ -2471,7 +2783,9 @@ mod tests {
         let body = &source[start..end];
 
         let prompt_idx = body.find("saver::choose_save_path").unwrap();
-        let materialize_idx = body.find("materialize_scroll_image(&mgr).await").unwrap();
+        let materialize_idx = body
+            .find("materialize_scroll_image(&mgr, &session_id).await")
+            .unwrap();
         let write_idx = body.find("saver::save_image_to_path").unwrap();
 
         assert!(
@@ -2976,70 +3290,6 @@ mod tests {
     }
 
     #[test]
-    fn set_settings_applies_launch_at_login_before_saving_settings() {
-        let source = include_str!("commands.rs").replace("\r\n", "\n");
-        let start = source.find("pub fn set_settings").unwrap();
-        let end = source[start..]
-            .find("#[tauri::command]\npub fn open_settings_window")
-            .map(|idx| start + idx)
-            .unwrap();
-        let body = &source[start..end];
-
-        let apply_idx = body.find("apply_launch_at_login").unwrap();
-        let save_idx = body.find("settings_store::save").unwrap();
-        let refresh_idx = body.find("refresh_open_utility_windows_appearance").unwrap();
-
-        assert!(
-            apply_idx < save_idx,
-            "login startup must be applied before settings are persisted",
-        );
-        assert!(
-            refresh_idx > save_idx,
-            "set_settings must refresh open utility window chrome after persisting theme",
-        );
-    }
-
-    #[test]
-    fn updater_commands_select_stable_or_beta_endpoint_from_beta_flag() {
-        let source = include_str!("commands.rs").replace("\r\n", "\n");
-
-        assert!(
-            source.contains("const STABLE_UPDATE_ENDPOINT"),
-            "updater commands must keep the stable endpoint explicit",
-        );
-        assert!(
-            source.contains("const BETA_UPDATE_ENDPOINT"),
-            "updater commands must keep the beta endpoint explicit",
-        );
-        assert!(
-            source.contains("https://raw.githubusercontent.com/poneding/flashot/beta/latest.json"),
-            "beta-enabled users must read the beta channel manifest",
-        );
-        assert!(
-            source.contains("fn update_endpoints(allow_beta: bool)"),
-            "update endpoint selection must be controlled by the saved beta setting",
-        );
-        assert!(
-            source.contains(".updater_builder()")
-                && source.contains(".endpoints(update_endpoints(allow_beta)?"),
-            "custom commands must build the updater with the selected channel endpoints",
-        );
-    }
-
-    #[test]
-    fn beta_update_checks_fall_back_to_stable_when_beta_manifest_is_missing() {
-        let endpoints = update_endpoints(true).unwrap();
-
-        assert_eq!(endpoints.len(), 2);
-        assert_eq!(endpoints[0].as_str(), BETA_UPDATE_ENDPOINT);
-        assert_eq!(endpoints[1].as_str(), STABLE_UPDATE_ENDPOINT);
-        assert_eq!(
-            update_endpoints(false).unwrap()[0].as_str(),
-            STABLE_UPDATE_ENDPOINT
-        );
-    }
-
-    #[test]
     fn updater_download_command_emits_progress_events() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
 
@@ -3069,5 +3319,69 @@ mod tests {
             }
         }
         panic!("{name} body did not close");
+    }
+
+    #[test]
+    fn stale_beta_does_not_mask_a_new_stable_release() {
+        let result =
+            newest_channel_update(vec![Ok(None), Ok(Some("1.2.0"))], |value| *value).unwrap();
+        assert_eq!(result, Some("1.2.0"));
+        let result =
+            newest_channel_update(vec![Ok(Some("1.2.0-beta.1")), Ok(Some("1.2.0"))], |value| {
+                *value
+            })
+            .unwrap();
+        assert_eq!(result, Some("1.2.0"));
+        let result = newest_channel_update(
+            vec![Ok(Some("1.10.0-beta.1")), Ok(Some("1.9.0"))],
+            |value| *value,
+        )
+        .unwrap();
+        assert_eq!(result, Some("1.10.0-beta.1"));
+    }
+
+    #[test]
+    fn update_channels_fall_back_on_request_errors() {
+        assert_eq!(
+            newest_channel_update(
+                vec![Err("missing beta".into()), Ok(Some("1.2.0"))],
+                |value| *value
+            )
+            .unwrap(),
+            Some("1.2.0")
+        );
+        assert!(
+            newest_channel_update::<&str>(
+                vec![Err("offline".into()), Err("offline".into())],
+                |value| *value
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn scroll_preview_moves_above_wide_regions_or_requires_capture_exclusion() {
+        let monitor = Rect {
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 800,
+        };
+        let selection = Rect {
+            x: 0,
+            y: 400,
+            width: 1280,
+            height: 300,
+        };
+        let size = scroll_chrome_size(selection, monitor, 12.0);
+        let position = scroll_chrome_position(selection, monitor, size, 12.0);
+        assert!(!scroll_chrome_overlaps_selection(
+            position, size, selection, monitor
+        ));
+        let size = scroll_chrome_size(monitor, monitor, 12.0);
+        let position = scroll_chrome_position(monitor, monitor, size, 12.0);
+        assert!(scroll_chrome_overlaps_selection(
+            position, size, monitor, monitor
+        ));
     }
 }

@@ -316,7 +316,7 @@ describe("OverlayRoute", () => {
 
     await waitFor(() => {
       expect(exportAnnotationLayer).toHaveBeenCalledWith(2);
-      expect(pinImage).toHaveBeenCalledWith(1, selection, annotationPng, 0, DEFAULT_IMAGE_ADJUSTMENTS);
+      expect(pinImage).toHaveBeenCalledWith("revision-1", 1, selection, annotationPng, 0, DEFAULT_IMAGE_ADJUSTMENTS);
     });
   });
 
@@ -337,7 +337,7 @@ describe("OverlayRoute", () => {
     fireEvent.click(screen.getByRole("button", { name: buttonTitle }));
 
     await waitFor(() => {
-      expect(action).toHaveBeenCalledWith(1, selection, annotationPng, 18, adjustments);
+      expect(action).toHaveBeenCalledWith("revision-1", 1, selection, annotationPng, 18, adjustments);
     });
   });
 
@@ -412,7 +412,7 @@ describe("OverlayRoute", () => {
     expect(hint).toBeTruthy();
     expect((hint as HTMLElement).style.top).toBe("130px");
     await waitFor(() => {
-      expect(startScrollSession).toHaveBeenCalledWith(1, selection);
+      expect(startScrollSession).toHaveBeenCalledWith("revision-1", 1, selection);
     });
   });
 

@@ -40,14 +40,16 @@ export function frozenLayerFilterForImageAdjustments(adjustments: ImageAdjustmen
     : "none";
 }
 
-export function cssFilterForImageAdjustments(adjustments: ImageAdjustments): string {
-  const normalized = normalizeImageAdjustments(adjustments);
-  if (!hasImageAdjustments(normalized)) return "none";
-
-  const filters: string[] = [];
-  if (normalized.grayscale) filters.push("grayscale(1)");
-  if (normalized.brightness !== 0) filters.push(`brightness(${100 + normalized.brightness}%)`);
-  if (normalized.contrast !== 0) filters.push(`contrast(${100 + normalized.contrast}%)`);
-  if (normalized.saturation !== 0) filters.push(`saturate(${100 + normalized.saturation}%)`);
-  return filters.join(" ");
+/** One affine transform keeps SVG's intermediate clamping from changing the
+ * result of the backend's grayscale -> brightness -> contrast -> saturation. */
+export function imageAdjustmentMatrix(adjustments: ImageAdjustments): number[] {
+  const value = normalizeImageAdjustments(adjustments);
+  const contrast = 1 + value.contrast / 100;
+  const saturation = value.grayscale ? 0 : 1 + value.saturation / 100;
+  const offset = contrast * value.brightness / 100 + (128 / 255) * (1 - contrast);
+  const luma = [0.299, 0.587, 0.114];
+  return [0, 1, 2].flatMap((row) => [
+    ...luma.map((weight, column) => contrast * (weight * (1 - saturation) + (row === column ? saturation : 0))),
+    0, offset,
+  ]).concat([0, 0, 0, 1, 0]);
 }

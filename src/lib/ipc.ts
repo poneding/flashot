@@ -12,6 +12,7 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 export type SelectionClaimPayload = {
+  sessionId: string;
   monitorId: number;
 };
 
@@ -21,6 +22,7 @@ const SCROLL_PROGRESS = "scroll:progress";
 const SCROLL_MAX_HEIGHT = "scroll:max-height";
 
 export async function cropAndCopy(
+  sessionId: string,
   monitorId: number,
   rect: Rect,
   annotationPng?: ArrayBuffer,
@@ -28,6 +30,7 @@ export async function cropAndCopy(
   adjustments?: ImageAdjustments,
 ): Promise<void> {
   await invoke("crop_and_copy", {
+    sessionId,
     monitorId,
     rect,
     annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
@@ -36,6 +39,7 @@ export async function cropAndCopy(
   });
 }
 export async function cropAndSave(
+  sessionId: string,
   monitorId: number,
   rect: Rect,
   annotationPng?: ArrayBuffer,
@@ -43,6 +47,7 @@ export async function cropAndSave(
   adjustments?: ImageAdjustments,
 ): Promise<string | null> {
   return await invoke<string | null>("crop_and_save", {
+    sessionId,
     monitorId,
     rect,
     annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
@@ -50,14 +55,14 @@ export async function cropAndSave(
     adjustments: adjustments ?? null,
   });
 }
-export async function cancelCapture(): Promise<void> {
-  await invoke("cancel_capture");
+export async function cancelCapture(sessionId: string): Promise<void> {
+  await invoke("cancel_capture", { sessionId });
 }
 export async function getSettings(): Promise<Settings> {
   return await invoke<Settings>("get_settings");
 }
-export async function setSettings(s: Settings): Promise<void> {
-  await invoke("set_settings", { settings: s });
+export async function setSettings(s: Partial<Settings>): Promise<Settings> {
+  return await invoke<Settings>("set_settings", { settings: s });
 }
 export async function chooseDefaultSaveDir(currentDir?: string): Promise<string | null> {
   return await invoke<string | null>("choose_default_save_dir", {
@@ -70,11 +75,11 @@ export async function onSettingsChanged(cb: () => void): Promise<UnlistenFn> {
 export async function openSettingsWindow(): Promise<void> {
   await invoke("open_settings_window");
 }
-export async function beginTextInputSession(): Promise<void> {
-  await invoke("begin_text_input_session");
+export async function beginTextInputSession(inputId: string, sessionId: string | null): Promise<void> {
+  await invoke("begin_text_input_session", { inputId, sessionId });
 }
-export async function endTextInputSession(): Promise<void> {
-  await invoke("end_text_input_session");
+export async function endTextInputSession(inputId: string, sessionId: string | null): Promise<void> {
+  await invoke("end_text_input_session", { inputId, sessionId });
 }
 export async function pushCaptureCursorMacos(): Promise<void> {
   await invoke("push_capture_cursor_macos");
@@ -89,6 +94,7 @@ export async function listSystemFonts(): Promise<string[]> {
   return await invoke<string[]>("list_system_fonts");
 }
 export async function pinImage(
+  sessionId: string,
   monitorId: number,
   rect: Rect,
   annotationPng?: ArrayBuffer,
@@ -96,6 +102,7 @@ export async function pinImage(
   adjustments?: ImageAdjustments,
 ): Promise<string> {
   return await invoke<string>("pin_image", {
+    sessionId,
     monitorId,
     rect,
     annotationPng: annotationPng ? Array.from(new Uint8Array(annotationPng)) : null,
@@ -156,17 +163,17 @@ export function onQuickShotFlash(cb: (p: QuickShotFlashPayload) => void): Promis
     (e) => cb(e.payload),
   );
 }
-export function onCaptureEnd(cb: () => void): Promise<UnlistenFn> {
-  return listen("capture:end", () => cb());
+export function onCaptureEnd(cb: (sessionId: string) => void): Promise<UnlistenFn> {
+  return listen<string>("capture:end", (e) => cb(e.payload));
 }
-export async function claimSelection(monitorId: number): Promise<void> {
-  await emit("capture:selection-claimed", { monitorId } satisfies SelectionClaimPayload);
+export async function claimSelection(sessionId: string, monitorId: number): Promise<void> {
+  await emit("capture:selection-claimed", { sessionId, monitorId } satisfies SelectionClaimPayload);
 }
 export function onSelectionClaimed(cb: (p: SelectionClaimPayload) => void): Promise<UnlistenFn> {
   return listen<SelectionClaimPayload>("capture:selection-claimed", (e) => cb(e.payload));
 }
-export async function releaseSelection(monitorId: number): Promise<void> {
-  await emit("capture:selection-released", { monitorId } satisfies SelectionClaimPayload);
+export async function releaseSelection(sessionId: string, monitorId: number): Promise<void> {
+  await emit("capture:selection-released", { sessionId, monitorId } satisfies SelectionClaimPayload);
 }
 export function onSelectionReleased(cb: (p: SelectionClaimPayload) => void): Promise<UnlistenFn> {
   return listen<SelectionClaimPayload>("capture:selection-released", (e) => cb(e.payload));
@@ -188,24 +195,24 @@ export function onColorCopyRequested(cb: () => void): Promise<UnlistenFn> {
   return listen(COLOR_COPY_REQUESTED, () => cb());
 }
 
-export async function startScrollSession(monitorId: number, rect: Rect): Promise<void> {
-  await invoke("start_scroll_session", { monitorId, rect });
+export async function startScrollSession(sessionId: string, monitorId: number, rect: Rect): Promise<void> {
+  await invoke("start_scroll_session", { sessionId, monitorId, rect });
 }
 
-export async function stopScrollSession(commit: boolean): Promise<ScrollResult | null> {
-  return await invoke<ScrollResult | null>("stop_scroll_session", { commit });
+export async function stopScrollSession(sessionId: string, commit: boolean): Promise<ScrollResult | null> {
+  return await invoke<ScrollResult | null>("stop_scroll_session", { sessionId, commit });
 }
 
-export async function scrollPin(): Promise<string> {
-  return await invoke<string>("scroll_pin");
+export async function scrollPin(sessionId: string): Promise<string> {
+  return await invoke<string>("scroll_pin", { sessionId });
 }
 
-export async function scrollCopy(): Promise<void> {
-  await invoke("scroll_copy");
+export async function scrollCopy(sessionId: string): Promise<void> {
+  await invoke("scroll_copy", { sessionId });
 }
 
-export async function scrollSave(): Promise<string | null> {
-  return await invoke<string | null>("scroll_save");
+export async function scrollSave(sessionId: string): Promise<string | null> {
+  return await invoke<string | null>("scroll_save", { sessionId });
 }
 
 // Note: scroll_pin / scroll_copy / scroll_save / stop_scroll_session do NOT take a monitorId

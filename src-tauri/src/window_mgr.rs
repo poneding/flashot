@@ -6,8 +6,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Active capture session. While `Some(_)`, the overlay is showing.
-/// Drop guarantees `end_capture` runs (RAII invariant from spec §6.4).
 #[derive(Default)]
 pub struct WindowMgr {
     inner: Mutex<Inner>,
@@ -15,14 +13,20 @@ pub struct WindowMgr {
 
 #[derive(Default)]
 struct Inner {
-    /// Frozen frames keyed by monitor_id, alive only during a session.
     frames: HashMap<u32, Arc<FrozenFrame>>,
-    in_session: bool,
+    session_id: Option<String>,
+    ending: bool,
     scroll: Option<ScrollState>,
-    /// The app that was frontmost when the session started. Restoring focus
-    /// to it on session end returns focus to the app the user was in.
+    scroll_starting: bool,
     previous_app: PreviousFrontmostApp,
     capture_reveal: Option<CaptureRevealState>,
+    text_inputs: HashSet<String>,
+}
+
+impl Inner {
+    fn is_current(&self, session_id: &str) -> bool {
+        !self.ending && self.session_id.as_deref() == Some(session_id)
+    }
 }
 
 struct CaptureRevealState {
@@ -31,10 +35,8 @@ struct CaptureRevealState {
     ready_monitor_ids: HashSet<u32>,
 }
 
-#[allow(dead_code)] // `monitor_id`/`rect` are recorded for future routing/debug use
 pub(crate) struct ScrollState {
     pub monitor_id: u32,
-    pub rect: crate::types::Rect, // physical px
     pub logical_rect: crate::types::Rect,
     pub stitcher: Arc<tokio::sync::Mutex<ScrollStitcher>>,
     pub cancel: Arc<std::sync::atomic::AtomicBool>,
@@ -45,56 +47,85 @@ impl WindowMgr {
         Arc::new(Self::default())
     }
 
-    /// Begin a session and return a guard. Dropping the guard ends the session.
-    pub fn begin(self: &Arc<Self>, app: AppHandle) -> SessionGuard {
-        {
-            let mut inner = self.inner.lock();
-            inner.in_session = true;
-            inner.frames.clear();
-            inner.previous_app = PreviousFrontmostApp::empty();
-            inner.capture_reveal = None;
+    fn reserve_session(&self, session_id: String) -> bool {
+        let mut inner = self.inner.lock();
+        if inner.session_id.is_some() {
+            return false;
         }
-        SessionGuard {
+        inner.session_id = Some(session_id);
+        true
+    }
+
+    /// Reserve atomically. A stale guard can only clean up its own session.
+    pub fn begin(self: &Arc<Self>, app: AppHandle, session_id: String) -> Option<SessionGuard> {
+        if !self.reserve_session(session_id.clone()) {
+            return None;
+        }
+        Some(SessionGuard {
             mgr: self.clone(),
             app,
+            session_id,
             ended: false,
+        })
+    }
+
+    pub fn session_id(&self) -> Option<String> {
+        let inner = self.inner.lock();
+        if inner.ending {
+            None
+        } else {
+            inner.session_id.clone()
         }
     }
 
-    /// Record the app that was frontmost when the session started, so it can be
-    /// reactivated on session end to restore app focus.
-    pub fn set_previous_app(&self, app: PreviousFrontmostApp) {
-        self.inner.lock().previous_app = app;
-    }
-
-    pub fn store_frame(&self, frame: FrozenFrame) {
-        let id = frame.monitor_id;
-        self.inner.lock().frames.insert(id, Arc::new(frame));
-    }
-
-    pub fn frame(&self, monitor_id: u32) -> Option<Arc<FrozenFrame>> {
-        self.inner.lock().frames.get(&monitor_id).cloned()
+    pub fn is_current(&self, session_id: &str) -> bool {
+        self.inner.lock().is_current(session_id)
     }
 
     pub fn in_session(&self) -> bool {
-        self.inner.lock().in_session
+        self.inner.lock().session_id.is_some()
     }
 
-    pub fn prepare_capture_reveal(&self, revision: String, monitor_ids: Vec<u32>) {
-        self.inner.lock().capture_reveal = Some(CaptureRevealState {
+    pub fn set_previous_app(&self, session_id: &str, app: PreviousFrontmostApp) {
+        let mut inner = self.inner.lock();
+        if inner.is_current(session_id) {
+            inner.previous_app = app;
+        }
+    }
+
+    pub fn store_frame(&self, session_id: &str, frame: FrozenFrame) -> bool {
+        let mut inner = self.inner.lock();
+        if !inner.is_current(session_id) {
+            return false;
+        }
+        inner.frames.insert(frame.monitor_id, Arc::new(frame));
+        true
+    }
+
+    pub fn frame(&self, session_id: &str, monitor_id: u32) -> Option<Arc<FrozenFrame>> {
+        let inner = self.inner.lock();
+        if !inner.is_current(session_id) {
+            return None;
+        }
+        inner.frames.get(&monitor_id).cloned()
+    }
+
+    pub fn prepare_capture_reveal(&self, revision: String, monitor_ids: Vec<u32>) -> bool {
+        let mut inner = self.inner.lock();
+        if !inner.is_current(&revision) {
+            return false;
+        }
+        inner.capture_reveal = Some(CaptureRevealState {
             revision,
             expected_monitor_ids: monitor_ids,
             ready_monitor_ids: HashSet::new(),
         });
+        true
     }
 
-    pub fn mark_capture_overlay_ready(
-        &self,
-        revision: &str,
-        monitor_id: u32,
-    ) -> Option<Vec<u32>> {
+    pub fn mark_capture_overlay_ready(&self, revision: &str, monitor_id: u32) -> Option<Vec<u32>> {
         let mut inner = self.inner.lock();
-        if !inner.in_session {
+        if !inner.is_current(revision) {
             return None;
         }
         let reveal = inner.capture_reveal.as_mut()?;
@@ -113,8 +144,12 @@ impl WindowMgr {
 
     pub fn force_capture_reveal(&self, revision: &str) -> Option<Vec<u32>> {
         let mut inner = self.inner.lock();
-        if !inner.in_session
-            || inner.capture_reveal.as_ref().map(|state| state.revision.as_str()) != Some(revision)
+        if !inner.is_current(revision)
+            || inner
+                .capture_reveal
+                .as_ref()
+                .map(|state| state.revision.as_str())
+                != Some(revision)
         {
             return None;
         }
@@ -124,103 +159,170 @@ impl WindowMgr {
             .map(|state| state.expected_monitor_ids)
     }
 
-    pub(crate) fn take_scroll(&self) -> Option<ScrollState> {
-        self.inner.lock().scroll.take()
+    pub(crate) fn take_scroll(&self, session_id: &str) -> Option<ScrollState> {
+        let mut inner = self.inner.lock();
+        if !inner.is_current(session_id) {
+            return None;
+        }
+        let scroll = inner.scroll.take()?;
+        scroll
+            .cancel
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        Some(scroll)
     }
 
-    pub(crate) fn set_scroll(&self, s: ScrollState) {
-        self.inner.lock().scroll = Some(s);
+    pub(crate) fn reserve_scroll(&self, session_id: &str) -> bool {
+        let mut inner = self.inner.lock();
+        if !inner.is_current(session_id) || inner.scroll.is_some() || inner.scroll_starting {
+            return false;
+        }
+        inner.scroll_starting = true;
+        true
     }
 
-    pub(crate) fn scroll_ref<R>(&self, f: impl FnOnce(&ScrollState) -> R) -> Option<R> {
-        self.inner.lock().scroll.as_ref().map(f)
+    pub(crate) fn abort_scroll_start(&self, session_id: &str) {
+        let mut inner = self.inner.lock();
+        if inner.is_current(session_id) {
+            inner.scroll_starting = false;
+        }
     }
 
-    pub fn end_session(&self, app: &AppHandle) {
-        self.clear_session_state();
+    pub(crate) fn set_scroll(&self, session_id: &str, s: ScrollState) -> bool {
+        let mut inner = self.inner.lock();
+        if !inner.is_current(session_id) || inner.scroll.is_some() {
+            return false;
+        }
+        inner.scroll_starting = false;
+        inner.scroll = Some(s);
+        true
+    }
+
+    pub(crate) fn scroll_ref<R>(
+        &self,
+        session_id: &str,
+        f: impl FnOnce(&ScrollState) -> R,
+    ) -> Option<R> {
+        let inner = self.inner.lock();
+        if !inner.is_current(session_id) {
+            return None;
+        }
+        inner.scroll.as_ref().map(f)
+    }
+
+    pub fn begin_text_input(&self, session_id: &str, input_id: String) -> bool {
+        let mut inner = self.inner.lock();
+        inner.is_current(session_id) && inner.text_inputs.insert(input_id)
+    }
+
+    pub fn end_text_input(&self, session_id: &str, input_id: &str) -> bool {
+        let mut inner = self.inner.lock();
+        inner.is_current(session_id)
+            && inner.text_inputs.remove(input_id)
+            && inner.text_inputs.is_empty()
+    }
+
+    pub fn text_input_active(&self) -> bool {
+        !self.inner.lock().text_inputs.is_empty()
+    }
+
+    pub fn end_session(&self, app: &AppHandle, session_id: &str) -> Option<PreviousFrontmostApp> {
+        let previous = self.clear_session_state(session_id)?;
         crate::set_capture_session_hotkeys(app, false);
         crate::app_activation::hide_overlay_windows(app);
-        let _ = app.emit("capture:end", ());
-        cleanup_frame_files(app);
+        let _ = app.emit("capture:end", session_id);
+        cleanup_frame_files(app, session_id);
+        self.finish_session_end(session_id);
+        Some(previous)
     }
 
-    pub fn end_session_deactivating_app(&self, app: &AppHandle) {
-        // Do not explicitly reactivate the previously-frontmost application
-        // here. In particular, activating Finder can pull Finder windows from
-        // other displays to the front. Deactivating Flashot before hiding its
-        // overlays lets macOS restore focus without rewriting another app's
-        // window stack.
-        let _previous = self.take_previous_app();
-        self.clear_session_state();
+    pub fn end_session_deactivating_app(&self, app: &AppHandle, session_id: &str) {
+        let Some(_previous) = self.clear_session_state(session_id) else {
+            return;
+        };
         crate::set_capture_session_hotkeys(app, false);
         if !crate::app_activation::deactivate_then_hide_overlays_macos(app) {
             crate::app_activation::hide_overlay_windows(app);
         }
-        let _ = app.emit("capture:end", ());
-        cleanup_frame_files(app);
+        let _ = app.emit("capture:end", session_id);
+        cleanup_frame_files(app, session_id);
+        self.finish_session_end(session_id);
     }
 
-    /// Reactivate the previously-frontmost app WITHOUT hiding overlays first.
-    /// Used by save-dialog paths (`crop_and_save`) where overlays were already
-    /// hidden for the dialog; this just restores app focus afterward.
-    pub fn restore_focus_to_previous_app(&self, app: &AppHandle) {
-        let previous = self.take_previous_app();
+    pub fn restore_focus_to_previous_app(&self, app: &AppHandle, previous: &PreviousFrontmostApp) {
+        if !self.in_session() {
+            crate::app_activation::reactivate_previous_app(app, previous);
+        }
+    }
+
+    pub fn reactivate_previous_app(&self, app: &AppHandle, session_id: &str) {
+        let previous = {
+            let inner = self.inner.lock();
+            if !inner.is_current(session_id) {
+                return;
+            }
+            inner.previous_app.clone()
+        };
         crate::app_activation::reactivate_previous_app(app, &previous);
     }
 
-    /// Reactivate the previously-frontmost app WITHOUT ending the session or
-    /// consuming the handle, so a later `end_session_deactivating_app` can
-    /// reactivate it again. Used by scroll capture to hand wheel events to the
-    /// underlying app while the session stays alive.
-    pub fn reactivate_previous_app(&self, app: &AppHandle) {
-        let inner = self.inner.lock();
-        crate::app_activation::reactivate_previous_app(app, &inner.previous_app);
-    }
-
-    fn take_previous_app(&self) -> PreviousFrontmostApp {
-        std::mem::take(&mut self.inner.lock().previous_app)
-    }
-
-    fn clear_session_state(&self) {
+    // Keep the reservation until native cleanup has completed. New captures
+    // must not begin while an older teardown is still hiding their windows.
+    fn clear_session_state(&self, session_id: &str) -> Option<PreviousFrontmostApp> {
         let mut inner = self.inner.lock();
+        if !inner.is_current(session_id) {
+            return None;
+        }
+        inner.ending = true;
         inner.frames.clear();
         if let Some(s) = inner.scroll.take() {
             s.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
         }
-        inner.in_session = false;
         inner.capture_reveal = None;
+        inner.scroll_starting = false;
+        inner.text_inputs.clear();
+        Some(std::mem::take(&mut inner.previous_app))
     }
 
-    fn end(&self, app: &AppHandle) {
-        self.end_session_deactivating_app(app);
+    fn finish_session_end(&self, session_id: &str) {
+        let mut inner = self.inner.lock();
+        if inner.session_id.as_deref() == Some(session_id) && inner.ending {
+            inner.session_id = None;
+            inner.ending = false;
+        }
     }
 }
 
-fn cleanup_frame_files(app: &AppHandle) {
+fn cleanup_frame_files(app: &AppHandle, session_id: &str) {
     let Ok(cache_dir) = app.path().app_cache_dir() else {
         return;
     };
-
-    if let Err(e) = crate::remove_stale_frame_files(&cache_dir) {
-        tracing::warn!("failed to remove capture frame files: {e}");
+    let Ok(entries) = std::fs::read_dir(cache_dir) else {
+        return;
+    };
+    let suffix = format!("_{session_id}.png");
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("frame_") && name.ends_with(&suffix) {
+            let _ = std::fs::remove_file(entry.path());
+        }
     }
 }
 
 pub struct SessionGuard {
     mgr: Arc<WindowMgr>,
     app: AppHandle,
+    session_id: String,
     ended: bool,
 }
 
 impl SessionGuard {
-    /// Explicitly end (used on success paths to keep call sites clear).
     pub fn end(mut self) {
-        self.mgr.end(&self.app);
+        self.mgr
+            .end_session_deactivating_app(&self.app, &self.session_id);
         self.ended = true;
     }
 
-    /// Disarm the guard without ending the session. The session remains active
-    /// and must be ended later by calling `WindowMgr::end_session*` directly.
     pub fn disarm(mut self) {
         self.ended = true;
     }
@@ -229,7 +331,8 @@ impl SessionGuard {
 impl Drop for SessionGuard {
     fn drop(&mut self) {
         if !self.ended {
-            self.mgr.end(&self.app);
+            self.mgr
+                .end_session_deactivating_app(&self.app, &self.session_id);
         }
     }
 }
@@ -255,20 +358,24 @@ mod tests {
         let mgr = WindowMgr::new();
         // We can't call begin() in tests because it needs an AppHandle.
         // Test the storage directly via an internal pathway:
-        mgr.inner.lock().in_session = true;
-        mgr.store_frame(fake_frame(7));
-        assert!(mgr.frame(7).is_some());
-        assert!(mgr.frame(99).is_none());
+        assert!(mgr.reserve_session("revision-1".into()));
+        mgr.store_frame("revision-1", fake_frame(7));
+        assert!(mgr.frame("revision-1", 7).is_some());
+        assert!(mgr.frame("revision-1", 99).is_none());
     }
 
     #[test]
     fn frame_retrieval_reuses_shared_rgba_buffer() {
         let mgr = WindowMgr::new();
-        mgr.inner.lock().in_session = true;
-        mgr.store_frame(fake_frame(7));
+        assert!(mgr.reserve_session("revision-1".into()));
+        mgr.store_frame("revision-1", fake_frame(7));
 
-        let first = mgr.frame(7).expect("stored frame should exist");
-        let second = mgr.frame(7).expect("stored frame should exist");
+        let first = mgr
+            .frame("revision-1", 7)
+            .expect("stored frame should exist");
+        let second = mgr
+            .frame("revision-1", 7)
+            .expect("stored frame should exist");
 
         assert!(Arc::ptr_eq(&first, &second));
     }
@@ -276,19 +383,20 @@ mod tests {
     #[test]
     fn explicit_end_clears_session_state() {
         let mgr = WindowMgr::new();
-        mgr.inner.lock().in_session = true;
-        mgr.store_frame(fake_frame(7));
+        assert!(mgr.reserve_session("revision-1".into()));
+        mgr.store_frame("revision-1", fake_frame(7));
 
-        mgr.clear_session_state();
+        mgr.clear_session_state("revision-1");
+        mgr.finish_session_end("revision-1");
 
         assert!(!mgr.in_session());
-        assert!(mgr.frame(7).is_none());
+        assert!(mgr.frame("revision-1", 7).is_none());
     }
 
     #[test]
     fn capture_reveal_waits_for_every_monitor() {
         let mgr = WindowMgr::new();
-        mgr.inner.lock().in_session = true;
+        assert!(mgr.reserve_session("revision-1".into()));
         mgr.prepare_capture_reveal("revision-1".into(), vec![7, 9]);
 
         assert_eq!(mgr.mark_capture_overlay_ready("revision-1", 7), None);
@@ -302,7 +410,7 @@ mod tests {
     #[test]
     fn capture_reveal_ignores_stale_revisions_and_has_a_timeout_path() {
         let mgr = WindowMgr::new();
-        mgr.inner.lock().in_session = true;
+        assert!(mgr.reserve_session("revision-2".into()));
         mgr.prepare_capture_reveal("revision-2".into(), vec![3, 4]);
 
         assert_eq!(mgr.mark_capture_overlay_ready("revision-1", 3), None);
@@ -323,27 +431,26 @@ mod tests {
             vec![0; 16],
             StitchConfig::default(),
         )));
-        mgr.set_scroll(super::ScrollState {
-            monitor_id: 1,
-            rect: crate::types::Rect {
-                x: 0,
-                y: 0,
-                width: 2,
-                height: 2,
+        assert!(mgr.reserve_session("revision-1".into()));
+        mgr.set_scroll(
+            "revision-1",
+            super::ScrollState {
+                monitor_id: 1,
+                logical_rect: crate::types::Rect {
+                    x: 0,
+                    y: 0,
+                    width: 2,
+                    height: 2,
+                },
+                stitcher,
+                cancel: cancel.clone(),
             },
-            logical_rect: crate::types::Rect {
-                x: 0,
-                y: 0,
-                width: 2,
-                height: 2,
-            },
-            stitcher,
-            cancel: cancel.clone(),
-        });
+        );
 
-        mgr.clear_session_state();
+        mgr.clear_session_state("revision-1");
+        mgr.finish_session_end("revision-1");
         assert!(cancel.load(Ordering::SeqCst), "scroll cancel must be set");
-        assert!(mgr.scroll_ref(|_| ()).is_none());
+        assert!(mgr.scroll_ref("revision-1", |_| ()).is_none());
     }
 
     #[test]
@@ -412,5 +519,54 @@ mod tests {
             }
         }
         panic!("{name} body did not close");
+    }
+
+    #[test]
+    fn stale_sessions_cannot_read_write_reveal_or_end_the_next_capture() {
+        let mgr = WindowMgr::new();
+        assert!(mgr.reserve_session("old".into()));
+        assert!(mgr.store_frame("old", fake_frame(7)));
+        assert!(mgr.clear_session_state("old").is_some());
+        assert!(!mgr.reserve_session("too-early".into()));
+        mgr.finish_session_end("old");
+        assert!(mgr.reserve_session("new".into()));
+        assert!(mgr.store_frame("new", fake_frame(7)));
+        assert!(mgr.frame("old", 7).is_none());
+        assert!(!mgr.store_frame("old", fake_frame(9)));
+        assert!(!mgr.prepare_capture_reveal("old".into(), vec![7]));
+        assert!(mgr.clear_session_state("old").is_none());
+        mgr.finish_session_end("old");
+        assert!(mgr.is_current("new"));
+        assert!(mgr.frame("new", 7).is_some());
+    }
+
+    #[test]
+    fn scroll_start_reservations_are_exclusive_and_session_scoped() {
+        let mgr = WindowMgr::new();
+        assert!(mgr.reserve_session("one".into()));
+        assert!(mgr.reserve_scroll("one"));
+        assert!(!mgr.reserve_scroll("one"));
+        mgr.abort_scroll_start("stale");
+        assert!(!mgr.reserve_scroll("one"));
+        mgr.abort_scroll_start("one");
+        assert!(mgr.reserve_scroll("one"));
+    }
+
+    #[test]
+    fn text_input_shortcuts_resume_only_after_the_last_current_editor() {
+        let mgr = WindowMgr::new();
+        mgr.reserve_session("one".into());
+        assert!(mgr.begin_text_input("one", "editor-a".into()));
+        assert!(mgr.begin_text_input("one", "editor-b".into()));
+        assert!(!mgr.end_text_input("one", "editor-a"));
+        assert!(mgr.text_input_active());
+        assert!(mgr.end_text_input("one", "editor-b"));
+        assert!(!mgr.text_input_active());
+        mgr.clear_session_state("one");
+        mgr.finish_session_end("one");
+        mgr.reserve_session("two".into());
+        mgr.begin_text_input("two", "editor-a".into());
+        assert!(!mgr.end_text_input("one", "editor-a"));
+        assert!(mgr.text_input_active());
     }
 }

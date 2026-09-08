@@ -11,6 +11,7 @@ import type { Settings } from "@/lib/types";
 
 vi.mock("@/lib/ipc", () => ({
   chooseDefaultSaveDir: vi.fn(),
+  onSettingsChanged: vi.fn().mockResolvedValue(vi.fn()),
   getSettings: vi.fn(),
   setSettings: vi.fn(),
 }));
@@ -90,7 +91,11 @@ describe("SettingsRoute", () => {
     document.documentElement.style.removeProperty("--ring");
     document.documentElement.style.removeProperty("--accent");
     vi.mocked(getSettings).mockResolvedValue(settings);
-    vi.mocked(setSettings).mockResolvedValue();
+    vi.mocked(setSettings).mockImplementation(async (patch) => {
+      const next = { ...await getSettings(), ...patch };
+      vi.mocked(getSettings).mockResolvedValue(next);
+      return next;
+    });
     vi.mocked(chooseDefaultSaveDir).mockResolvedValue(null);
   });
 
@@ -105,7 +110,6 @@ describe("SettingsRoute", () => {
 
     await waitFor(() => {
       expect(setSettings).toHaveBeenCalledWith({
-        ...settings,
         launchAtLogin: true,
       });
     });
@@ -137,10 +141,7 @@ describe("SettingsRoute", () => {
 
     await waitFor(() => {
       expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({
-        ...settings,
-        autoCheckUpdates: true,
         allowBetaUpdates: true,
-        updateCheckIntervalHours: 6,
       }));
     });
   });
@@ -165,7 +166,6 @@ describe("SettingsRoute", () => {
       expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({
         autoCheckUpdates: false,
         allowBetaUpdates: false,
-        updateCheckIntervalHours: 6,
       }));
     });
   });
@@ -272,6 +272,7 @@ describe("SettingsRoute", () => {
 
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "Ctrl+Alt+S" } });
+    fireEvent.blur(input);
 
     await waitFor(() => {
       expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -402,7 +403,6 @@ describe("SettingsRoute", () => {
 
     await waitFor(() => {
       expect(setSettings).toHaveBeenCalledWith(expect.objectContaining({
-        accentColor: "#F43F5E",
         language: "zh-TW",
       }));
     });

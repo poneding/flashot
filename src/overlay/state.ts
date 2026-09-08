@@ -7,7 +7,7 @@ import {
   type HandleId,
 } from "@/lib/geometry";
 import { hitTestWindow } from "@/lib/hit-test";
-import { getSettings, setSettings } from "@/lib/ipc";
+import { setSettings } from "@/lib/ipc";
 import { DEFAULT_IMAGE_ADJUSTMENTS, normalizeImageAdjustments } from "@/overlay/imageAdjustments";
 import type { CaptureStartPayload, ImageAdjustments, Mode, Point, Rect, WindowRect } from "@/lib/types";
 
@@ -92,11 +92,8 @@ function persistCornerRadiusDebounced(next: number) {
   if (cornerRadiusPersistTimer != null) clearTimeout(cornerRadiusPersistTimer);
   cornerRadiusPersistTimer = setTimeout(() => {
     cornerRadiusPersistTimer = null;
-    void getSettings()
-      .then((s) => {
-        if (version !== cornerRadiusPersistVersion) return undefined;
-        return setSettings({ ...s, cornerRadius: next });
-      })
+    if (version !== cornerRadiusPersistVersion) return;
+    void setSettings({ cornerRadius: next })
       .catch((err) => console.warn("Failed to persist cornerRadius", err));
   }, 150);
 }

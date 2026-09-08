@@ -87,6 +87,7 @@ export type Command = {
   objectId: AnnotationId;
   before: Partial<AnnotationObject>;
   after: Partial<AnnotationObject>;
+  objectIndex?: number;
 };
 
 export const PRESET_COLORS = [

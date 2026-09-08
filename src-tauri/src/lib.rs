@@ -109,6 +109,10 @@ pub fn run() {
             // Create shared PinManager state for pinned screenshot windows
             app.manage(PinManager::new());
 
+            if let Ok(cache_dir) = app.path().app_cache_dir() {
+                let _ = remove_stale_frame_files(&cache_dir);
+            }
+
             // Clean up any stale pin PNGs from previous sessions (PinManager always
             // starts empty, so any leftover files are orphaned).
             if let Ok(cache_dir) = app.path().app_cache_dir()
@@ -141,7 +145,7 @@ pub fn run() {
             hotkey::initialize().context("Failed to create hotkey service")?;
 
             // Register configured hotkeys
-            register_startup_hotkeys(&settings, hotkey::set_all);
+            register_startup_hotkeys(&settings, hotkey::set_startup);
             spawn_auto_update_check_loop(app.handle());
 
             let receiver = hotkey::receiver();
@@ -181,7 +185,12 @@ pub fn run() {
                                 );
                             }
                             Some(hotkey::HotkeyAction::CancelCapture) => {
-                                mgr_for_hotkey.end_session_deactivating_app(&app_handle);
+                                if !mgr_for_hotkey.text_input_active()
+                                    && let Some(session_id) = mgr_for_hotkey.session_id()
+                                {
+                                    mgr_for_hotkey
+                                        .end_session_deactivating_app(&app_handle, &session_id);
+                                }
                             }
                             Some(hotkey::HotkeyAction::ColorFormatToggle) => {
                                 let _ =
@@ -200,22 +209,6 @@ pub fn run() {
             app.listen("settings:changed", move |_| {
                 let app = app_for_settings.clone();
                 let s = settings_store::load().unwrap_or_default();
-                let next_capture_hotkey = s.capture_hotkey.clone();
-                let next_board_hotkey = s.board_hotkey.clone();
-                let next_fullscreen_hotkey = s.fullscreen_hotkey.clone();
-                let next_active_window_hotkey = s.active_window_hotkey.clone();
-                if let Err(e) = app.run_on_main_thread(move || {
-                    if let Err(e) = hotkey::set_all(
-                        &next_capture_hotkey,
-                        &next_board_hotkey,
-                        &next_fullscreen_hotkey,
-                        &next_active_window_hotkey,
-                    ) {
-                        tracing::warn!("hotkey re-register failed: {e}");
-                    }
-                }) {
-                    tracing::warn!("hotkey re-register dispatch failed: {e}");
-                }
                 if let Err(e) = tray::update_menu(
                     &app,
                     &s.capture_hotkey,
@@ -342,7 +335,7 @@ fn spawn_auto_update_check_loop(app: &AppHandle) {
 }
 
 async fn run_due_auto_update_check(app: AppHandle) {
-    let mut settings = match settings_store::load() {
+    let settings = match settings_store::load() {
         Ok(settings) => settings,
         Err(e) => {
             tracing::debug!("failed to load settings for auto update check: {e}");
@@ -356,8 +349,10 @@ async fn run_due_auto_update_check(app: AppHandle) {
     }
 
     let allow_beta = settings.allow_beta_updates;
-    settings.last_update_check_at = Some(now);
-    if let Err(e) = settings_store::save(&settings) {
+    if let Err(e) = settings_store::update(|latest| {
+        latest.last_update_check_at = Some(now);
+        Ok(())
+    }) {
         tracing::warn!("failed to persist auto update check timestamp: {e}");
     }
 
@@ -754,14 +749,21 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
 
     // Begin session
     tracing::info!("run_capture: beginning session");
-    let guard = mgr.begin(app.clone());
+    let frame_revision = next_frame_revision();
+    let revision = frame_revision.to_string();
+    let Some(guard) = mgr.begin(app.clone(), revision.clone()) else {
+        return Ok(());
+    };
     set_capture_session_hotkeys(&app, true);
 
     // Record the app that was frontmost when the hotkey fired, BEFORE Flashot
     // activates itself for the overlay. Reactivating it on session end is what
     // restores utility-window (Settings/About/Updater) z-order to its original
     // background position. No-op handle off macOS.
-    mgr.set_previous_app(app_activation::capture_previous_frontmost_app(&app));
+    mgr.set_previous_app(
+        &revision,
+        app_activation::capture_previous_frontmost_app(&app),
+    );
 
     let current_monitors =
         capture::enumerate_monitors().context("Failed to enumerate monitors before capture")?;
@@ -781,6 +783,9 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     tracing::info!("run_capture: captured {} monitors", monitors.len());
     ensure_overlays_for_monitors(&app, &monitors)?;
 
+    if !mgr.is_current(&revision) {
+        return Ok(());
+    }
     let windows = match windows_result {
         Ok(Ok(ws)) => {
             tracing::info!("run_capture: enumerated {} windows", ws.len());
@@ -803,12 +808,7 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         .app_cache_dir()
         .context("Failed to get cache directory")?;
     std::fs::create_dir_all(&cache_dir).context("Failed to create cache directory")?;
-    if let Err(e) = remove_stale_frame_files(&cache_dir) {
-        tracing::warn!("run_capture: failed to clean stale frame files: {e}");
-    }
     tracing::info!("run_capture: cache dir: {:?}", cache_dir);
-
-    let frame_revision = next_frame_revision();
 
     // PNG encoding dominates the post-capture latency on Retina displays.
     // Encode every monitor concurrently, then preload all hidden overlays
@@ -817,8 +817,15 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
     let mut encode_tasks = tokio::task::JoinSet::new();
     for frame in frames {
         let frame_path = frame_asset_path(&cache_dir, frame.monitor_id, frame_revision);
+        let task_mgr = mgr.clone();
+        let task_revision = revision.clone();
         encode_tasks.spawn_blocking(move || {
-            save_frame_as_png(&frame, &frame_path).context("Failed to save frame as PNG")?;
+            if task_mgr.is_current(&task_revision) {
+                save_frame_as_png(&frame, &frame_path).context("Failed to save frame as PNG")?;
+                if !task_mgr.is_current(&task_revision) {
+                    let _ = std::fs::remove_file(&frame_path);
+                }
+            }
             Ok::<_, anyhow::Error>(frame)
         });
     }
@@ -829,7 +836,9 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         encoded_frames.insert(frame.monitor_id, frame);
     }
 
-    let revision = frame_revision.to_string();
+    if !mgr.is_current(&revision) {
+        return Ok(());
+    }
     let cursor_display = current_cursor_display(&app, &monitors);
     let primary_monitor_id = active_display_monitor(&monitors, cursor_display, None)
         .map(|monitor| monitor.id)
@@ -843,7 +852,9 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         let frame = encoded_frames
             .remove(&mon.id)
             .with_context(|| format!("Encoded frame for monitor {} is missing", mon.id))?;
-        mgr.store_frame(frame);
+        if !mgr.store_frame(&revision, frame) {
+            return Ok(());
+        }
 
         let label = overlay_label(mon.id);
         if app.get_webview_window(&label).is_none() {
@@ -886,15 +897,16 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         .map(|(_, payload)| payload.monitor_id)
         .collect::<Vec<_>>();
     anyhow::ensure!(!monitor_ids.is_empty(), "No capture overlays are available");
-    mgr.prepare_capture_reveal(revision.clone(), monitor_ids.clone());
+    if !mgr.prepare_capture_reveal(revision.clone(), monitor_ids.clone()) {
+        return Ok(());
+    }
 
     for (label, payload) in prepared_overlays {
-        app.emit_to(
-            capture_start_target(&label),
-            "capture:start",
-            payload,
-        )
-        .context("Failed to emit capture:start event")?;
+        if !mgr.is_current(&revision) {
+            return Ok(());
+        }
+        app.emit_to(capture_start_target(&label), "capture:start", payload)
+            .context("Failed to emit capture:start event")?;
     }
 
     // A failed image load must not leave the user trapped behind hidden
@@ -909,7 +921,9 @@ async fn run_capture(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
             return;
         };
         tracing::warn!("capture overlay preload timed out; revealing available frames");
-        if let Err(e) = overlay_window::reveal_capture_overlays(&timeout_app, &monitor_ids) {
+        if let Err(e) =
+            overlay_window::reveal_capture_overlays(&timeout_app, &monitor_ids, &timeout_revision)
+        {
             tracing::warn!("failed to reveal capture overlays after timeout: {e}");
             return;
         }
@@ -932,9 +946,16 @@ async fn run_board(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         return Ok(());
     }
 
-    let guard = mgr.begin(app.clone());
+    let frame_revision = next_frame_revision();
+    let revision = frame_revision.to_string();
+    let Some(guard) = mgr.begin(app.clone(), revision.clone()) else {
+        return Ok(());
+    };
     set_capture_session_hotkeys(&app, true);
-    mgr.set_previous_app(app_activation::capture_previous_frontmost_app(&app));
+    mgr.set_previous_app(
+        &revision,
+        app_activation::capture_previous_frontmost_app(&app),
+    );
 
     let current_monitors = capture::enumerate_monitors()
         .context("Failed to enumerate monitors before board capture")?;
@@ -951,21 +972,22 @@ async fn run_board(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         active_window_rect.as_ref(),
     )
     .or_else(|| current_monitors.first())
-        .map(|monitor| monitor.id)
-        .context("No monitor available for board capture")?;
+    .map(|monitor| monitor.id)
+    .context("No monitor available for board capture")?;
 
     let (monitors, frames) = tokio::task::spawn_blocking(capture::capture_all_monitors)
         .await
         .context("Board capture task panicked")?
         .context("Failed to capture monitor for board")?;
+    if !mgr.is_current(&revision) {
+        return Ok(());
+    }
     ensure_overlays_for_monitors(&app, &monitors)?;
 
     let monitor = monitors
         .iter()
         .find(|monitor| monitor.id == target_monitor_id)
-        .or_else(|| {
-            active_display_monitor(&monitors, cursor_display, active_window_rect.as_ref())
-        })
+        .or_else(|| active_display_monitor(&monitors, cursor_display, active_window_rect.as_ref()))
         .or_else(|| monitors.first())
         .cloned()
         .context("Captured board monitor is unavailable")?;
@@ -979,14 +1001,16 @@ async fn run_board(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         .app_cache_dir()
         .context("Failed to get cache directory")?;
     std::fs::create_dir_all(&cache_dir).context("Failed to create cache directory")?;
-    if let Err(e) = remove_stale_frame_files(&cache_dir) {
-        tracing::warn!("run_board: failed to clean stale frame files: {e}");
-    }
 
-    let frame_revision = next_frame_revision();
+    if !mgr.is_current(&revision) {
+        return Ok(());
+    }
     let frame_path = frame_asset_path(&cache_dir, monitor.id, frame_revision);
     save_frame_as_png(&frame, &frame_path).context("Failed to save board frame as PNG")?;
-    mgr.store_frame(frame);
+    if !mgr.store_frame(&revision, frame) {
+        let _ = std::fs::remove_file(&frame_path);
+        return Ok(());
+    }
 
     let label = overlay_label(monitor.id);
     let window = app
@@ -1009,6 +1033,9 @@ async fn run_board(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
         }
     };
 
+    if !mgr.is_current(&revision) {
+        return Ok(());
+    }
     app.emit_to(
         capture_start_target(&label),
         "capture:start",
@@ -1018,7 +1045,7 @@ async fn run_board(app: AppHandle, mgr: Arc<WindowMgr>) -> Result<()> {
             frame_revision: frame_revision.to_string(),
             primary_capture_screen: true,
             frame_url: frame_asset_url(&cache_dir, monitor.id, frame_revision),
-            monitor_rect: monitor.rect,
+            monitor_rect: overlay_logical_rect(monitor.rect, monitor.scale_factor),
             scale_factor: monitor.scale_factor,
             corner_radius: 0,
             toolbar_top_inset,
@@ -1119,7 +1146,7 @@ async fn copy_active_window_to_clipboard(app: AppHandle, mgr: Arc<WindowMgr>) ->
         target.frame.width,
         target.frame.height,
         target.rect,
-        target.frame.scale_factor,
+        quick_shot_crop_scale(target.frame.scale_factor),
     )
     .context("Failed to crop active window quick shot")?;
 
@@ -1130,12 +1157,24 @@ async fn copy_active_window_to_clipboard(app: AppHandle, mgr: Arc<WindowMgr>) ->
     Ok(())
 }
 
+// Window probes return physical pixels on Windows and logical pixels elsewhere.
+fn quick_shot_crop_scale(scale_factor: f32) -> f32 {
+    if cfg!(target_os = "windows") {
+        1.0
+    } else {
+        scale_factor
+    }
+}
+
 fn show_quick_shot_flash(
     app: &AppHandle,
     monitor: &types::MonitorInfo,
     rect: types::Rect,
     mgr: Arc<WindowMgr>,
 ) -> Result<()> {
+    if mgr.in_session() {
+        return Ok(());
+    }
     ensure_overlays_for_monitors(app, std::slice::from_ref(monitor))
         .context("Failed to prepare quick shot flash overlay")?;
 
@@ -1242,11 +1281,8 @@ fn encode_frame_as_png(frame: &types::FrozenFrame) -> Result<Vec<u8>> {
     // uncompressed PNG of that size stalls/fails the overlay's asset fetch in the
     // WebView. Fast keeps encode latency low while cutting the file to ~15 MB so
     // the frozen frame loads reliably.
-    let mut encoder = PngEncoder::new_with_quality(
-        &mut png,
-        CompressionType::Fast,
-        FilterType::Sub,
-    );
+    let mut encoder =
+        PngEncoder::new_with_quality(&mut png, CompressionType::Fast, FilterType::Sub);
     if let Some(profile) = frame.icc_profile.as_ref() {
         encoder
             .set_icc_profile(profile.clone())
@@ -1866,12 +1902,7 @@ mod tests {
         let converted = overlay_logical_rect(rect, 2.0);
 
         assert_eq!(
-            (
-                converted.x,
-                converted.y,
-                converted.width,
-                converted.height
-            ),
+            (converted.x, converted.y, converted.width, converted.height),
             (100, 40, 800, 600)
         );
     }
@@ -1990,7 +2021,7 @@ mod tests {
         let body = &source[start..end];
 
         assert!(
-            body.contains("mgr_for_hotkey.end_session_deactivating_app(&app_handle);"),
+            body.contains(".end_session_deactivating_app(&app_handle, &session_id);"),
             "canceling from the global hotkey must not leave Flashot active with settings raised",
         );
     }
@@ -2099,16 +2130,14 @@ mod tests {
             corner_radius: 0,
         };
 
-        let registered = register_startup_hotkeys(
-            &settings,
-            |capture, board, fullscreen, active_window| {
+        let registered =
+            register_startup_hotkeys(&settings, |capture, board, fullscreen, active_window| {
                 assert_eq!(capture, "Cmd+Shift+A");
                 assert_eq!(board, "Option+B");
                 assert_eq!(fullscreen, "Cmd+Shift+F");
                 assert_eq!(active_window, "Cmd+Shift+W");
                 Ok(hotkey::RegisteredHotkeyIds::default())
-            },
-        );
+            });
 
         assert!(registered);
     }
@@ -2230,5 +2259,59 @@ mod tests {
             }
         }
         panic!("{name} body did not close");
+    }
+
+    #[test]
+    fn active_window_quick_shot_crops_one_physical_window_at_high_dpi() {
+        let scale = 2.0;
+        let monitor = types::MonitorInfo {
+            id: 1,
+            rect: types::Rect {
+                x: 0,
+                y: 0,
+                width: if cfg!(target_os = "windows") {
+                    200
+                } else {
+                    100
+                },
+                height: if cfg!(target_os = "windows") { 100 } else { 50 },
+            },
+            scale_factor: scale,
+        };
+        let frame = types::FrozenFrame {
+            monitor_id: 1,
+            rgba: vec![255; 200 * 100 * 4],
+            width: 200,
+            height: 100,
+            scale_factor: scale,
+            icc_profile: None,
+        };
+        let window = if cfg!(target_os = "windows") {
+            types::Rect {
+                x: 20,
+                y: 10,
+                width: 80,
+                height: 40,
+            }
+        } else {
+            types::Rect {
+                x: 10,
+                y: 5,
+                width: 40,
+                height: 20,
+            }
+        };
+        let monitors = [monitor];
+        let frames = [frame];
+        let target = active_window_target(&monitors, &frames, &window).unwrap();
+        let crop = commands::crop_rgba(
+            &target.frame.rgba,
+            200,
+            100,
+            target.rect,
+            quick_shot_crop_scale(scale),
+        )
+        .unwrap();
+        assert_eq!((crop.width, crop.height), (80, 40));
     }
 }

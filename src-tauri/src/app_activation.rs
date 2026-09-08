@@ -45,15 +45,30 @@ impl Drop for PreviousFrontmostApp {
         // NSRunningApplication retain/release are thread-safe refcount ops,
         // so releasing here (possibly off the main thread) is safe.
         unsafe {
-            use objc::{runtime::Sel, Message};
+            use objc::{Message, runtime::Sel};
             let _ = (*self.raw).send_message::<_, ()>(Sel::register("release"), ());
         }
         self.raw = core::ptr::null_mut();
     }
 }
 
+#[cfg(target_os = "macos")]
+impl Clone for PreviousFrontmostApp {
+    fn clone(&self) -> Self {
+        if !self.raw.is_null() {
+            unsafe {
+                use objc::{Message, runtime::Sel};
+                let _: *mut objc::runtime::Object = (*self.raw)
+                    .send_message(Sel::register("retain"), ())
+                    .expect("NSRunningApplication retain");
+            }
+        }
+        Self { raw: self.raw }
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct PreviousFrontmostApp;
 
 impl PreviousFrontmostApp {
@@ -121,25 +136,22 @@ pub fn activate_flashot_for_capture(app: &AppHandle) {
 pub fn reactivate_previous_app(app: &AppHandle, previous: &PreviousFrontmostApp) -> bool {
     #[cfg(target_os = "macos")]
     {
-        let raw_addr = previous.raw as usize;
+        let retained = previous.clone();
         let has_previous = !previous.raw.is_null();
         let (tx, rx) = std::sync::mpsc::channel();
         if let Err(e) = app.run_on_main_thread(move || {
             if has_previous {
-                reactivate_previous_app_on_main_thread(raw_addr as *mut objc::runtime::Object);
+                reactivate_previous_app_on_main_thread(retained.raw);
             } else {
                 deactivate_app_macos_on_main_thread();
             }
+            drop(retained);
             let _ = tx.send(());
         }) {
             tracing::warn!("failed to schedule previous app reactivation: {e}");
             return false;
         }
-        // BLOCK until the main-thread task completes. Without this, a caller
-        // that owns `previous` (e.g. `restore_focus_to_previous_app`) would drop
-        // — and release — the retained NSRunningApplication before
-        // activateWithOptions dereferences it, crashing the app via a dangling
-        // pointer.
+        // The callback owns its retained reference even if this wait times out.
         let _ = rx.recv_timeout(std::time::Duration::from_millis(500));
         has_previous
     }
@@ -166,17 +178,18 @@ pub fn reactivate_then_hide_overlays_macos(
 ) -> bool {
     #[cfg(target_os = "macos")]
     {
-        let raw_addr = previous.raw as usize;
+        let retained = previous.clone();
         let handle = app.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         if let Err(e) = app.run_on_main_thread(move || {
-            let ptr = raw_addr as *mut objc::runtime::Object;
+            let ptr = retained.raw;
             if !ptr.is_null() {
                 reactivate_previous_app_on_main_thread(ptr);
             } else {
                 deactivate_app_macos_on_main_thread();
             }
             hide_overlay_windows(&handle);
+            drop(retained);
             let _ = tx.send(());
         }) {
             tracing::warn!("failed to schedule capture-end restore: {e}");
@@ -213,7 +226,8 @@ pub fn deactivate_then_hide_overlays_macos(app: &AppHandle) -> bool {
             tracing::warn!("failed to schedule capture-end deactivation: {e}");
             return false;
         }
-        let _ = rx.recv_timeout(std::time::Duration::from_millis(500));
+        // Finish native teardown before WindowMgr permits a new session.
+        let _ = rx.recv();
         true
     }
     #[cfg(not(target_os = "macos"))]
@@ -226,8 +240,8 @@ pub fn deactivate_then_hide_overlays_macos(app: &AppHandle) -> bool {
 #[cfg(target_os = "macos")]
 fn capture_frontmost_app_on_main_thread() -> PreviousFrontmostApp {
     use objc::{
-        runtime::{Class, Object, Sel},
         Message,
+        runtime::{Class, Object, Sel},
     };
 
     unsafe {
@@ -245,14 +259,14 @@ fn capture_frontmost_app_on_main_thread() -> PreviousFrontmostApp {
         if workspace.is_null() {
             return PreviousFrontmostApp::default();
         }
-        let app: *mut Object = match (*workspace).send_message(Sel::register("frontmostApplication"), ())
-        {
-            Ok(app) => app,
-            Err(e) => {
-                tracing::warn!("NSWorkspace frontmostApplication failed: {e}");
-                return PreviousFrontmostApp::default();
-            }
-        };
+        let app: *mut Object =
+            match (*workspace).send_message(Sel::register("frontmostApplication"), ()) {
+                Ok(app) => app,
+                Err(e) => {
+                    tracing::warn!("NSWorkspace frontmostApplication failed: {e}");
+                    return PreviousFrontmostApp::default();
+                }
+            };
         if app.is_null() {
             return PreviousFrontmostApp::default();
         }
@@ -266,15 +280,16 @@ fn capture_frontmost_app_on_main_thread() -> PreviousFrontmostApp {
 #[cfg(target_os = "macos")]
 pub(crate) fn activate_flashot_on_main_thread() {
     use objc::{
-        runtime::{Class, Object, Sel, YES},
         Message,
+        runtime::{Class, Object, Sel, YES},
     };
 
     unsafe {
         let Some(app_class) = Class::get("NSApplication") else {
             return;
         };
-        let app: *mut Object = match app_class.send_message(Sel::register("sharedApplication"), ()) {
+        let app: *mut Object = match app_class.send_message(Sel::register("sharedApplication"), ())
+        {
             Ok(app) => app,
             Err(e) => {
                 tracing::warn!("sharedApplication failed: {e}");
@@ -291,7 +306,8 @@ pub(crate) fn activate_flashot_on_main_thread() {
         // honored. The overlay already covers the screen, so no utility
         // window is seen jumping forward at this moment; the original
         // frontmost app is restored on session end.
-        if let Err(e) = (*app).send_message::<_, ()>(Sel::register("activateIgnoringOtherApps:"), (YES,))
+        if let Err(e) =
+            (*app).send_message::<_, ()>(Sel::register("activateIgnoringOtherApps:"), (YES,))
         {
             tracing::warn!("NSApp activateIgnoringOtherApps failed: {e}");
         }
@@ -301,8 +317,8 @@ pub(crate) fn activate_flashot_on_main_thread() {
 #[cfg(target_os = "macos")]
 fn reactivate_previous_app_on_main_thread(raw: *mut objc::runtime::Object) {
     use objc::{
-        runtime::{Sel, BOOL},
         Message,
+        runtime::{BOOL, Sel},
     };
 
     if raw.is_null() {
@@ -317,7 +333,8 @@ fn reactivate_previous_app_on_main_thread(raw: *mut objc::runtime::Object) {
 
     unsafe {
         let app = &*raw;
-        if let Err(e) = app.send_message::<_, BOOL>(Sel::register("activateWithOptions:"), (OPTIONS,))
+        if let Err(e) =
+            app.send_message::<_, BOOL>(Sel::register("activateWithOptions:"), (OPTIONS,))
         {
             tracing::warn!("NSRunningApplication activateWithOptions failed: {e}");
         }
@@ -330,8 +347,8 @@ fn reactivate_previous_app_on_main_thread(raw: *mut objc::runtime::Object) {
 #[cfg(target_os = "macos")]
 fn deactivate_app_macos_on_main_thread() {
     use objc::{
-        runtime::{Class, Object, Sel},
         Message,
+        runtime::{Class, Object, Sel},
     };
 
     unsafe {
@@ -345,9 +362,10 @@ fn deactivate_app_macos_on_main_thread() {
                     }
                 };
             if !app.is_null()
-                && let Err(e) = (*app).send_message::<_, ()>(Sel::register("deactivate"), ()) {
-                    tracing::warn!("NSApp deactivate failed: {e}");
-                }
+                && let Err(e) = (*app).send_message::<_, ()>(Sel::register("deactivate"), ())
+            {
+                tracing::warn!("NSApp deactivate failed: {e}");
+            }
         }
     }
 }
@@ -364,8 +382,8 @@ pub(crate) const FLOATING_WINDOW_LEVEL: isize = 3;
 #[cfg(target_os = "macos")]
 pub(crate) fn set_window_level(window: &WebviewWindow, level: isize) -> Result<(), ()> {
     use objc::{
-        runtime::{Object, Sel},
         Message,
+        runtime::{Object, Sel},
     };
     let ns_window = window.ns_window().map_err(|_| ())? as *mut Object;
     unsafe {
@@ -479,5 +497,35 @@ mod tests {
             !implementation.contains("orderBack:"),
             "capture cleanup must not move utility windows behind their original z-order",
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn cloned_focus_handle_holds_a_reference_for_queued_callbacks() {
+        use super::PreviousFrontmostApp;
+        use objc::{
+            Message,
+            runtime::{Class, Object, Sel},
+        };
+        unsafe {
+            let raw: *mut Object = Class::get("NSObject")
+                .unwrap()
+                .send_message(Sel::register("new"), ())
+                .unwrap();
+            let original = PreviousFrontmostApp { raw };
+            let before: usize = (*raw)
+                .send_message(Sel::register("retainCount"), ())
+                .unwrap();
+            let queued = original.clone();
+            let after: usize = (*raw)
+                .send_message(Sel::register("retainCount"), ())
+                .unwrap();
+            assert_eq!(after, before + 1);
+            drop(original);
+            let remaining: usize = (*queued.raw)
+                .send_message(Sel::register("retainCount"), ())
+                .unwrap();
+            assert_eq!(remaining, before);
+        }
     }
 }

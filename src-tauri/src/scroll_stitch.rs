@@ -140,10 +140,10 @@ impl ScrollStitcher {
         let new_total_height = self.height + dy;
 
         if new_total_height > self.config.max_height_px {
-            let allowed_dy = self.config.max_height_px - self.height;
-            let truncated_start = ((self.frame_height - allowed_dy) * self.width) as usize * 4;
+            let allowed_dy = self.config.max_height_px.saturating_sub(self.height);
+            let truncated_end = strip_start + (allowed_dy as usize * self.width as usize * 4);
             self.canvas
-                .extend_from_slice(&frame_rgba[truncated_start..strip_end]);
+                .extend_from_slice(&frame_rgba[strip_start..truncated_end]);
             self.height = self.config.max_height_px;
             self.accepted_frames += 1;
             self.last_frame.copy_from_slice(frame_rgba);
@@ -212,9 +212,10 @@ impl ScrollStitcher {
         }
 
         if let Some(positive) = best_positive
-            && (positive.trusted_positive || best_any.0 == 0 || positive.score + 0.02 >= best_any.1) {
-                return (positive.dy, positive.score);
-            }
+            && (positive.trusted_positive || best_any.0 == 0 || positive.score + 0.02 >= best_any.1)
+        {
+            return (positive.dy, positive.score);
+        }
 
         best_any
     }
@@ -294,8 +295,8 @@ impl ScrollStitcher {
 
         for y in 0..out_h {
             let src_y = crop_y
-                + ((y as u64 * crop_h as u64) / out_h as u64)
-                    .min(crop_h.saturating_sub(1) as u64) as u32;
+                + ((y as u64 * crop_h as u64) / out_h as u64).min(crop_h.saturating_sub(1) as u64)
+                    as u32;
             for x in 0..target_w {
                 let src_x = ((x as u64 * self.width as u64) / target_w as u64)
                     .min(self.width.saturating_sub(1) as u64) as u32;
@@ -320,7 +321,7 @@ impl ScrollStitcher {
     /// session emits [`Self::preview_tail`] instead. Retained as the
     /// baseline for `benches/scroll_stitch_bench.rs`.
     pub fn preview_stitched(&self, target_width_px: u32, max_height_px: u32) -> Vec<u8> {
-        use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder};
+        use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 
         let target_w = target_width_px.max(1);
         let max_h = max_height_px.max(1);
@@ -921,6 +922,7 @@ mod tests {
         assert_eq!(r, IngestResult::MaxHeightReached);
         assert_eq!(stitcher.height(), 250);
         assert_eq!(stitcher.canvas.len(), (width * 250 * 4) as usize);
+        assert_eq!(stitcher.canvas, gradient_frame(width, 250, 0));
     }
 
     #[test]
@@ -944,8 +946,7 @@ mod tests {
         let width = 80;
         let frame_h = 800;
         let canvas = gradient_frame(width, frame_h, 0);
-        let stitcher =
-            ScrollStitcher::new(width, frame_h, canvas.clone(), StitchConfig::default());
+        let stitcher = ScrollStitcher::new(width, frame_h, canvas.clone(), StitchConfig::default());
         let thumb = stitcher.preview_tail(640, 360);
         assert!(thumb.starts_with(b"\x89PNG\r\n\x1a\n"));
         let decoded = image::load_from_memory(&thumb).unwrap().to_rgba8();
@@ -965,8 +966,7 @@ mod tests {
         let width = 80;
         let frame_h = 800;
         let canvas = gradient_frame(width, frame_h, 0);
-        let stitcher =
-            ScrollStitcher::new(width, frame_h, canvas.clone(), StitchConfig::default());
+        let stitcher = ScrollStitcher::new(width, frame_h, canvas.clone(), StitchConfig::default());
 
         // Boundary between the crop and shrink regimes: crop_h =
         // ceil(80 * 400 / 40) = 800 == canvas height, so the crop window

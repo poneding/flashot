@@ -131,61 +131,10 @@ describe("overlay store corner radius", () => {
     expect(useOverlay.getState().cornerRadius).toBe(13);
   });
 
-  it("skips stale async persistence after a newer radius change", async () => {
-    let resolveFirstSettings!: (value: Awaited<ReturnType<typeof getSettings>>) => void;
-    const firstSettings = new Promise<Awaited<ReturnType<typeof getSettings>>>((resolve) => {
-      resolveFirstSettings = resolve;
-    });
-    (getSettings as unknown as ReturnType<typeof vi.fn>)
-      .mockReturnValueOnce(firstSettings)
-      .mockResolvedValueOnce({
-        captureHotkey: "",
-        boardHotkey: "",
-        fullscreenHotkey: "",
-        activeWindowHotkey: "",
-        theme: "system" as const,
-        launchAtLogin: false,
-        autoCheckUpdates: false,
-        allowBetaUpdates: false,
-        updateCheckIntervalHours: 24,
-        lastUpdateCheckAt: null,
-        defaultSaveDir: "/Users/dp/Pictures/Flashot",
-        lastSaveDir: null,
-        cornerRadius: 0,
-      });
-
-    useOverlay.getState().setCornerRadius(10);
-    await vi.advanceTimersByTimeAsync(160);
-    expect(getSettings).toHaveBeenCalledTimes(1);
-
+  it("persists only the radius without reading and rewriting other preferences", async () => {
     useOverlay.getState().setCornerRadius(30);
     await vi.advanceTimersByTimeAsync(160);
-    expect(setSettings).toHaveBeenCalledTimes(1);
-    expect(setSettings).toHaveBeenLastCalledWith(expect.objectContaining({ cornerRadius: 30 }));
-
-    resolveFirstSettings({
-      captureHotkey: "",
-      boardHotkey: "",
-      fullscreenHotkey: "",
-      activeWindowHotkey: "",
-      theme: "system" as const,
-      accentColor: "#4ED1FF",
-      language: "en" as const,
-      launchAtLogin: false,
-      autoCheckUpdates: false,
-      allowBetaUpdates: false,
-      updateCheckIntervalHours: 24,
-      lastUpdateCheckAt: null,
-      defaultSaveDir: "/Users/dp/Pictures/Flashot",
-      lastSaveDir: null,
-      cornerRadius: 0,
-    });
-    await vi.waitFor(() => expect(getSettings).toHaveBeenCalledTimes(2));
-    await vi.advanceTimersByTimeAsync(0);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(setSettings).toHaveBeenCalledTimes(1);
-    expect(setSettings).not.toHaveBeenCalledWith(expect.objectContaining({ cornerRadius: 10 }));
+    expect(getSettings).not.toHaveBeenCalled();
+    expect(setSettings).toHaveBeenCalledWith({ cornerRadius: 30 });
   });
 });

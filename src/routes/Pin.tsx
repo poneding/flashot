@@ -1,3 +1,4 @@
+import { ImageAdjustmentsFilter } from "@/overlay/ImageAdjustmentsFilter";
 import { useAnnotation } from "@/annotation/store";
 import { TooltipBubble } from "@/annotation/Tooltip";
 import { createTranslator, type Locale } from "@/i18n";
@@ -7,7 +8,7 @@ import { TOOLBAR_GAP } from "@/lib/geometry";
 import { closePin, copyPin, savePin, setPinScale, updatePinAnnotation } from "@/lib/ipc";
 import type { Rect } from "@/lib/types";
 import { ImageAdjustmentsPanel } from "@/overlay/ImageAdjustmentsPanel";
-import { cssFilterForImageAdjustments, hasImageAdjustments } from "@/overlay/imageAdjustments";
+import { frozenLayerFilterForImageAdjustments, hasImageAdjustments, PREVIEW_IMAGE_ADJUSTMENTS_FILTER_ID } from "@/overlay/imageAdjustments";
 import { useOverlay } from "@/overlay/state";
 import { useStoredAccentColor, useStoredLanguage } from "@/settings/useStoredAccentColor";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -74,9 +75,9 @@ function scaleLabel(scale: number): string {
   return `${scalePercent(scale)}%`;
 }
 
-function visualAnnotationScale(exportScale: number): number {
+function visualAnnotationScale(exportScale: number, displayScale = 1): number {
   const deviceScale = Number.isFinite(window.devicePixelRatio) ? window.devicePixelRatio : 1;
-  return Math.max(1, exportScale, deviceScale);
+  return Math.max(1, exportScale, deviceScale * displayScale);
 }
 
 function shortcutTitle(action: string, key: string): string {
@@ -184,6 +185,7 @@ export function PinRoute() {
   const [copyConfirmed, setCopyConfirmed] = useState(false);
   const [scaleBadge, setScaleBadge] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [editorBaseSelection, setEditorBaseSelection] = useState<Rect | null>(null);
   const editingRef = useRef(editing);
   const copyFeedbackTimerRef = useRef<number | null>(null);
   const scaleBadgeTimerRef = useRef<number | null>(null);
@@ -200,8 +202,10 @@ export function PinRoute() {
   const editorSelection = useMemo(() => pinContentSelection(viewportSize), [viewportSize]);
   const editorToolbarSelection = useMemo(() => pinToolbarSelection(editorSelection), [editorSelection]);
   const editorMonitorRect = useMemo(() => pinMonitorRect(viewportSize), [viewportSize]);
-  const annotationStageScale = visualAnnotationScale(pinExportScale);
-  const pinImageFilter = cssFilterForImageAdjustments(imageAdjustments);
+  const annotationSelection = editorBaseSelection ?? editorSelection;
+  const annotationDisplayScale = editorSelection.width / annotationSelection.width;
+  const annotationStageScale = visualAnnotationScale(pinExportScale * annotationDisplayScale, annotationDisplayScale);
+  const pinImageFilter = frozenLayerFilterForImageAdjustments(imageAdjustments);
 
   useEffect(() => {
     scaleRef.current = scale;
@@ -268,7 +272,7 @@ export function PinRoute() {
     const rect = node.getBoundingClientRect();
     const displayWidth = rect.width || editorSelection.width;
     const nextScale = node.naturalWidth > 0 && displayWidth > 0 ? node.naturalWidth / displayWidth : 1;
-    setPinExportScale(Math.max(1, nextScale));
+    setPinExportScale(nextScale > 0 ? nextScale : 1);
   }, [editorSelection.width]);
 
   const updateControlsSide = useCallback(() => {
@@ -355,6 +359,8 @@ export function PinRoute() {
 
   const enterEditMode = useCallback(() => {
     useAnnotation.getState().reset();
+    const content = pinContentSelection(currentViewportSize());
+    setEditorBaseSelection({ ...content, width: content.width / scaleRef.current, height: content.height / scaleRef.current });
     setScaleMenuOpen(false);
     setAdjustmentsPanelOpen(false);
     setControlsVisible(true);
@@ -442,6 +448,7 @@ export function PinRoute() {
     if (!id) return;
 
     const handleWheel = (e: WheelEvent) => {
+      if (e.defaultPrevented) return;
       const target = e.target instanceof Element ? e.target : null;
       if (
         target?.closest(
@@ -606,6 +613,9 @@ export function PinRoute() {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) hideControls();
       }}
     >
+      <svg width="0" height="0" aria-hidden="true" style={{ position: "absolute", pointerEvents: "none" }}>
+        <defs><ImageAdjustmentsFilter id={PREVIEW_IMAGE_ADJUSTMENTS_FILTER_ID} adjustments={imageAdjustments} /></defs>
+      </svg>
       {controlsVisible && (
         <PinControls
           scale={scale}
@@ -674,10 +684,12 @@ export function PinRoute() {
         {editing && (
           <Suspense fallback={null}>
             <AnnotationStage
-              selection={editorSelection}
+              selection={annotationSelection}
+              displayScale={annotationDisplayScale}
               scaleFactor={annotationStageScale}
               frameUrl={imageUrl}
               interacting={false}
+              selectionEditable={false}
             />
           </Suspense>
         )}

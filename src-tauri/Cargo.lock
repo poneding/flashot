@@ -1455,6 +1455,7 @@ dependencies = [
  "parking_lot",
  "resvg",
  "rfd",
+ "semver",
  "serde",
  "serde_json",
  "tauri",

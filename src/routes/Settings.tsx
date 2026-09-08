@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UtilityWindowShell } from "@/components/UtilityWindowShell";
 import { createTranslator, resolveLocale } from "@/i18n";
 import { applyAccentColor, SELECTION_COLOR } from "@/lib/colors";
-import { chooseDefaultSaveDir, getSettings, setSettings } from "@/lib/ipc";
+import { chooseDefaultSaveDir, getSettings, onSettingsChanged, setSettings } from "@/lib/ipc";
 import type { Settings } from "@/lib/types";
 import { checkForUpdate, downloadAndInstall, type UpdateInfo, type UpdateProgress } from "@/lib/updater";
 import { AccentColorSelect } from "@/settings/AccentColorSelect";
@@ -586,11 +586,54 @@ export function FlashotRoute({ initialTab = "general" }: { initialTab?: FlashotT
   const t = createTranslator(resolveLocale(s.language));
   const windowTitle = "Flashot";
   const tabTriggerClass = "text-xs data-[active]:border-border data-[active]:text-primary dark:data-[active]:text-primary";
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const settingsRef = useRef(s);
+  const confirmedSettings = useRef(s);
+  const loaded = useRef(false);
+  const mounted = useRef(false);
+  const syncVersion = useRef(0);
+  const pendingChanges = useRef<Partial<Settings>[]>([]);
+  const saveQueue = useRef(Promise.resolve());
+
+  const syncSettings = useCallback(async () => {
+    if (pendingChanges.current.length > 0) return;
+    const version = ++syncVersion.current;
+    try {
+      const settings = await getSettings();
+      if (!mounted.current || version !== syncVersion.current || pendingChanges.current.length > 0) return;
+      const next = { ...defaultSettings(), ...settings, language: resolveLocale(settings.language) };
+      confirmedSettings.current = next;
+      settingsRef.current = next;
+      loaded.current = true;
+      setS(next);
+    } catch (error) {
+      if (mounted.current) setSaveError(String(error));
+    }
+  }, []);
+
   const commitSettings = (updater: (current: Settings) => Settings) => {
-    setS((current) => {
-      const next = updater(current);
-      void setSettings(next).catch(() => { });
-      return next;
+    if (!loaded.current) return;
+    const previous = settingsRef.current;
+    const next = updater(previous);
+    const patch = Object.fromEntries(Object.entries(next).filter(([key, value]) => value !== previous[key as keyof Settings])) as Partial<Settings>;
+    if (Object.keys(patch).length === 0) return;
+    syncVersion.current += 1;
+    pendingChanges.current.push(patch);
+    settingsRef.current = next;
+    setS(next);
+    setSaveError(null);
+    saveQueue.current = saveQueue.current.then(async () => {
+      try {
+        confirmedSettings.current = await setSettings(patch);
+      } catch (error) {
+        if (mounted.current) setSaveError(String(error));
+      } finally {
+        pendingChanges.current = pendingChanges.current.filter((item) => item !== patch);
+        const view = Object.assign({}, confirmedSettings.current, ...pendingChanges.current);
+        settingsRef.current = view;
+        if (mounted.current) setS(view);
+        if (pendingChanges.current.length === 0) await syncSettings();
+      }
     });
   };
   const shortcutRows: Array<{
@@ -633,14 +676,15 @@ export function FlashotRoute({ initialTab = "general" }: { initialTab?: FlashotT
   );
 
   useEffect(() => {
-    getSettings()
-      .then((settings) => setS({
-        ...defaultSettings(),
-        ...settings,
-        language: resolveLocale(settings.language),
-      }))
-      .catch(() => { });
-  }, []);
+    mounted.current = true;
+    void syncSettings();
+    const subscription = onSettingsChanged(() => { void syncSettings(); });
+    return () => {
+      mounted.current = false;
+      syncVersion.current += 1;
+      void subscription.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, [syncSettings]);
 
   useThemePreference(s.theme);
 
@@ -695,6 +739,7 @@ export function FlashotRoute({ initialTab = "general" }: { initialTab?: FlashotT
       className="overflow-hidden"
       contentClassName="max-w-[500px] h-full flex flex-col"
     >
+      {saveError && <p role="alert" className="mb-2 shrink-0 text-xs text-destructive">{t("settings.saveError", { error: saveError })}</p>}
       <Tabs
         value={activeTab}
         onValueChange={(value) => setActiveTab(value as FlashotTab)}

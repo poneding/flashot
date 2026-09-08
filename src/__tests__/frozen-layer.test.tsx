@@ -126,7 +126,10 @@ describe("FrozenLayer", () => {
     expect(previewImage?.getAttribute("href")).toBe(baseImage?.getAttribute("src"));
     expect(previewImage?.getAttribute("filter")).toBe("url(#preview-image-adjustments-filter)");
     expect(container.querySelector("feColorMatrix")).not.toBeNull();
-    expect(container.querySelector("feComponentTransfer")).not.toBeNull();
+    const matrix = container.querySelector("feColorMatrix")!.getAttribute("values")!.split(" ").map(Number);
+    expect(matrix).toHaveLength(20);
+    expect(matrix[0]).toBeCloseTo(0.299 * 0.8);
+    expect(matrix[4]).toBeCloseTo(0.8 * 0.25 + (128 / 255) * 0.2);
     expect(container.querySelector("feConvolveMatrix")).toBeNull();
   });
 

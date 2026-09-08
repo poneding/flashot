@@ -167,4 +167,5 @@ export const zhTW = {
   "scroll.done": "完成",
   "scroll.cancel": "取消",
   "scroll.finishPin": "完成捲動截圖",
+  "settings.saveError": "設定儲存失敗：{error}",
 } as const;

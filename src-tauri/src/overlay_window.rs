@@ -1,5 +1,5 @@
 use crate::types::Rect;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::sync::mpsc;
 use tauri::{AppHandle, CursorIcon, Manager, WebviewWindow};
 
@@ -38,7 +38,13 @@ pub fn show_capture_overlay(window: &WebviewWindow) -> Result<()> {
     })
 }
 
-pub fn reveal_capture_overlays(app: &AppHandle, monitor_ids: &[u32]) -> Result<()> {
+pub fn reveal_capture_overlays(
+    app: &AppHandle,
+    monitor_ids: &[u32],
+    session_id: &str,
+) -> Result<()> {
+    let session_id = session_id.to_owned();
+    let session_app = app.clone();
     tracing::info!("revealing capture overlays: monitors={monitor_ids:?}");
     let windows = monitor_ids
         .iter()
@@ -59,6 +65,12 @@ pub fn reveal_capture_overlays(app: &AppHandle, monitor_ids: &[u32]) -> Result<(
         let (tx, rx) = mpsc::sync_channel(1);
         app.run_on_main_thread(move || {
             let result = (|| {
+                if !session_app
+                    .state::<std::sync::Arc<crate::window_mgr::WindowMgr>>()
+                    .is_current(&session_id)
+                {
+                    return Ok(());
+                }
                 // Keep AppKit's intermediate arrow cursor invisible while
                 // ownership moves from the previous app to the capture
                 // overlays. This guard lasts only for the native reveal
@@ -89,15 +101,29 @@ pub fn reveal_capture_overlays(app: &AppHandle, monitor_ids: &[u32]) -> Result<(
 
     #[cfg(not(target_os = "macos"))]
     {
-        for window in windows {
-            #[cfg(not(target_os = "linux"))]
-            window.set_ignore_cursor_events(false)?;
-            show_capture_overlay(&window)?;
-            if capture_overlay_should_take_focus() {
-                let _ = window.set_focus();
-            }
-        }
-        Ok(())
+        let (tx, rx) = mpsc::sync_channel(1);
+        app.run_on_main_thread(move || {
+            let result = (|| {
+                if !session_app
+                    .state::<std::sync::Arc<crate::window_mgr::WindowMgr>>()
+                    .is_current(&session_id)
+                {
+                    return Ok(());
+                }
+                for window in windows {
+                    show_capture_overlay(&window)?;
+                    // GTK needs a realized window before resetting its input region.
+                    window.set_ignore_cursor_events(false)?;
+                    if capture_overlay_should_take_focus() {
+                        let _ = window.set_focus();
+                    }
+                }
+                Ok(())
+            })();
+            let _ = tx.send(result);
+        })?;
+        rx.recv()
+            .map_err(|_| anyhow!("capture reveal did not complete"))?
     }
 }
 
@@ -244,8 +270,8 @@ fn configure_platform_overlay(
     _monitor_rect: Rect,
 ) -> Result<()> {
     use objc::{
-        runtime::{Object, Sel, NO, YES},
         Message,
+        runtime::{NO, Object, Sel, YES},
     };
 
     const NS_WINDOW_COLLECTION_BEHAVIOR_CAN_JOIN_ALL_SPACES: usize = 1 << 0;
@@ -278,8 +304,8 @@ fn configure_platform_overlay(
 #[cfg(target_os = "macos")]
 fn set_platform_cursor_events(window: &WebviewWindow, enabled: bool) -> Result<()> {
     use objc::{
-        runtime::{Object, Sel, NO, YES},
         Message,
+        runtime::{NO, Object, Sel, YES},
     };
 
     let ns_window = window.ns_window()? as *mut Object;
@@ -295,8 +321,8 @@ fn set_platform_cursor_events(window: &WebviewWindow, enabled: bool) -> Result<(
 #[cfg(target_os = "macos")]
 fn set_platform_overlay_alpha(window: &WebviewWindow, alpha: f64) -> Result<()> {
     use objc::{
-        runtime::{Object, Sel},
         Message,
+        runtime::{Object, Sel},
     };
 
     let ns_window = window.ns_window()? as *mut Object;
@@ -309,8 +335,8 @@ fn set_platform_overlay_alpha(window: &WebviewWindow, alpha: f64) -> Result<()> 
 #[cfg(target_os = "macos")]
 fn display_platform_overlay_if_needed(window: &WebviewWindow) -> Result<()> {
     use objc::{
-        runtime::{Object, Sel},
         Message,
+        runtime::{Object, Sel},
     };
 
     let ns_window = window.ns_window()? as *mut Object;
@@ -323,31 +349,29 @@ fn display_platform_overlay_if_needed(window: &WebviewWindow) -> Result<()> {
 #[cfg(target_os = "macos")]
 fn set_platform_crosshair_cursor_rect(window: &WebviewWindow) -> Result<()> {
     use objc::{
-        runtime::{Class, Object, Sel},
         Message,
+        runtime::{Class, Object, Sel},
     };
 
     let ns_window = window.ns_window()? as *mut Object;
     unsafe {
-        let content_view: *mut Object = (&*ns_window)
-            .send_message(Sel::register("contentView"), ())?;
+        let content_view: *mut Object =
+            (&*ns_window).send_message(Sel::register("contentView"), ())?;
         if content_view.is_null() {
             return Ok(());
         }
         let Some(cursor_class) = Class::get("NSCursor") else {
             return Ok(());
         };
-        let cursor: *mut Object = cursor_class
-            .send_message(Sel::register("crosshairCursor"), ())?;
+        let cursor: *mut Object =
+            cursor_class.send_message(Sel::register("crosshairCursor"), ())?;
         if cursor.is_null() {
             return Ok(());
         }
         let bounds: NSRect = (&*content_view).send_message(Sel::register("bounds"), ())?;
         (&*content_view).send_message::<_, ()>(Sel::register("discardCursorRects"), ())?;
-        (&*content_view).send_message::<_, ()>(
-            Sel::register("addCursorRect:cursor:"),
-            (bounds, cursor),
-        )?;
+        (&*content_view)
+            .send_message::<_, ()>(Sel::register("addCursorRect:cursor:"), (bounds, cursor))?;
     }
     Ok(())
 }
@@ -363,8 +387,8 @@ fn show_platform_overlay(window: &WebviewWindow) -> Result<()> {
 #[cfg(target_os = "macos")]
 fn bring_platform_overlay_to_front(window: &WebviewWindow) -> Result<()> {
     use objc::{
-        runtime::{Object, Sel},
         Message,
+        runtime::{Object, Sel},
     };
 
     let ns_window = window.ns_window()? as *mut Object;
@@ -415,8 +439,8 @@ fn macos_cursor_selector(cursor: &str) -> &'static str {
 #[cfg(target_os = "macos")]
 fn push_macos_cursor(cursor_style: &str) {
     use objc::{
-        runtime::{Class, Object, Sel},
         Message,
+        runtime::{Class, Object, Sel},
     };
 
     unsafe {
@@ -432,14 +456,13 @@ fn push_macos_cursor(cursor_style: &str) {
         } else {
             Sel::register("arrowCursor")
         };
-        let cursor: *mut Object =
-            match cursor_class.send_message(cursor_selector, ()) {
-                Ok(cursor) => cursor,
-                Err(e) => {
-                    tracing::warn!("NSCursor update failed for {cursor_style}: {e}");
-                    return;
-                }
-            };
+        let cursor: *mut Object = match cursor_class.send_message(cursor_selector, ()) {
+            Ok(cursor) => cursor,
+            Err(e) => {
+                tracing::warn!("NSCursor update failed for {cursor_style}: {e}");
+                return;
+            }
+        };
         if cursor.is_null() {
             return;
         }
@@ -452,8 +475,8 @@ fn push_macos_cursor(cursor_style: &str) {
 #[cfg(target_os = "macos")]
 fn prepare_platform_text_input(window: &WebviewWindow) -> Result<()> {
     use objc::{
-        runtime::{Object, Sel},
         Message,
+        runtime::{Object, Sel},
     };
 
     let ns_window = window.ns_window()? as *mut Object;
@@ -476,8 +499,8 @@ fn prepare_platform_text_input(window: &WebviewWindow) -> Result<()> {
 #[cfg(target_os = "macos")]
 fn restore_platform_after_text_input(window: &WebviewWindow) -> Result<()> {
     use objc::{
-        runtime::{Object, Sel},
         Message,
+        runtime::{Object, Sel},
     };
 
     let ns_window = window.ns_window()? as *mut Object;
@@ -561,8 +584,8 @@ struct NSEdgeInsets {
 #[cfg(target_os = "macos")]
 fn macos_screen_safe_area_top(window: &WebviewWindow) -> Result<f64> {
     use objc::{
-        runtime::{Object, Sel},
         Message,
+        runtime::{Object, Sel},
     };
 
     let ns_window = window.ns_window()? as *mut Object;
@@ -587,8 +610,8 @@ fn macos_screen_safe_area_top(window: &WebviewWindow) -> Result<f64> {
 #[cfg(target_os = "macos")]
 fn screen_frame_for_monitor(monitor_id: u32) -> Result<Option<NSRect>> {
     use objc::{
-        runtime::{Class, Object, Sel},
         Message,
+        runtime::{Class, Object, Sel},
     };
     use std::ffi::CString;
 
