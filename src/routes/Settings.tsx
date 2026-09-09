@@ -291,8 +291,11 @@ function FlashotInfoLayout({
         className="flex flex-col items-center gap-2"
       >
         <img
-          src="/app-logo.svg"
+          src="/app-logo-48.png"
+          srcSet="/app-logo-48.png 1x, /app-logo-96.png 2x, /app-logo-144.png 3x"
           alt={iconAlt}
+          width={48}
+          height={48}
           className="size-12 shrink-0"
           draggable={false}
         />

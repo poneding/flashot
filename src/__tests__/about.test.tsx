@@ -100,7 +100,8 @@ describe("AboutRoute", () => {
     const versionLine = container.querySelector("[data-about-version]");
     const authorLine = container.querySelector("[data-about-author]");
 
-    expect(icon.getAttribute("src")).toBe("/app-logo.svg");
+    expect(icon.getAttribute("src")).toBe("/app-logo-48.png");
+    expect(icon.getAttribute("srcset")).toBe("/app-logo-48.png 1x, /app-logo-96.png 2x, /app-logo-144.png 3x");
     expect(icon.className).toContain("size-12");
     expect(container.querySelector("[data-flashot-info-panel]")).toBe(panel);
     expect(container.querySelector("[data-flashot-info-identity]")).toBe(identity);

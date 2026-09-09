@@ -6,6 +6,10 @@ a soft shadow, and raised scan corners adds depth around it. The subtle surface
 grain is confined to the tile beneath the mark.
 
 - `app-logo.svg` is the source for desktop icons and both public SVG copies.
+- `public/app-logo-{48,96,144}.png` are pre-rendered from the same SVG for the
+  48 CSS px About and Updates panel image. The panels select 1x, 2x, or 3x via
+  `srcSet`, keeping thin-border antialiasing predictable without relying on
+  small-size SVG filter and clip-path rendering.
 - `menubar-logo.svg` is the original transparent macOS template source, keeping
   the flash's existing shape and scale for small menu bars.
 - `menubar-colored-logo.svg` is the dedicated Windows / Linux tray source. Its

@@ -9,12 +9,14 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const tauri = createRequire(import.meta.url).resolve("@tauri-apps/cli/tauri.js");
 const iconDir = path.join(root, "src-tauri/icons");
 const appLogo = path.join(iconDir, "app-logo.svg");
+const panelIconSizes = [48, 96, 144];
 const temporaryDir = await mkdtemp(path.join(tmpdir(), "flashot-icons-"));
 
 try {
   const appOutput = path.join(temporaryDir, "app");
   const trayOutput = path.join(temporaryDir, "tray");
   const coloredTrayOutput = path.join(temporaryDir, "colored-tray");
+  const panelOutput = path.join(temporaryDir, "panels");
 
   // Generate in a temporary directory: Flashot only ships desktop assets.
   generateIcons([appLogo, "--output", appOutput]);
@@ -32,6 +34,12 @@ try {
     "--png",
     "32",
   ]);
+  generateIcons([
+    appLogo,
+    "--output",
+    panelOutput,
+    ...panelIconSizes.flatMap((size) => ["--png", String(size)]),
+  ]);
 
   for (const entry of await readdir(appOutput, { withFileTypes: true })) {
     if (entry.isFile() && /\.(png|ico|icns)$/.test(entry.name)) {
@@ -43,8 +51,14 @@ try {
   await copyFile(path.join(coloredTrayOutput, "32x32.png"), path.join(iconDir, "menubar-colored-logo.png"));
   await copyFile(appLogo, path.join(root, "public/app-logo.svg"));
   await copyFile(appLogo, path.join(root, "docs/public/app-logo.svg"));
+  for (const size of panelIconSizes) {
+    await copyFile(
+      path.join(panelOutput, `${size}x${size}.png`),
+      path.join(root, `public/app-logo-${size}.png`),
+    );
+  }
 
-  console.log("Updated desktop icons, menu bar icons, and app / documentation logos.");
+  console.log("Updated desktop icons, menu bar icons, panel images, and app / documentation logos.");
 } finally {
   await rm(temporaryDir, { recursive: true, force: true });
 }

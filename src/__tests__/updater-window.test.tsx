@@ -130,6 +130,7 @@ describe("UpdaterRoute", () => {
     expect(screen.queryByText("Checking for updates…")).not.toBeInTheDocument();
     expect(mockCheckForUpdate).not.toHaveBeenCalled();
     expect(container.querySelector("[data-updater-identity]")?.className).toContain("flex-col");
+    expect(container.querySelector("[data-updater-identity] img")?.getAttribute("srcset")).toContain("/app-logo-96.png 2x");
     expect(container.querySelector("[data-flashot-info-panel]")).toBe(container.querySelector("[data-updater-panel]"));
     expect(container.querySelector("[data-flashot-info-identity]")).toBe(container.querySelector("[data-updater-identity]"));
     expect(container.querySelector("[data-flashot-info-fields]")?.className).toContain("gap-1");
