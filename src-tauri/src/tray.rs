@@ -428,6 +428,7 @@ fn build_menu(
             icon_slot(MenuIcon::Crop),
             icon_slot(MenuIcon::Monitor),
             icon_slot(MenuIcon::AppWindow),
+            icon_slot(MenuIcon::Paintbrush),
             MenuIconSlot::none(),
             icon_slot(MenuIcon::Settings),
             icon_slot(MenuIcon::Refresh),
@@ -455,6 +456,7 @@ fn build_menu(
     let slots = vec![
         icon_slot(MenuIcon::Crop),
         icon_slot(MenuIcon::Monitor),
+        icon_slot(MenuIcon::Paintbrush),
         MenuIconSlot::none(),
         icon_slot(MenuIcon::Settings),
         icon_slot(MenuIcon::Refresh),

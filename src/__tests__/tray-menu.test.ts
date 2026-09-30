@@ -78,6 +78,30 @@ describe("tray menu", () => {
     expect(traySource).not.toMatch(/\bMenuItem::with_id\(/);
   });
 
+  it("keeps DPI-scaled icon slots aligned with every menu item in both layouts", () => {
+    const itemIcons = new Map(
+      [...traySource.matchAll(/let (\w+) = IconMenuItem::with_id\([\s\S]*?MenuIcon::(\w+)[\s\S]*?\)\?;/g)]
+        .map((match) => [match[1], match[2]]),
+    );
+    const layouts = [...traySource.matchAll(
+      /Menu::with_items\(\s*app,\s*&\[([\s\S]*?)\],\s*\)\?;\s*let slots = vec!\[([\s\S]*?)\];/g,
+    )];
+
+    expect(layouts).toHaveLength(2);
+    for (const [, items, slots] of layouts) {
+      const expectedIcons = [...items.matchAll(/&(\w+)/g)].map(([, item]) => {
+        if (item === "sep") return null;
+        expect(itemIcons.has(item)).toBe(true);
+        return itemIcons.get(item);
+      });
+      const scaledIcons = [...slots.matchAll(
+        /icon_slot\(MenuIcon::(\w+)\)|MenuIconSlot::none\(\)/g,
+      )].map((match) => match[1] ?? null);
+
+      expect(scaledIcons).toEqual(expectedIcons);
+    }
+  });
+
   it("generates tray menu icons from Lucide SVG assets at build time", () => {
     expect(buildSource).toContain("LUCIDE_STROKE_WIDTH");
     expect(buildSource).toContain("MENU_ICON_OPACITY");
