@@ -1,6 +1,7 @@
 import { TooltipBubble } from "@/annotation/Tooltip";
 import { createTranslator, type Locale } from "@/i18n";
 import { useOverlay } from "@/overlay/state";
+import type { ImageAdjustments } from "@/lib/types";
 import {
   Blend,
   Contrast,
@@ -86,19 +87,30 @@ function SliderRow({
   );
 }
 
+export type ImageAdjustmentControls = {
+  adjustments: ImageAdjustments;
+  setImageAdjustments: (updates: Partial<ImageAdjustments>) => void;
+  resetImageAdjustments: () => void;
+};
+
 export function ImageAdjustmentsPanel({
   panelRef,
   style,
   locale = "en",
+  controls,
 }: {
   panelRef?: Ref<HTMLDivElement>;
   style?: CSSProperties;
   locale?: Locale;
+  controls?: ImageAdjustmentControls;
 }) {
   const t = createTranslator(locale);
-  const adjustments = useOverlay((s) => s.imageAdjustments);
-  const setImageAdjustments = useOverlay((s) => s.setImageAdjustments);
-  const resetImageAdjustments = useOverlay((s) => s.resetImageAdjustments);
+  const storedAdjustments = useOverlay((s) => s.imageAdjustments);
+  const storedSetAdjustments = useOverlay((s) => s.setImageAdjustments);
+  const storedResetAdjustments = useOverlay((s) => s.resetImageAdjustments);
+  const adjustments = controls?.adjustments ?? storedAdjustments;
+  const setImageAdjustments = controls?.setImageAdjustments ?? storedSetAdjustments;
+  const resetImageAdjustments = controls?.resetImageAdjustments ?? storedResetAdjustments;
   const [resetActive, setResetActive] = useState(false);
 
   return (

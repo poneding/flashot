@@ -66,8 +66,9 @@ export const zhTW = {
   "updater.error": "檢查更新失敗",
   "updater.retry": "重試",
   "updater.close": "關閉",
-  "updater.betaAllowed": "Beta 更新：允許",
-  "updater.betaBlocked": "Beta 更新：僅穩定版",
+  "updater.betaLabel": "Beta 更新：",
+  "updater.betaAllowed": "允許",
+  "updater.betaBlocked": "僅穩定版",
 
   "screenshot.cornerRadius": "圓角半徑：{value}",
   "screenshot.cornerRadiusUnit": "圓角半徑 [px]",

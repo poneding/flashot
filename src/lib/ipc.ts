@@ -8,7 +8,8 @@ import type {
   Settings,
 } from "@/lib/types";
 import { invoke } from "@tauri-apps/api/core";
-import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emit, emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { PIN_ACTION_EVENT, PIN_TOOLS_PLACEMENT_EVENT, PIN_TOOLS_STATE_EVENT, type PinAction, type PinResizeDirection, type PinToolKind, type PinToolLayout, type PinToolPlacement, type PinToolsEnvelope, type PinToolsSnapshot } from "@/pin/types";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 export type SelectionClaimPayload = {
@@ -115,6 +116,54 @@ export async function closePin(pinId: string): Promise<void> {
 }
 export async function setPinScale(pinId: string, scale: number): Promise<void> {
   await invoke("set_pin_scale", { pinId, scale });
+}
+
+export async function syncPinTools(pinId: string, state: PinToolsSnapshot): Promise<void> {
+  await invoke("sync_pin_tools", { pinId, state });
+}
+
+export async function getPinToolsState(pinId: string): Promise<PinToolsEnvelope | null> {
+  return await invoke("get_pin_tools_state", { pinId });
+}
+
+export async function resizePinToolWindow(pinId: string, kind: PinToolKind, layout: PinToolLayout): Promise<void> {
+  await invoke("resize_pin_tool_window", { pinId, kind, layout });
+}
+
+export async function startPinDrag(pinId: string): Promise<void> {
+  await invoke("start_pin_drag", { pinId });
+}
+
+export async function pinInteractionContainsCursor(pinId: string): Promise<boolean> {
+  return await invoke("pin_interaction_contains_cursor", { pinId });
+}
+
+export function onPinAction(cb: (action: PinAction) => void): Promise<UnlistenFn> {
+  return listen<PinAction>(PIN_ACTION_EVENT, (event) => cb(event.payload));
+}
+
+export async function sendPinAction(pinId: string, action: PinAction): Promise<void> {
+  await emitTo(`pin-${pinId}`, PIN_ACTION_EVENT, action);
+}
+
+export function onPinToolsState(cb: (state: PinToolsEnvelope) => void): Promise<UnlistenFn> {
+  return listen<PinToolsEnvelope>(PIN_TOOLS_STATE_EVENT, (event) => cb(event.payload));
+}
+
+export function onPinToolsPlacement(cb: (placement: PinToolPlacement) => void): Promise<UnlistenFn> {
+  return listen<PinToolPlacement>(PIN_TOOLS_PLACEMENT_EVENT, (event) => cb(event.payload));
+}
+
+export async function beginPinResize(pinId: string, direction: PinResizeDirection): Promise<string> {
+  return await invoke("begin_pin_resize", { pinId, direction });
+}
+
+export async function resizePin(pinId: string, token: string, deltaX: number, deltaY: number): Promise<number> {
+  return await invoke("resize_pin", { pinId, token, deltaX, deltaY });
+}
+
+export async function endPinResize(pinId: string, token: string): Promise<void> {
+  await invoke("end_pin_resize", { pinId, token });
 }
 export async function updatePinAnnotation(
   pinId: string,

@@ -29,6 +29,7 @@ import {
   InfoIcon,
   LoaderCircleIcon,
   PaintbrushIcon,
+  RefreshCwIcon,
   type LucideIcon,
   MonitorIcon,
   XCircleIcon,
@@ -54,7 +55,8 @@ type UpdaterState =
 
 const REPO_URL = "https://github.com/poneding/flashot";
 const AUTHOR_URL = "https://github.com/poneding";
-const infoFieldClassName = "font-mono text-xs text-muted-foreground";
+const infoFieldClassName = "flex min-h-5 items-center justify-center gap-1 font-mono text-xs leading-5 text-muted-foreground";
+const infoValueClassName = "font-mono text-xs font-medium leading-5 text-muted-foreground";
 
 function platformModifier(platform = navigator.platform) {
   return /Mac|iPhone|iPad|iPod/.test(platform) ? "Cmd" : "Ctrl";
@@ -243,14 +245,17 @@ function consumeUpdateCheckRequest() {
 function FlashotInfoField({
   children,
   dataAttribute,
+  label,
 }: {
   children: ReactNode;
   dataAttribute?: string;
+  label?: string;
 }) {
   const dataAttrs = dataAttribute ? { [dataAttribute]: true } : {};
 
   return (
     <p data-flashot-info-field {...dataAttrs} className={infoFieldClassName}>
+      {label && <><span>{label}</span>{" "}</>}
       {children}
     </p>
   );
@@ -341,12 +346,11 @@ function AboutPanel({ language }: { language: Settings["language"] }) {
           <FlashotInfoField dataAttribute="data-about-version">
             {version ? t("about.version", { version }) : t("about.versionUnavailable")}
           </FlashotInfoField>
-          <FlashotInfoField dataAttribute="data-about-author">
-            <span>{t("about.authorLabel")}</span>{" "}
+          <FlashotInfoField dataAttribute="data-about-author" label={t("about.authorLabel")}>
             <Button
               size="sm"
               variant="link"
-              className="h-auto px-0 py-0 align-baseline font-mono text-xs text-muted-foreground hover:text-primary"
+              className={`h-auto border-0 px-0 py-0 ${infoValueClassName} hover:text-primary`}
               onClick={() => open(AUTHOR_URL)}
             >
               {t("about.author")}
@@ -431,11 +435,13 @@ function UpdaterPanel({
 
   const betaStatus = t(allowBetaUpdates ? "updater.betaAllowed" : "updater.betaBlocked");
   const updateAction = (() => {
-    if (state === "idle") {
-      return <Button size="sm" className="min-w-[112px]" onClick={doCheck}>{t("updater.checkNow")}</Button>;
-    }
-    if (state === "up-to-date") {
-      return <Button size="sm" className="min-w-[112px]" onClick={doCheck}>{t("updater.checkNow")}</Button>;
+    if (state === "idle" || state === "up-to-date") {
+      return (
+        <Button size="sm" className="min-w-[112px] gap-1.5" onClick={doCheck}>
+          <RefreshCwIcon size={14} strokeWidth={1.8} aria-hidden="true" />
+          {t("updater.checkNow")}
+        </Button>
+      );
     }
     if (state === "available" && updateInfo) {
       return <Button size="sm" className="min-w-[112px]" onClick={handleDownload}>{t("updater.downloadInstall")}</Button>;
@@ -461,8 +467,8 @@ function UpdaterPanel({
           <FlashotInfoField dataAttribute="data-updater-version">
             {version ? t("updater.version", { version }) : t("about.versionUnavailable")}
           </FlashotInfoField>
-          <FlashotInfoField dataAttribute="data-updater-channel">
-            {betaStatus}
+          <FlashotInfoField dataAttribute="data-updater-channel" label={t("updater.betaLabel")}>
+            <span className={infoValueClassName}>{betaStatus}</span>
           </FlashotInfoField>
         </>
       )}

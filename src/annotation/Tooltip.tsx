@@ -1,6 +1,7 @@
 import { FLOATING_LABEL_BACKGROUND } from "@/lib/floating-surface";
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { useFloatingWindowDirection } from "@/annotation/FloatingWindowContext";
 
 const TOOLTIP_GAP = 4;
 const TOOLTIP_VIEWPORT_PADDING = 6;
@@ -18,7 +19,10 @@ type TooltipBubbleProps = {
   placement?: "top" | "right" | "bottom" | "left";
 };
 
-export function TooltipBubble({ label, anchorRef, placement = "top" }: TooltipBubbleProps) {
+export function TooltipBubble({ label, anchorRef, placement }: TooltipBubbleProps) {
+  const direction = useFloatingWindowDirection();
+  const resolvedPlacement = direction === "left" || direction === "right"
+    ? direction : placement ?? direction ?? "top";
   const bubbleRef = useRef<HTMLSpanElement>(null);
   const [position, setPosition] = useState<{
     left: number;
@@ -35,11 +39,21 @@ export function TooltipBubble({ label, anchorRef, placement = "top" }: TooltipBu
       const surface = (anchor.closest(TOOLTIP_SURFACE_SELECTOR) as HTMLElement | null) ?? anchor;
       const surfaceRect = surface.getBoundingClientRect();
       const size = tooltipSize(label, bubbleRef.current);
-      setPosition(computeTooltipPosition({
+      setPosition(direction ? {
+        left: resolvedPlacement === "right" ? surfaceRect.right + TOOLTIP_GAP
+          : resolvedPlacement === "left" ? surfaceRect.left - TOOLTIP_GAP
+          : anchorRect.left + anchorRect.width / 2,
+        top: resolvedPlacement === "bottom" ? surfaceRect.bottom + TOOLTIP_GAP
+          : resolvedPlacement === "top" ? surfaceRect.top - TOOLTIP_GAP
+          : anchorRect.top + anchorRect.height / 2,
+        transform: resolvedPlacement === "right" ? "translateY(-50%)"
+          : resolvedPlacement === "left" ? "translate(-100%, -50%)"
+          : resolvedPlacement === "top" ? "translate(-50%, -100%)" : "translateX(-50%)",
+      } : computeTooltipPosition({
         anchorRect,
         surfaceRect,
         size,
-        placement,
+        placement: resolvedPlacement,
       }));
     };
 
@@ -50,7 +64,7 @@ export function TooltipBubble({ label, anchorRef, placement = "top" }: TooltipBu
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [anchorRef, label, placement]);
+  }, [anchorRef, label, direction, resolvedPlacement]);
 
   const placementStyle: CSSProperties = position
     ? {
@@ -79,7 +93,7 @@ export function TooltipBubble({ label, anchorRef, placement = "top" }: TooltipBu
         fontSize: 11,
         lineHeight: 1,
         whiteSpace: "nowrap",
-        boxShadow: "0 4px 10px rgba(0,0,0,0.18)",
+        boxShadow: direction ? "none" : "0 4px 10px rgba(0,0,0,0.18)",
         border: "1px solid rgba(255,255,255,0.08)",
         pointerEvents: "none",
         zIndex: 10020,

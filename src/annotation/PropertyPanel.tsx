@@ -4,7 +4,8 @@ import {
   normalizeTextFontFamilyValue,
   resolveSystemFont,
 } from "@/annotation/fonts";
-import { useAnnotation } from "@/annotation/store";
+import { useAnnotationControls } from "@/annotation/controls";
+import { useFloatingWindowDirection } from "@/annotation/FloatingWindowContext";
 import { TooltipBubble } from "@/annotation/Tooltip";
 import {
   FONT_SIZES,
@@ -217,6 +218,7 @@ function GradientPicker({
   onClose: () => void;
   flipUp: boolean;
 }) {
+  const direction = useFloatingWindowDirection();
   const t = usePanelT();
   const [hsv, setHsv] = useState<[number, number, number]>(() => hexToHsv(value));
   const [colorInput, setColorInput] = useState("");
@@ -281,7 +283,7 @@ function GradientPicker({
       onMouseDown={(e) => e.stopPropagation()}
       style={{
         position: "absolute",
-        ...(flipUp
+        ...((direction ? direction === "top" : flipUp)
           ? { bottom: `calc(100% + ${GRADIENT_PICKER_GAP}px)` }
           : { top: `calc(100% + ${GRADIENT_PICKER_GAP}px)` }),
         left: 0,
@@ -289,7 +291,7 @@ function GradientPicker({
         borderRadius: 8,
         background: OVERLAY_SURFACE_BACKGROUND,
         border: "1px solid rgba(255,255,255,0.15)",
-        boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+        boxShadow: direction ? "none" : "0 4px 16px rgba(0,0,0,0.5)",
         zIndex: 10010,
       }}
     >
@@ -667,6 +669,7 @@ function NumberDropdown({
   suffix?: string;
   title: string;
 }) {
+  const direction = useFloatingWindowDirection();
   const [open, setOpen] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
   const [tooltipVisible, setTooltipVisible] = useState(false);
@@ -714,7 +717,7 @@ function NumberDropdown({
         <div
           style={{
             position: "absolute",
-            ...(flipUp
+            ...((direction ? direction === "top" : flipUp)
               ? { bottom: "calc(100% + 4px)" }
               : { top: "calc(100% + 4px)" }),
             left: 0,
@@ -725,7 +728,7 @@ function NumberDropdown({
             borderRadius: 6,
             padding: 4,
             zIndex: 10010,
-            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+            boxShadow: direction ? "none" : "0 4px 16px rgba(0,0,0,0.4)",
           }}
         >
           <div
@@ -1092,6 +1095,7 @@ function DropdownSelect<T extends string>({
   onChange: (v: T) => void;
   title?: string;
 }) {
+  const direction = useFloatingWindowDirection();
   const [open, setOpen] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
   const [tooltipVisible, setTooltipVisible] = useState(false);
@@ -1140,7 +1144,7 @@ function DropdownSelect<T extends string>({
           ref={menuRef}
           style={{
             position: "absolute",
-            ...(flipUp
+            ...((direction ? direction === "top" : flipUp)
               ? { bottom: "calc(100% + 4px)" }
               : { top: "calc(100% + 4px)" }),
             left: 0,
@@ -1153,7 +1157,7 @@ function DropdownSelect<T extends string>({
             gap: 2,
             justifyItems: "center",
             zIndex: 10010,
-            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+            boxShadow: direction ? "none" : "0 4px 16px rgba(0,0,0,0.4)",
           }}
         >
           {options.map((opt) => (
@@ -1502,6 +1506,7 @@ function getFontStyleForOption(fontValue: string): CSSProperties {
 }
 
 function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const direction = useFloatingWindowDirection();
   const t = usePanelT();
   const [fonts, setFonts] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
@@ -1576,7 +1581,7 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
         <div
           style={{
             position: "absolute",
-            ...(flipUp ? { bottom: "calc(100% + 4px)" } : { top: "calc(100% + 4px)" }),
+            ...((direction ? direction === "top" : flipUp) ? { bottom: "calc(100% + 4px)" } : { top: "calc(100% + 4px)" }),
             left: 0,
             width: "max-content",
             minWidth: 160,
@@ -1586,7 +1591,7 @@ function FontFamilySelect({ value, onChange }: { value: string; onChange: (v: st
             borderRadius: 6,
             padding: 4,
             zIndex: 10010,
-            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+            boxShadow: direction ? "none" : "0 4px 16px rgba(0,0,0,0.4)",
           }}
         >
           <input
@@ -1694,8 +1699,8 @@ function MarkerSection({
   set: (p: Partial<AnnotationStyle>) => void;
 }) {
   const t = usePanelT();
-  const currentMarkerNumber = useAnnotation((s) => s.currentMarkerNumber);
-  const setCurrentMarkerNumber = useAnnotation((s) => s.setCurrentMarkerNumber);
+  const currentMarkerNumber = useAnnotationControls((s) => s.currentMarkerNumber);
+  const setCurrentMarkerNumber = useAnnotationControls((s) => s.setCurrentMarkerNumber);
   return (
     <>
       <ColorPicker
@@ -1842,9 +1847,9 @@ type Props = {
 
 export function PropertyPanel({ tool, style: containerStyle, object, panelRef, locale = "en" }: Props) {
   const t = createTranslator(locale);
-  const activeStyle = useAnnotation((s) => s.activeStyle);
-  const updateSelectedStyle = useAnnotation((s) => s.updateSelectedStyle);
-  const resizeObject = useAnnotation((s) => s.resizeObject);
+  const activeStyle = useAnnotationControls((s) => s.activeStyle);
+  const updateSelectedStyle = useAnnotationControls((s) => s.updateSelectedStyle);
+  const resizeObject = useAnnotationControls((s) => s.resizeObject);
   const style = object?.style ?? activeStyle;
   const set = (partial: Partial<AnnotationStyle>) => {
     updateSelectedStyle(partial);

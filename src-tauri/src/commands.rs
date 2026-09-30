@@ -84,19 +84,6 @@ const UTILITY_WINDOW_SYSTEM_INIT_SCRIPT: &str = r#"
 })();
 "#;
 
-/// Extra padding (logical px per side) added to pin windows so the CSS
-/// boxShadow rendered by the frontend has room outside the image.
-/// Must match `PIN_SHADOW_PADDING` in src/routes/Pin.tsx.
-const PIN_SHADOW_PADDING: f64 = 24.0;
-/// Transparent right-side gutter reserved so the pin controls can sit
-/// outside the image without adding a left frame.
-/// Must match `PIN_CONTROLS_SIDE_RESERVE` in src/routes/Pin.tsx.
-const PIN_CONTROLS_SIDE_RESERVE: f64 = 48.0;
-/// Transparent bottom gutter reserved so the annotation toolbar can sit
-/// outside the image at the lower-left of the pin window.
-/// Must match `PIN_TOOLBAR_BOTTOM_RESERVE` in src/routes/Pin.tsx.
-const PIN_TOOLBAR_BOTTOM_RESERVE: f64 = 48.0;
-
 fn clamp_corner_radius(radius: u32) -> u32 {
     radius.min(MAX_CORNER_RADIUS)
 }
@@ -402,7 +389,7 @@ fn bring_app_window_to_front(window: &WebviewWindow) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-fn configure_pin_window_before_show(window: &WebviewWindow) -> Result<(), String> {
+pub(crate) fn configure_pin_window_before_show(window: &WebviewWindow) -> Result<(), String> {
     let task_window = window.clone();
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
 
@@ -456,7 +443,7 @@ fn configure_macos_pin_window_before_show(window: &WebviewWindow) -> Result<(), 
 }
 
 #[cfg(not(target_os = "macos"))]
-fn configure_pin_window_before_show(_window: &WebviewWindow) -> Result<(), String> {
+pub(crate) fn configure_pin_window_before_show(_window: &WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
@@ -1069,11 +1056,13 @@ fn create_pin_from_image(
     };
 
     let window_label = format!("pin-{}", pin_id);
-    let mut route = if annotation_path.is_some() {
-        format!("index.html#/pin/{}?annotation=1", pin_id)
-    } else {
-        format!("index.html#/pin/{}", pin_id)
-    };
+    let mut route = format!(
+        "index.html#/pin/{pin_id}?width={}&height={}",
+        display_rect.width, display_rect.height
+    );
+    if annotation_path.is_some() {
+        route.push_str("&annotation=1");
+    }
     if corner_radius > 0 {
         if route.contains('?') {
             route.push_str(&format!("&radius={corner_radius}"));
@@ -1083,41 +1072,34 @@ fn create_pin_from_image(
     }
     let url = tauri::WebviewUrl::App(route.into());
 
-    let outer_width =
-        display_rect.width as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_CONTROLS_SIDE_RESERVE;
-    let outer_height =
-        display_rect.height as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_TOOLBAR_BOTTOM_RESERVE;
+    let (width, height, _) =
+        crate::pin_geometry::scaled_image_size(display_rect.width, display_rect.height, 1.0)
+            .ok_or("invalid pin image size")?;
 
-    // Position the pin window so the *image* lands exactly where the user's
-    // selection was on screen. `display_rect` is in monitor-local logical
-    // pixels; the window includes a PIN_SHADOW_PADDING ring on every side for
-    // the glow plus right/bottom gutters for controls. Since the image starts
-    // after the left/top shadow padding, only those sides affect the window
-    // origin. We also need the monitor's global origin so multi-display setups
-    // land on the right screen.
+    // The image fills the entire native client area. Tool palettes have their
+    // own owned windows and never contribute gutters to the image dimensions.
     let monitor_origin = crate::capture::enumerate_monitors()
         .ok()
         .and_then(|ms| ms.into_iter().find(|m| m.id == monitor_id))
         .map(|m| (m.rect.x as f64, m.rect.y as f64))
         .unwrap_or((0.0, 0.0));
-    let pin_x = monitor_origin.0 + display_rect.x as f64 - PIN_SHADOW_PADDING;
-    let pin_y = monitor_origin.1 + display_rect.y as f64 - PIN_SHADOW_PADDING;
+    let pin_x = monitor_origin.0 + display_rect.x as f64;
+    let pin_y = monitor_origin.1 + display_rect.y as f64;
 
     let window = tauri::WebviewWindowBuilder::new(app, &window_label, url)
         .title("")
-        .inner_size(outer_width, outer_height)
+        .inner_size(width, height)
         .position(pin_x, pin_y)
         .decorations(false)
         .always_on_top(true)
         .transparent(true)
-        .resizable(false)
+        .resizable(false) // Custom edge handles preserve aspect ratio without native frame gutters.
+        .accept_first_mouse(true)
         .skip_taskbar(true)
         .shadow(false)
         .visible(false)
         .build()
         .map_err(|e| e.to_string())?;
-
-    show_pin_window(&window)?;
 
     pin_mgr.add_pin(PinEntry {
         id: pin_id.clone(),
@@ -1130,6 +1112,11 @@ fn create_pin_from_image(
         corner_radius,
     });
 
+    if let Err(error) = show_pin_window(&window) {
+        let _ = window.close();
+        return Err(error);
+    }
+
     Ok(pin_id)
 }
 
@@ -1140,6 +1127,8 @@ pub async fn close_pin(
     pin_mgr: State<'_, Arc<PinManager>>,
 ) -> Result<(), String> {
     let entry = pin_mgr.remove_pin(&pin_id).ok_or("pin not found")?;
+
+    crate::pin_windows::close_tools(&app, &pin_id);
 
     if let Some(window) = app.get_webview_window(&entry.window_label) {
         window.close().map_err(|e| e.to_string())?;
@@ -1160,14 +1149,9 @@ pub async fn set_pin_scale(
     pin_mgr: State<'_, Arc<PinManager>>,
 ) -> Result<(), String> {
     let entry = pin_mgr.get_pin(&pin_id).ok_or("pin not found")?;
-    let clamped_scale = scale.clamp(0.5, 3.0);
-
-    let new_width = entry.original_width as f64 * clamped_scale
-        + 2.0 * PIN_SHADOW_PADDING
-        + PIN_CONTROLS_SIDE_RESERVE;
-    let new_height = entry.original_height as f64 * clamped_scale
-        + 2.0 * PIN_SHADOW_PADDING
-        + PIN_TOOLBAR_BOTTOM_RESERVE;
+    let (new_width, new_height, clamped_scale) =
+        crate::pin_geometry::scaled_image_size(entry.original_width, entry.original_height, scale)
+            .ok_or("invalid pin scale")?;
 
     if let Some(window) = app.get_webview_window(&entry.window_label) {
         window
@@ -1181,7 +1165,123 @@ pub async fn set_pin_scale(
     pin_mgr
         .update_scale(&pin_id, clamped_scale)
         .ok_or("pin not found")?;
+    crate::pin_windows::reposition_tools(&app, &pin_mgr, &pin_id);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn sync_pin_tools(
+    pin_id: String,
+    state: serde_json::Value,
+    window: WebviewWindow,
+    app: AppHandle,
+    pin_mgr: State<'_, Arc<PinManager>>,
+) -> Result<(), String> {
+    if window.label() != format!("pin-{pin_id}") {
+        return Err("pin tools must be controlled by their image window".into());
+    }
+    crate::pin_windows::sync_tools(&app, &pin_mgr, &pin_id, state)
+}
+
+#[tauri::command]
+pub fn get_pin_tools_state(
+    pin_id: String,
+    pin_mgr: State<'_, Arc<PinManager>>,
+) -> Option<crate::pin_mgr::PinToolsEnvelope> {
+    pin_mgr
+        .tools_state(&pin_id)
+        .and_then(|tools| tools.snapshot)
+}
+
+#[tauri::command]
+pub async fn resize_pin_tool_window(
+    pin_id: String,
+    kind: crate::pin_geometry::PinToolKind,
+    layout: crate::pin_geometry::PinToolLayout,
+    window: WebviewWindow,
+    app: AppHandle,
+    pin_mgr: State<'_, Arc<PinManager>>,
+) -> Result<(), String> {
+    if window.label() != crate::pin_windows::tool_label(&pin_id, kind) {
+        return Err("pin tool window does not match its owner".into());
+    }
+    crate::pin_windows::layout_tool(&app, &pin_mgr, &pin_id, kind, layout)
+}
+
+#[tauri::command]
+pub async fn pin_interaction_contains_cursor(
+    pin_id: String,
+    window: WebviewWindow,
+    app: AppHandle,
+    pin_mgr: State<'_, Arc<PinManager>>,
+) -> Result<bool, String> {
+    if window.label() != format!("pin-{pin_id}") {
+        return Err("pin hover must be checked by its image window".into());
+    }
+    let task_app = app.clone();
+    let mgr = pin_mgr.inner().clone();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(crate::pin_windows::interaction_contains_cursor(
+            &task_app, &mgr, &pin_id,
+        ));
+    })
+    .map_err(|e| e.to_string())?;
+    rx.await
+        .map_err(|_| "pin hover check did not complete".to_string())?
+}
+
+#[tauri::command]
+pub fn start_pin_drag(
+    pin_id: String,
+    window: WebviewWindow,
+    app: AppHandle,
+    pin_mgr: State<'_, Arc<PinManager>>,
+) -> Result<(), String> {
+    use crate::pin_geometry::PinToolKind;
+    let entry = pin_mgr.get_pin(&pin_id).ok_or("pin not found")?;
+    if window.label() != entry.window_label
+        && ![PinToolKind::Controls, PinToolKind::Editor]
+            .into_iter()
+            .any(|kind| window.label() == crate::pin_windows::tool_label(&pin_id, kind))
+    {
+        return Err("pin drag must start in its image or tools".into());
+    }
+    app.get_webview_window(&entry.window_label)
+        .ok_or("pin window not found")?
+        .start_dragging()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn begin_pin_resize(
+    pin_id: String,
+    direction: crate::pin_geometry::PinResizeDirection,
+    window: WebviewWindow,
+    app: AppHandle,
+    pin_mgr: State<'_, Arc<PinManager>>,
+) -> Result<String, String> {
+    if window.label() != format!("pin-{pin_id}") {
+        return Err("pin resize must start in its image window".into());
+    }
+    crate::pin_windows::begin_resize(&app, &pin_mgr, &pin_id, direction)
+}
+
+#[tauri::command]
+pub async fn resize_pin(
+    pin_id: String,
+    token: String,
+    delta_x: f64,
+    delta_y: f64,
+    app: AppHandle,
+    pin_mgr: State<'_, Arc<PinManager>>,
+) -> Result<f64, String> {
+    crate::pin_windows::resize(&app, &pin_mgr, &pin_id, &token, delta_x, delta_y)
+}
+
+#[tauri::command]
+pub fn end_pin_resize(pin_id: String, token: String, pin_mgr: State<'_, Arc<PinManager>>) {
+    pin_mgr.end_resize(&pin_id, &token);
 }
 
 #[tauri::command]
@@ -2292,9 +2392,7 @@ mod tests {
     fn save_paths_restore_focus_after_user_facing_dialogs() {
         let source = include_str!("commands.rs").replace("\r\n", "\n");
         let crop_body = function_body(&source, "crop_and_save");
-        let crop_end_idx = crop_body
-            .find(".end_session(&app, &session_id)")
-            .unwrap();
+        let crop_end_idx = crop_body.find(".end_session(&app, &session_id)").unwrap();
         let dialog_idx = crop_body.find("saver::save_image_dialog").unwrap();
         let crop_restore_idx = crop_body
             .find("mgr.restore_focus_to_previous_app(&app, &previous);")
@@ -3010,7 +3108,7 @@ mod tests {
             "pin_image should write the exported annotation PNG directly instead of decoding it",
         );
         assert!(
-            body.contains("index.html#/pin/{}?annotation=1"),
+            body.contains("route.push_str(\"&annotation=1\")"),
             "pin route should know when to load an annotation layer",
         );
         assert!(
@@ -3054,41 +3152,6 @@ mod tests {
         assert!(
             body.contains("show_pin_window(&window)"),
             "the backend must show hidden pin windows instead of relying on frontend JS",
-        );
-    }
-
-    #[test]
-    fn pin_window_reserves_right_and_bottom_gutters_without_left_control_gutter() {
-        let source = include_str!("commands.rs").replace("\r\n", "\n");
-        let pin_body = function_body(&source, "create_pin_from_image");
-        let scale_body = function_body(&source, "set_pin_scale");
-
-        assert!(
-            pin_body.contains(
-                "display_rect.width as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_CONTROLS_SIDE_RESERVE",
-            ),
-            "pin window width should reserve controls only on the right side",
-        );
-        assert!(
-            pin_body.contains(
-                "display_rect.height as f64 + 2.0 * PIN_SHADOW_PADDING + PIN_TOOLBAR_BOTTOM_RESERVE",
-            ),
-            "pin window height should reserve the annotation toolbar gutter at the bottom",
-        );
-        assert!(
-            pin_body.contains(
-                "let pin_x = monitor_origin.0 + display_rect.x as f64 - PIN_SHADOW_PADDING;",
-            ),
-            "pin image should start after only the left shadow padding",
-        );
-        assert!(
-            !pin_body.contains("2.0 * PIN_CONTROLS_SIDE_RESERVE"),
-            "pin window should not reserve a left-side control gutter",
-        );
-        assert!(
-            scale_body.contains("+ PIN_CONTROLS_SIDE_RESERVE")
-                && scale_body.contains("+ PIN_TOOLBAR_BOTTOM_RESERVE"),
-            "pin scaling should preserve right and bottom tool gutters",
         );
     }
 

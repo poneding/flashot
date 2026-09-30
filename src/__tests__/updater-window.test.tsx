@@ -280,7 +280,7 @@ describe("UpdaterRoute", () => {
     await waitFor(() => {
       expect(mockCheckForUpdate).toHaveBeenCalledWith({ allowBeta: true });
     });
-    expect(screen.getByText("Beta updates: allowed")).toBeInTheDocument();
+    expect(screen.getByText("allowed")).toBeInTheDocument();
   });
 
   it("shows available state with version info", async () => {

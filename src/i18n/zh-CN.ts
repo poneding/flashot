@@ -66,8 +66,9 @@ export const zhCN = {
   "updater.error": "检查更新失败",
   "updater.retry": "重试",
   "updater.close": "关闭",
-  "updater.betaAllowed": "Beta 更新：允许",
-  "updater.betaBlocked": "Beta 更新：仅稳定版",
+  "updater.betaLabel": "Beta 更新：",
+  "updater.betaAllowed": "允许",
+  "updater.betaBlocked": "仅稳定版",
 
   "screenshot.cornerRadius": "圆角半径：{value}",
   "screenshot.cornerRadiusUnit": "圆角半径 [px]",

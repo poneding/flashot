@@ -1,21 +1,22 @@
 import { ImageAdjustmentsFilter } from "@/overlay/ImageAdjustmentsFilter";
 import { useAnnotation } from "@/annotation/store";
-import { TooltipBubble } from "@/annotation/Tooltip";
-import { createTranslator, type Locale } from "@/i18n";
+import { createTranslator } from "@/i18n";
 import { ACCENT_COLOR_CSS_VAR, ACCENT_RGB_CSS_VAR } from "@/lib/colors";
 import { FLOATING_LABEL_BACKGROUND } from "@/lib/floating-surface";
-import { TOOLBAR_GAP } from "@/lib/geometry";
-import { closePin, copyPin, savePin, setPinScale, updatePinAnnotation } from "@/lib/ipc";
+import { closePin, copyPin, onPinAction, pinInteractionContainsCursor, savePin, setPinScale, updatePinAnnotation } from "@/lib/ipc";
 import type { Rect } from "@/lib/types";
-import { ImageAdjustmentsPanel } from "@/overlay/ImageAdjustmentsPanel";
+import { PinResizeHandles } from "@/pin/PinResizeHandles";
+import { clampPinScale as clampScale, isPinTextInput as isTextInputLike, pinScaleLabel as scaleLabel, PIN_SCALE_STEP } from "@/pin/scale";
+import type { PinAction } from "@/pin/types";
+import { usePublishPinTools } from "@/pin/usePublishPinTools";
+import { usePinDrag } from "@/pin/usePinDrag";
 import { frozenLayerFilterForImageAdjustments, hasImageAdjustments, PREVIEW_IMAGE_ADJUSTMENTS_FILTER_ID } from "@/overlay/imageAdjustments";
 import { useOverlay } from "@/overlay/state";
 import { useStoredAccentColor, useStoredLanguage } from "@/settings/useStoredAccentColor";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { appCacheDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CheckIcon, CopyIcon, ImageIcon, SaveIcon, Scaling, SquarePen, XIcon } from "lucide-react";
-import { useCallback, useEffect, lazy, useMemo, useRef, useState, Suspense, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, lazy, useMemo, useRef, useState, Suspense, type CSSProperties } from "react";
 
 // The annotation editor (Stage/Toolbar/export) transitively imports Konva
 // (~870 KB). It is only needed in edit mode, so we load it lazily — this keeps
@@ -24,72 +25,21 @@ import { useCallback, useEffect, lazy, useMemo, useRef, useState, Suspense, type
 const AnnotationStage = lazy(() =>
   import("@/annotation/Stage").then((m) => ({ default: m.AnnotationStage })),
 );
-const AnnotationToolbar = lazy(() =>
-  import("@/annotation/Toolbar").then((m) => ({ default: m.Toolbar })),
-);
-
-// Soft outer glow around the pinned image. The window itself reserves
-// PIN_SHADOW_PADDING px on each side (matched in commands.rs) so these
-// shadows have room to render without being clipped by the window edge.
-const PIN_SHADOW_PADDING = 24;
-// Pointer travel (CSS px) before a press on the drag surface turns into a
-// native window drag. Keeps plain clicks from nudging the window.
-const PIN_DRAG_THRESHOLD_PX = 3;
-const PIN_SCALE_MIN = 0.5;
-const PIN_SCALE_MAX = 3;
-const PIN_SCALE_STEP = 0.05;
 const PIN_WHEEL_NOTCH_DELTA = 100;
 const PIN_WHEEL_LINE_DELTA = 16;
 const PIN_WHEEL_PAGE_DELTA = 800;
-const PIN_CONTROLS_WIDTH = 40;
-const PIN_CONTROLS_GAP = 8;
-const PIN_CONTROLS_SIDE_RESERVE = PIN_CONTROLS_WIDTH + PIN_CONTROLS_GAP;
-const PIN_TOOLBAR_BOTTOM_RESERVE = PIN_CONTROLS_SIDE_RESERVE;
-const PIN_ADJUSTMENTS_PANEL_WIDTH = 220;
 const PIN_COPY_FEEDBACK_MS = 900;
 const PIN_SCALE_BADGE_MS = 900;
 const PIN_GLOW = [
-  // Tight rim - barely-there definition right at the image edge.
-  `0 0 1px rgba(${ACCENT_RGB_CSS_VAR}, 0.6)`,
-  // Inner halo - most of the visible color.
-  `0 0 6px rgba(${ACCENT_RGB_CSS_VAR}, 0.5)`,
-  // Mid bloom.
-  `0 0 14px rgba(${ACCENT_RGB_CSS_VAR}, 0.34)`,
-  // Outer feathered fall-off.
-  `0 0 22px rgba(${ACCENT_RGB_CSS_VAR}, 0.2)`,
+  `inset 0 0 1px rgba(${ACCENT_RGB_CSS_VAR}, 0.6)`,
+  `inset 0 0 6px rgba(${ACCENT_RGB_CSS_VAR}, 0.5)`,
 ].join(", ");
-
-type PinControlsSide = "left" | "right";
-
-
-function clampScale(scale: number): number {
-  const clamped = Math.max(PIN_SCALE_MIN, Math.min(PIN_SCALE_MAX, scale));
-  return Math.round(clamped * 100) / 100;
-}
-
-function scalePercent(scale: number): number {
-  return Math.round(scale * 100);
-}
-
-function scaleLabel(scale: number): string {
-  return `${scalePercent(scale)}%`;
-}
 
 function visualAnnotationScale(exportScale: number, displayScale = 1): number {
   const deviceScale = Number.isFinite(window.devicePixelRatio) ? window.devicePixelRatio : 1;
   return Math.max(1, exportScale, deviceScale * displayScale);
 }
 
-function shortcutTitle(action: string, key: string): string {
-  const isMac = /Mac|iPhone|iPad|iPod/.test(window.navigator.platform);
-  const modifier = isMac ? "Cmd" : "Ctrl";
-  return `${action} (${modifier}+${key})`;
-}
-
-function buildScaleOptions(): number[] {
-  const count = Math.round((PIN_SCALE_MAX - PIN_SCALE_MIN) / PIN_SCALE_STEP) + 1;
-  return Array.from({ length: count }, (_, index) => clampScale(PIN_SCALE_MIN + index * PIN_SCALE_STEP));
-}
 
 function normalizedWheelDelta(event: WheelEvent): number {
   if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return event.deltaY * PIN_WHEEL_LINE_DELTA;
@@ -108,24 +58,12 @@ function pinContentSelection(viewport: { width: number; height: number }): Rect 
   return {
     x: 0,
     y: 0,
-    width: Math.max(1, viewport.width - 2 * PIN_SHADOW_PADDING - PIN_CONTROLS_SIDE_RESERVE),
-    height: Math.max(1, viewport.height - 2 * PIN_SHADOW_PADDING - PIN_TOOLBAR_BOTTOM_RESERVE),
+    width: viewport.width,
+    height: viewport.height,
   };
 }
 
-function pinToolbarSelection(content: Rect): Rect {
-  return {
-    ...content,
-    x: PIN_SHADOW_PADDING,
-    y: PIN_SHADOW_PADDING,
-  };
-}
-
-function pinMonitorRect(viewport: { width: number; height: number }): Rect {
-  return { x: 0, y: 0, width: viewport.width, height: viewport.height };
-}
-
-function parsePinRoute(): { id: string; hasAnnotation: boolean; radius: number } | null {
+function parsePinRoute(): { id: string; hasAnnotation: boolean; radius: number; width?: number; height?: number } | null {
   const h = window.location.hash || "";
   const prefix = "#/pin/";
   if (!h.startsWith(prefix)) return null;
@@ -138,24 +76,17 @@ function parsePinRoute(): { id: string; hasAnnotation: boolean; radius: number }
   const params = new URLSearchParams(query);
   const radiusRaw = Number(params.get("radius") ?? "0");
   const radius = Number.isFinite(radiusRaw) ? Math.max(0, Math.min(60, radiusRaw)) : 0;
+  const width = Number(params.get("width"));
+  const height = Number(params.get("height"));
   return {
     id,
     hasAnnotation: params.get("annotation") === "1",
     radius,
+    width: Number.isFinite(width) && width > 0 ? width : undefined,
+    height: Number.isFinite(height) && height > 0 ? height : undefined,
   };
 }
 
-function computePinControlsSide(_viewport: { width: number; height: number }): PinControlsSide {
-  return "right";
-}
-
-function isTextInputLike(element: Element | null): boolean {
-  if (!element) return false;
-  if (element instanceof HTMLInputElement) return true;
-  if (element instanceof HTMLTextAreaElement) return true;
-  if (element instanceof HTMLSelectElement) return true;
-  return element instanceof HTMLElement && element.isContentEditable;
-}
 
 export function PinRoute() {
   useStoredAccentColor();
@@ -168,20 +99,9 @@ export function PinRoute() {
   const [scale, setScale] = useState(1.0);
   const scaleRef = useRef(scale);
   const wheelRef = useRef({ remainder: 0, direction: 0 });
-  // Window-drag bookkeeping. We defer Tauri's startDragging() until the
-  // pointer actually moves past a small threshold. Calling it on mousedown
-  // is broken on macOS: the async IPC means the originating mouse-down
-  // NSEvent is gone by the time the native drag runs, so tao falls back to a
-  // synthetic event built from screen coords, snapping the window's top-left
-  // corner to the cursor. Starting the drag during a real mousemove hands
-  // macOS a genuine LeftMouseDragged event, so the native drag loop takes
-  // over cleanly. A pure click never crosses the threshold, so it stays put.
-  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const { handleMouseDown: armWindowDrag, cancel: cancelWindowDrag } = usePinDrag(() => getCurrentWindow().startDragging());
   const screenshotRef = useRef<HTMLImageElement>(null);
   const [controlsVisible, setControlsVisible] = useState(false);
-  const [scaleMenuOpen, setScaleMenuOpen] = useState(false);
-  const [adjustmentsPanelOpen, setAdjustmentsPanelOpen] = useState(false);
-  const [controlsSide, setControlsSide] = useState<PinControlsSide>("right");
   const [copyConfirmed, setCopyConfirmed] = useState(false);
   const [scaleBadge, setScaleBadge] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -190,6 +110,12 @@ export function PinRoute() {
   const copyFeedbackTimerRef = useRef<number | null>(null);
   const scaleBadgeTimerRef = useRef<number | null>(null);
   const [viewportSize, setViewportSize] = useState(currentViewportSize);
+  const originalSize = useRef({ width: pinRoute?.width ?? viewportSize.width, height: pinRoute?.height ?? viewportSize.height });
+  const pointerInside = useRef(false);
+  const toolsPresence = useRef(new Set<string>());
+  const hideTimer = useRef<number | null>(null);
+  const hideGeneration = useRef(0);
+  const resizingRef = useRef(false);
   const [pinExportScale, setPinExportScale] = useState(1);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [annotationFileUrl, setAnnotationFileUrl] = useState<string | null>(null);
@@ -198,14 +124,46 @@ export function PinRoute() {
   const [annotationReady, setAnnotationReady] = useState(!hasAnnotation);
   const imageAdjustments = useOverlay((s) => s.imageAdjustments);
   const contentReady = imageReady && annotationReady;
-  const scaleOptions = useMemo(buildScaleOptions, []);
   const editorSelection = useMemo(() => pinContentSelection(viewportSize), [viewportSize]);
-  const editorToolbarSelection = useMemo(() => pinToolbarSelection(editorSelection), [editorSelection]);
-  const editorMonitorRect = useMemo(() => pinMonitorRect(viewportSize), [viewportSize]);
   const annotationSelection = editorBaseSelection ?? editorSelection;
   const annotationDisplayScale = editorSelection.width / annotationSelection.width;
   const annotationStageScale = visualAnnotationScale(pinExportScale * annotationDisplayScale, annotationDisplayScale);
   const pinImageFilter = frozenLayerFilterForImageAdjustments(imageAdjustments);
+  usePublishPinTools(id, { visible: controlsVisible, editing, scale, copyConfirmed, locale, imageAdjustments });
+
+  const showControls = useCallback(() => {
+    hideGeneration.current++;
+    if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    hideTimer.current = null;
+    setControlsVisible(true);
+  }, []);
+  const scheduleHideControls = useCallback(() => {
+    const generation = ++hideGeneration.current;
+    if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    const check = async () => {
+      hideTimer.current = null;
+      const held = () => pointerInside.current || editingRef.current
+        || toolsPresence.current.has("controls-focus") || toolsPresence.current.has("editor-focus");
+      if (!id || generation !== hideGeneration.current || held()) return;
+      let inside = true;
+      try {
+        inside = await pinInteractionContainsCursor(id);
+      } catch {
+        // Keep buttons usable if the native check is temporarily unavailable.
+      }
+      // Enter/focus can arrive from another webview while this IPC is pending.
+      if (generation !== hideGeneration.current || held()) return;
+      if (inside) {
+        // Continue across the gap even if an inactive palette never emits its
+        // DOM mouseenter; stop once the pointer leaves the complete pin group.
+        hideTimer.current = window.setTimeout(() => { void check(); }, 120);
+      } else {
+        toolsPresence.current.clear();
+        setControlsVisible(false);
+      }
+    };
+    hideTimer.current = window.setTimeout(() => { void check(); }, 180);
+  }, [id]);
 
   useEffect(() => {
     scaleRef.current = scale;
@@ -217,8 +175,10 @@ export function PinRoute() {
 
   useEffect(() => {
     return () => {
+      hideGeneration.current++;
       if (copyFeedbackTimerRef.current) window.clearTimeout(copyFeedbackTimerRef.current);
       if (scaleBadgeTimerRef.current) window.clearTimeout(scaleBadgeTimerRef.current);
+      if (hideTimer.current) window.clearTimeout(hideTimer.current);
     };
   }, []);
 
@@ -226,40 +186,6 @@ export function PinRoute() {
     document.body.classList.add("pin");
     return () => {
       document.body.classList.remove("pin");
-    };
-  }, []);
-
-  // Once the pointer moves past a small threshold after pressing on the
-  // drag surface, hand off to Tauri's native window drag. Doing it here (in a
-  // real mousemove) rather than on mousedown gives macOS a genuine drag event
-  // so the window follows smoothly instead of jumping. A click that never
-  // crosses the threshold clears the pending state on mouseup without moving.
-  useEffect(() => {
-    const handleMove = (event: MouseEvent) => {
-      const start = dragStartRef.current;
-      if (!start) return;
-      if (
-        Math.abs(event.clientX - start.x) < PIN_DRAG_THRESHOLD_PX &&
-        Math.abs(event.clientY - start.y) < PIN_DRAG_THRESHOLD_PX
-      ) {
-        return;
-      }
-      dragStartRef.current = null;
-      getCurrentWindow().startDragging().catch(() => {});
-    };
-
-    const cancelPending = () => {
-      dragStartRef.current = null;
-    };
-
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", cancelPending);
-    window.addEventListener("blur", cancelPending);
-
-    return () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", cancelPending);
-      window.removeEventListener("blur", cancelPending);
     };
   }, []);
 
@@ -275,27 +201,16 @@ export function PinRoute() {
     setPinExportScale(nextScale > 0 ? nextScale : 1);
   }, [editorSelection.width]);
 
-  const updateControlsSide = useCallback(() => {
-    setControlsSide(computePinControlsSide(currentViewportSize()));
-  }, []);
-
   useEffect(() => {
     const handleResize = () => {
-      setViewportSize(currentViewportSize());
-      updateControlsSide();
+      const viewport = currentViewportSize();
+      setViewportSize(viewport);
       window.requestAnimationFrame(() => updatePinExportScale());
     };
 
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [updateControlsSide, updatePinExportScale]);
-
-  useEffect(() => {
-    if (!controlsVisible) return;
-    updateControlsSide();
-    const interval = window.setInterval(updateControlsSide, 250);
-    return () => window.clearInterval(interval);
-  }, [controlsVisible, updateControlsSide]);
+  }, [updatePinExportScale]);
 
   useEffect(() => {
     if (!id) return;
@@ -325,7 +240,7 @@ export function PinRoute() {
   }, [id, hasAnnotation]);
 
   const updatePinScale = useCallback(async (nextScale: number) => {
-    if (!id) return;
+    if (!id || resizingRef.current) return;
     const clamped = clampScale(nextScale);
     if (clamped === scaleRef.current) return;
     scaleRef.current = clamped;
@@ -359,10 +274,7 @@ export function PinRoute() {
 
   const enterEditMode = useCallback(() => {
     useAnnotation.getState().reset();
-    const content = pinContentSelection(currentViewportSize());
-    setEditorBaseSelection({ ...content, width: content.width / scaleRef.current, height: content.height / scaleRef.current });
-    setScaleMenuOpen(false);
-    setAdjustmentsPanelOpen(false);
+    setEditorBaseSelection({ x: 0, y: 0, ...originalSize.current });
     setControlsVisible(true);
     setEditing(true);
   }, []);
@@ -543,19 +455,9 @@ export function PinRoute() {
     };
   }, [id, closeCurrentPin, copyCurrentPin, enterEditMode, exitEditMode, saveCurrentPin, updatePinScale]);
 
-  const hideControls = () => {
-    setControlsVisible(false);
-    setScaleMenuOpen(false);
-    setAdjustmentsPanelOpen(false);
-  };
-
-  // Arm a potential window drag. The actual native drag only starts once the
-  // pointer crosses DRAG_THRESHOLD_PX (see the mousemove effect above), so a
-  // plain click never moves the window.
   const handleMouseDown = useCallback((event: React.MouseEvent) => {
-    if (event.button !== 0) return;
-    dragStartRef.current = { x: event.clientX, y: event.clientY };
-  }, []);
+    if (!resizingRef.current) armWindowDrag(event);
+  }, [armWindowDrag]);
 
   const containerStyle: CSSProperties = {
     position: "relative",
@@ -563,7 +465,7 @@ export function PinRoute() {
     height: "100%",
     cursor: "move",
     boxSizing: "border-box",
-    padding: `${PIN_SHADOW_PADDING}px ${PIN_SHADOW_PADDING + PIN_CONTROLS_SIDE_RESERVE}px ${PIN_SHADOW_PADDING + PIN_TOOLBAR_BOTTOM_RESERVE}px ${PIN_SHADOW_PADDING}px`,
+    padding: 0,
     background: "transparent",
     outline: "none",
   };
@@ -592,6 +494,50 @@ export function PinRoute() {
     borderRadius: radius,
   };
 
+  const pinActionRef = useRef<(action: PinAction) => void>(() => {});
+  pinActionRef.current = (action) => {
+    if (action.type === "hover" || action.type === "focus") {
+      const key = `${action.kind}-${action.type}`;
+      if (action.visible) {
+        toolsPresence.current.add(key);
+        showControls();
+        if (!pointerInside.current) scheduleHideControls();
+      }
+      else { toolsPresence.current.delete(key); scheduleHideControls(); }
+      return;
+    }
+    const annotation = useAnnotation.getState();
+    const execute = async () => {
+      switch (action.type) {
+        case "edit": toggleEditMode(); break;
+        case "close": await closeCurrentPin(); break;
+        case "save": await saveCurrentPin(); break;
+        case "copy": await copyCurrentPin(); break;
+        case "scale": await updatePinScale(action.scale); break;
+        case "tool": if (editingRef.current) annotation.setActiveTool(action.tool); break;
+        case "style":
+          if (editingRef.current && annotation.activeTool === action.tool && annotation.selectedObjectId === action.selectedObjectId) annotation.updateSelectedStyle(action.updates);
+          break;
+        case "resize-object": if (editingRef.current) annotation.resizeObject(action.id, action.updates); break;
+        case "marker-number": if (editingRef.current) annotation.setCurrentMarkerNumber(action.value); break;
+        case "undo": if (editingRef.current) annotation.undo(); break;
+        case "redo": if (editingRef.current) annotation.redo(); break;
+        case "adjustments": useOverlay.getState().setImageAdjustments(action.updates); break;
+        case "reset-adjustments": useOverlay.getState().resetImageAdjustments(); break;
+      }
+    };
+    void execute().catch(error => console.warn("Could not apply pin action", error));
+  };
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    const listener = onPinAction(action => { if (!cancelled) pinActionRef.current(action); });
+    return () => {
+      cancelled = true;
+      void listener.then(unlisten => unlisten()).catch(() => {});
+    };
+  }, [id]);
+
   if (!id || !imageUrl) return null;
 
   return (
@@ -601,49 +547,18 @@ export function PinRoute() {
       style={containerStyle}
       onMouseDown={handleMouseDown}
       onMouseEnter={() => {
-        updateControlsSide();
-        setControlsVisible(true);
+        pointerInside.current = true;
+        showControls();
       }}
-      onMouseLeave={hideControls}
-      onFocusCapture={() => {
-        updateControlsSide();
-        setControlsVisible(true);
-      }}
+      onMouseLeave={() => { pointerInside.current = false; scheduleHideControls(); }}
+      onFocusCapture={showControls}
       onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) hideControls();
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) scheduleHideControls();
       }}
     >
       <svg width="0" height="0" aria-hidden="true" style={{ position: "absolute", pointerEvents: "none" }}>
         <defs><ImageAdjustmentsFilter id={PREVIEW_IMAGE_ADJUSTMENTS_FILTER_ID} adjustments={imageAdjustments} /></defs>
       </svg>
-      {controlsVisible && (
-        <PinControls
-          scale={scale}
-          scaleOptions={scaleOptions}
-          scaleMenuOpen={scaleMenuOpen}
-          adjustmentsPanelOpen={adjustmentsPanelOpen}
-          controlsSide={controlsSide}
-          copyConfirmed={copyConfirmed}
-          locale={locale}
-          onToggleScaleMenu={() => {
-            setAdjustmentsPanelOpen(false);
-            setScaleMenuOpen((open) => !open);
-          }}
-          onToggleAdjustmentsPanel={() => {
-            setScaleMenuOpen(false);
-            setAdjustmentsPanelOpen((open) => !open);
-          }}
-          onScaleSelect={(nextScale) => {
-            setScaleMenuOpen(false);
-            void updatePinScale(nextScale);
-          }}
-          editing={editing}
-          onEdit={toggleEditMode}
-          onClose={closeCurrentPin}
-          onSave={() => void saveCurrentPin()}
-          onCopy={() => void copyCurrentPin()}
-        />
-      )}
       {scaleBadge && (
         <div
           role="status"
@@ -655,7 +570,7 @@ export function PinRoute() {
       )}
       <div
         data-testid="pin-image-stack"
-        style={{ ...imageStackStyle, opacity: contentReady ? 1 : 0 }}
+        style={{ ...imageStackStyle, borderRadius: radius, opacity: contentReady ? 1 : 0 }}
       >
         <img
           ref={screenshotRef}
@@ -694,16 +609,16 @@ export function PinRoute() {
           </Suspense>
         )}
       </div>
-      {editing && (
-        <Suspense fallback={null}>
-          <AnnotationToolbar
-            locale={locale}
-            opaqueSurface
-            selection={editorToolbarSelection}
-            monitorRect={editorMonitorRect}
-          />
-        </Suspense>
-      )}
+      <div data-pin-rim style={{ position: "absolute", inset: 0, pointerEvents: "none", borderRadius: radius, boxShadow: PIN_GLOW }} />
+      <PinResizeHandles pinId={id}
+        onResizingChange={active => { resizingRef.current = active; cancelWindowDrag(); }}
+        onScale={next => {
+          scaleRef.current = next;
+          setScale(next);
+          setScaleBadge(scaleLabel(next));
+          if (scaleBadgeTimerRef.current) window.clearTimeout(scaleBadgeTimerRef.current);
+          scaleBadgeTimerRef.current = window.setTimeout(() => setScaleBadge(null), PIN_SCALE_BADGE_MS);
+        }} />
     </div>
   );
 }
@@ -712,284 +627,13 @@ const imageStackStyle: CSSProperties = {
   position: "relative",
   width: "100%",
   height: "100%",
+  overflow: "hidden",
 };
 
-
-type PinControlsProps = {
-  scale: number;
-  scaleOptions: number[];
-  scaleMenuOpen: boolean;
-  adjustmentsPanelOpen: boolean;
-  controlsSide: PinControlsSide;
-  copyConfirmed: boolean;
-  editing: boolean;
-  locale?: Locale;
-  onToggleScaleMenu: () => void;
-  onToggleAdjustmentsPanel: () => void;
-  onScaleSelect: (scale: number) => void;
-  onEdit: () => void;
-  onClose: () => void;
-  onSave: () => void;
-  onCopy: () => void;
-};
-
-function PinControls({
-  scale,
-  scaleOptions,
-  scaleMenuOpen,
-  adjustmentsPanelOpen,
-  controlsSide,
-  copyConfirmed,
-  editing,
-  locale = "en",
-  onToggleScaleMenu,
-  onToggleAdjustmentsPanel,
-  onScaleSelect,
-  onEdit,
-  onClose,
-  onSave,
-  onCopy,
-}: PinControlsProps) {
-  const t = createTranslator(locale);
-  const editLabel = `${t("pin.edit")} (E)`;
-  const adjustmentsLabel = t("screenshot.imageAdjustments");
-  const scaleControlLabel = t("pin.scaleShortcut", { scale: scaleLabel(scale) });
-  const closeLabel = `${t("screenshot.close")} (Esc)`;
-  const saveLabel = shortcutTitle(t("screenshot.saveAs"), "S");
-  const copyLabel = shortcutTitle(t("screenshot.copy"), "C");
-
-  return (
-    <div
-      data-testid="pin-controls"
-      data-pin-controls
-      data-pin-controls-side={controlsSide}
-      onMouseDown={(event) => event.stopPropagation()}
-      onWheel={(event) => event.stopPropagation()}
-      style={pinControlsStyleForSide(controlsSide)}
-    >
-      <PinControlButton
-        label={editLabel}
-        placement={controlsSide}
-        icon={<SquarePen size={18} aria-hidden="true" />}
-        active={editing}
-        onClick={onEdit}
-      />
-      <div style={{ position: "relative" }}>
-        <PinControlButton
-          label={adjustmentsLabel}
-          placement={controlsSide}
-          icon={<ImageIcon size={18} aria-hidden="true" />}
-          active={adjustmentsPanelOpen}
-          onClick={onToggleAdjustmentsPanel}
-        />
-        {adjustmentsPanelOpen && (
-          <ImageAdjustmentsPanel
-            locale={locale}
-            style={pinAdjustmentsPanelStyleForSide(controlsSide)}
-          />
-        )}
-      </div>
-      <div style={{ position: "relative" }}>
-        <PinControlButton
-          label={scaleControlLabel}
-          placement={controlsSide}
-          icon={<Scaling size={18} aria-hidden="true" />}
-          active={scaleMenuOpen}
-          onClick={onToggleScaleMenu}
-        />
-        {scaleMenuOpen && (
-          <div
-            data-testid="pin-scale-options"
-            className="flashot-dark-scrollbar"
-            onWheel={(event) => event.stopPropagation()}
-            style={pinScaleOptionsStyleForSide(controlsSide)}
-          >
-            {scaleOptions.map((option) => (
-              <button
-                key={option}
-                type="button"
-                aria-label={t("pin.scale", { scale: scaleLabel(option) })}
-                onClick={() => onScaleSelect(option)}
-                style={{
-                  ...pinScaleOptionStyle,
-                  background: option === scale ? "rgba(255,255,255,0.16)" : "transparent",
-                }}
-              >
-                {scaleLabel(option)}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      <PinControlButton
-        label={closeLabel}
-        placement={controlsSide}
-        icon={<XIcon size={18} aria-hidden="true" />}
-        tone="danger"
-        onClick={onClose}
-      />
-      <PinControlButton
-        label={saveLabel}
-        placement={controlsSide}
-        icon={<SaveIcon size={18} aria-hidden="true" />}
-        tone="primary"
-        onClick={onSave}
-      />
-      <PinControlButton
-        label={copyLabel}
-        placement={controlsSide}
-        icon={copyConfirmed ? <CheckIcon size={18} aria-hidden="true" /> : <CopyIcon size={18} aria-hidden="true" />}
-        tone="success"
-        onClick={onCopy}
-      />
-    </div>
-  );
-}
-
-function PinControlButton({
-  label,
-  icon,
-  onClick,
-  active,
-  placement,
-  tone = "default",
-}: {
-  label: string;
-  icon: ReactNode;
-  onClick: () => void;
-  active?: boolean;
-  placement: PinControlsSide;
-  tone?: "default" | "danger" | "primary" | "success";
-}) {
-  const [tooltipVisible, setTooltipVisible] = useState(false);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const color = {
-    default: "rgba(255,255,255,0.78)",
-    danger: "#f87171",
-    primary: "#60a5fa",
-    success: "#4ade80",
-  }[tone];
-
-  return (
-    <button
-      ref={buttonRef}
-      type="button"
-      aria-label={label}
-      onClick={onClick}
-      onMouseEnter={() => setTooltipVisible(true)}
-      onMouseLeave={() => setTooltipVisible(false)}
-      onFocus={() => setTooltipVisible(true)}
-      onBlur={() => setTooltipVisible(false)}
-      style={{
-        ...pinControlButtonStyle,
-        background: active ? "rgba(255,255,255,0.16)" : "transparent",
-        color,
-      }}
-    >
-      {icon}
-      {tooltipVisible && <TooltipBubble label={label} anchorRef={buttonRef} placement={placement} />}
-    </button>
-  );
-}
-
-function pinControlsStyleForSide(side: PinControlsSide): CSSProperties {
-  return {
-    ...pinControlsBaseStyle,
-    ...(side === "right"
-      ? { right: PIN_SHADOW_PADDING + TOOLBAR_GAP }
-      : { left: PIN_SHADOW_PADDING + TOOLBAR_GAP }),
-  };
-}
-
-const pinControlsBaseStyle: CSSProperties = {
-  position: "absolute",
-  top: PIN_SHADOW_PADDING,
-  width: PIN_CONTROLS_WIDTH,
-  boxSizing: "border-box",
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  gap: 2,
-  padding: "4px 0",
-  borderRadius: 10,
-  background: "rgb(30, 30, 30)",
-  backdropFilter: "blur(12px)",
-  WebkitBackdropFilter: "blur(12px)",
-  boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
-  border: "1px solid rgba(255,255,255,0.1)",
-  color: "#f0f0f5",
-  pointerEvents: "auto",
-  userSelect: "none",
-  zIndex: 10,
-};
-
-const pinControlButtonStyle: CSSProperties = {
-  position: "relative",
-  width: 32,
-  height: 32,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 0,
-  borderRadius: 6,
-  border: "none",
-  cursor: "pointer",
-  flexShrink: 0,
-};
 
 const pinScaleBadgeStyle: CSSProperties = {
-  position: "absolute",
-  left: PIN_SHADOW_PADDING + 6,
-  top: PIN_SHADOW_PADDING - 22,
-  padding: "2px 6px",
-  borderRadius: 4,
-  background: FLOATING_LABEL_BACKGROUND,
-  color: ACCENT_COLOR_CSS_VAR,
-  fontSize: 11,
-  lineHeight: 1,
-  fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
-  fontVariantNumeric: "tabular-nums",
-  pointerEvents: "none",
-  zIndex: 12,
-};
-
-function pinScaleOptionsStyleForSide(side: PinControlsSide): CSSProperties {
-  return {
-    position: "absolute",
-    ...(side === "right"
-      ? { right: `calc(100% + ${PIN_CONTROLS_GAP - 2}px)` }
-      : { left: `calc(100% + ${PIN_CONTROLS_GAP - 2}px)` }),
-    top: 0,
-    width: 72,
-    maxHeight: 220,
-    overflowY: "auto",
-    overflowX: "hidden",
-    padding: 4,
-    borderRadius: 8,
-    background: "rgba(30, 30, 30, 0.95)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-  };
-}
-
-function pinAdjustmentsPanelStyleForSide(side: PinControlsSide): CSSProperties {
-  return {
-    position: "absolute",
-    ...(side === "right"
-      ? { right: `calc(100% + ${PIN_CONTROLS_GAP - 2}px)` }
-      : { left: `calc(100% + ${PIN_CONTROLS_GAP - 2}px)` }),
-    top: 0,
-    width: PIN_ADJUSTMENTS_PANEL_WIDTH,
-  };
-}
-
-const pinScaleOptionStyle: CSSProperties = {
-  width: "100%",
-  height: 24,
-  border: "none",
-  borderRadius: 5,
-  color: "#fff",
-  cursor: "pointer",
-  fontSize: 11,
-  fontVariantNumeric: "tabular-nums",
+  position: "absolute", left: 8, top: 8, padding: "3px 6px", borderRadius: 4,
+  background: FLOATING_LABEL_BACKGROUND, color: ACCENT_COLOR_CSS_VAR,
+  fontSize: 11, lineHeight: 1, fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
+  fontVariantNumeric: "tabular-nums", pointerEvents: "none", zIndex: 12,
 };

@@ -1,5 +1,6 @@
 import { PropertyPanel } from "@/annotation/PropertyPanel";
-import { useAnnotation } from "@/annotation/store";
+import { useAnnotationControls } from "@/annotation/controls";
+import { useFloatingWindowDirection } from "@/annotation/FloatingWindowContext";
 import { TooltipBubble } from "@/annotation/Tooltip";
 import type { ToolType } from "@/annotation/types";
 import { createTranslator, type Locale } from "@/i18n";
@@ -78,7 +79,7 @@ type Props = {
   selection: Rect;
   monitorRect: Rect;
   opaqueSurface?: boolean;
-  placement?: "selection" | "top-center";
+  placement?: "selection" | "top-center" | "floating";
   topInset?: number;
   initialPanelOpen?: boolean;
   locale?: Locale;
@@ -94,11 +95,14 @@ export function Toolbar({
   locale = "en",
 }: Props) {
   const t = createTranslator(locale);
-  const { activeTool, setActiveTool, canUndo, canRedo, undo, redo } = useAnnotation();
-  const currentMarkerNumber = useAnnotation((s) => s.currentMarkerNumber);
+  const { activeTool, setActiveTool, canUndo, canRedo, undo, redo } = useAnnotationControls((s) => s);
+  const currentMarkerNumber = useAnnotationControls((s) => s.currentMarkerNumber);
   const hideColorPicker = useOverlay((s) => s.hideColorPicker);
-  const objects = useAnnotation((s) => s.objects);
-  const selectedObjectId = useAnnotation((s) => s.selectedObjectId);
+  const objects = useAnnotationControls((s) => s.objects);
+  const selectedObjectId = useAnnotationControls((s) => s.selectedObjectId);
+  const floating = placement === "floating";
+  const floatingDirection = useFloatingWindowDirection();
+  const floatingMaxWidth = Math.max(80, (window.screen.availWidth || window.innerWidth) - 24);
   const [showPanel, setShowPanel] = useState(initialPanelOpen);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const propertyPanelRef = useRef<HTMLDivElement>(null);
@@ -180,7 +184,7 @@ export function Toolbar({
     return belowY;
   })();
 
-  return (
+  const content = (
     <>
       {/* Property panel */}
       {shouldShowPanel && panelTool !== "select" && panelTool !== "eraser" && (
@@ -190,13 +194,14 @@ export function Toolbar({
           tool={panelTool}
           object={selectedObject}
           style={{
-            position: "fixed",
-            left: placement === "top-center"
+            position: floating ? "relative" : "fixed",
+            left: floating ? undefined : placement === "top-center"
               ? monitorRect.x + monitorRect.width / 2
               : pos.x,
-            top: panelTop,
+            top: floating ? undefined : panelTop,
             transform: placement === "top-center" ? "translateX(-50%)" : undefined,
             zIndex: 10001,
+            ...(floating ? { order: floatingDirection === "top" ? -1 : 1, height: "auto", minHeight: 34, maxWidth: floatingMaxWidth, flexWrap: "wrap", background: "rgb(30, 30, 30)", boxShadow: "none", backdropFilter: "none", cursor: "default" } : {}),
           }}
         />
       )}
@@ -207,24 +212,27 @@ export function Toolbar({
         data-annotation-toolbar
         onMouseDown={(e) => e.stopPropagation()}
         style={{
-          position: "fixed",
-          left: pos.x,
-          top: pos.y,
-          height: TOOLBAR_SIZE.height,
+          position: floating ? "relative" : "fixed",
+          left: floating ? undefined : pos.x,
+          top: floating ? undefined : pos.y,
+          height: floating ? "auto" : TOOLBAR_SIZE.height,
+          minHeight: TOOLBAR_SIZE.height,
           display: "flex",
           alignItems: "center",
           gap: 2,
-          padding: "0 8px",
+          padding: floating ? "3px 8px" : "0 8px",
+          ...(floating ? { order: 0, flexWrap: "wrap", width: "max-content", maxWidth: floatingMaxWidth } : {}),
           borderRadius: 10,
           background: opaqueSurface ? "rgb(30, 30, 30)" : "rgba(30, 30, 30, 0.85)",
-          backdropFilter: "blur(12px)",
-          boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+          backdropFilter: floating ? "none" : "blur(12px)",
+          boxShadow: floating ? "none" : "0 4px 24px rgba(0,0,0,0.4)",
+          cursor: "default",
           border: "1px solid rgba(255,255,255,0.1)",
           zIndex: 10000,
           userSelect: "none",
         }}
       >
-        <div
+        {!floating && <div
           data-annotation-toolbar-drag-handle
           onMouseDown={startToolbarDrag}
           style={{
@@ -240,7 +248,7 @@ export function Toolbar({
           }}
         >
           <GripVertical size={14} />
-        </div>
+        </div>}
 
         {/* Group 1: Tool buttons */}
         {TOOLS.map((tool) => (
@@ -271,6 +279,10 @@ export function Toolbar({
       </div>
     </>
   );
+
+  return floating
+    ? <div data-pin-editor-surface style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: PROPERTY_PANEL_GAP, width: "max-content", maxWidth: floatingMaxWidth }}>{content}</div>
+    : content;
 }
 
 // --- Sub-components ---

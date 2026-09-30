@@ -1,6 +1,7 @@
 import { AboutRoute } from "@/routes/About";
 import { OverlayRoute } from "@/routes/Overlay";
 import { PinRoute } from "@/routes/Pin";
+import { PinToolsRoute } from "@/routes/PinTools";
 import { ScrollChromeRoute } from "@/routes/ScrollChrome";
 import { FlashotRoute } from "@/routes/Settings";
 import { UpdaterRoute } from "@/routes/Updater";
@@ -10,6 +11,7 @@ function parseRoute():
   | "flashot"
   | "overlay"
   | "pin"
+  | "pin-tools"
   | "scroll-chrome"
   | "settings"
   | "updater" {
@@ -19,6 +21,7 @@ function parseRoute():
   if (h.startsWith("#/settings")) return "settings";
   if (h.startsWith("#/updater")) return "updater";
   if (h.startsWith("#/pin/")) return "pin";
+  if (h.startsWith("#/pin-tools/")) return "pin-tools";
   if (h.startsWith("#/scroll-chrome/")) return "scroll-chrome";
   return "overlay";
 }
@@ -30,6 +33,7 @@ export default function App() {
   if (route === "settings") return <FlashotRoute initialTab="general" />;
   if (route === "updater") return <UpdaterRoute />;
   if (route === "pin") return <PinRoute />;
+  if (route === "pin-tools") return <PinToolsRoute />;
   if (route === "scroll-chrome") return <ScrollChromeRoute />;
   return <OverlayRoute />;
 }

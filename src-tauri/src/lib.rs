@@ -8,7 +8,9 @@ pub mod image_adjust;
 pub mod mask;
 pub mod overlay_window;
 pub mod permission;
+pub mod pin_geometry;
 pub mod pin_mgr;
+pub mod pin_windows;
 pub mod saver;
 pub mod scroll_session;
 pub mod scroll_stitch;
@@ -58,12 +60,27 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
+            if matches!(
+                event,
+                WindowEvent::Moved(_)
+                    | WindowEvent::Resized(_)
+                    | WindowEvent::ScaleFactorChanged { .. }
+            ) && let Some(pin_id) = window.label().strip_prefix("pin-")
+                && let Some(pin_mgr) = window.app_handle().try_state::<Arc<PinManager>>()
+            {
+                if let WindowEvent::Moved(position) = event {
+                    pin_windows::move_tools(window.app_handle(), &pin_mgr, pin_id, *position);
+                } else {
+                    pin_windows::reposition_tools(window.app_handle(), &pin_mgr, pin_id);
+                }
+            }
             if let WindowEvent::Destroyed = event {
                 let label = window.label();
                 if let Some(pin_id) = label.strip_prefix("pin-")
                     && let Some(pin_mgr) = window.app_handle().try_state::<Arc<PinManager>>()
                     && let Some(entry) = pin_mgr.remove_pin(pin_id)
                 {
+                    pin_windows::close_tools(window.app_handle(), pin_id);
                     if let Err(e) = std::fs::remove_file(&entry.image_path) {
                         tracing::warn!("failed to remove pin PNG {:?}: {e}", entry.image_path);
                     }
@@ -290,6 +307,14 @@ pub fn run() {
             commands::pin_image,
             commands::close_pin,
             commands::set_pin_scale,
+            commands::sync_pin_tools,
+            commands::get_pin_tools_state,
+            commands::resize_pin_tool_window,
+            commands::start_pin_drag,
+            commands::pin_interaction_contains_cursor,
+            commands::begin_pin_resize,
+            commands::resize_pin,
+            commands::end_pin_resize,
             commands::update_pin_annotation,
             commands::save_pin,
             commands::copy_pin,

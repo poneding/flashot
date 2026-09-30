@@ -15,9 +15,14 @@ vi.mock("@/lib/ipc", () => ({
   copyPin: vi.fn().mockResolvedValue(undefined),
   savePin: vi.fn().mockResolvedValue(undefined),
   updatePinAnnotation: vi.fn().mockResolvedValue(undefined),
+  onPinAction: vi.fn().mockResolvedValue(vi.fn()),
+  syncPinTools: vi.fn().mockResolvedValue(undefined),
+  beginPinResize: vi.fn().mockResolvedValue("gesture"),
+  resizePin: vi.fn().mockResolvedValue(1),
+  endPinResize: vi.fn().mockResolvedValue(undefined),
   setPinScale: vi.fn().mockImplementation(async (_id, scale) => {
-    Object.defineProperty(window, "innerWidth", { configurable: true, value: 400 * scale + 96 });
-    Object.defineProperty(window, "innerHeight", { configurable: true, value: 300 * scale + 96 });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 400 * scale });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 300 * scale });
     window.dispatchEvent(new Event("resize"));
   }),
 }));
@@ -34,8 +39,8 @@ beforeAll(() => {
 });
 beforeEach(() => {
   useAnnotation.getState().reset();
-  Object.defineProperty(window, "innerWidth", { configurable: true, value: 496 });
-  Object.defineProperty(window, "innerHeight", { configurable: true, value: 396 });
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 400 });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 300 });
   Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 1 });
   vi.mocked(setPinScale).mockClear();
 });

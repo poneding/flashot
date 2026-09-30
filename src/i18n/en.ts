@@ -66,8 +66,9 @@ export const en = {
   "updater.error": "Update check failed",
   "updater.retry": "Retry",
   "updater.close": "Close",
-  "updater.betaAllowed": "Beta updates: allowed",
-  "updater.betaBlocked": "Beta updates: stable only",
+  "updater.betaLabel": "Beta updates:",
+  "updater.betaAllowed": "allowed",
+  "updater.betaBlocked": "stable only",
 
   "screenshot.cornerRadius": "Corner radius: {value}",
   "screenshot.cornerRadiusUnit": "Corner radius [px]",
