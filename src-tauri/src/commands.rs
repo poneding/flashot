@@ -578,11 +578,16 @@ pub fn choose_default_save_dir(current_dir: Option<String>) -> Result<Option<Str
 }
 
 trait LaunchAtLogin {
+    fn is_enabled(&self) -> Result<bool, String>;
     fn enable(&self) -> Result<(), String>;
     fn disable(&self) -> Result<(), String>;
 }
 
 impl LaunchAtLogin for tauri_plugin_autostart::AutoLaunchManager {
+    fn is_enabled(&self) -> Result<bool, String> {
+        tauri_plugin_autostart::AutoLaunchManager::is_enabled(self).map_err(|e| e.to_string())
+    }
+
     fn enable(&self) -> Result<(), String> {
         tauri_plugin_autostart::AutoLaunchManager::enable(self).map_err(|e| e.to_string())
     }
@@ -596,6 +601,12 @@ fn apply_launch_at_login(
     manager: &impl LaunchAtLogin,
     launch_at_login: bool,
 ) -> Result<(), String> {
+    // auto-launch errors when disabling an entry that is already absent, which
+    // would abort set_settings before the settings file is written; skip the
+    // registry toggle entirely when the current state already matches.
+    if manager.is_enabled()? == launch_at_login {
+        return Ok(());
+    }
     if launch_at_login {
         manager.enable()
     } else {
@@ -2903,16 +2914,32 @@ mod tests {
 
     #[derive(Default)]
     struct FakeLaunchAtLogin {
+        enabled: std::cell::Cell<bool>,
         calls: std::cell::RefCell<Vec<&'static str>>,
     }
 
+    impl FakeLaunchAtLogin {
+        fn with_autostart_enabled() -> Self {
+            Self {
+                enabled: std::cell::Cell::new(true),
+                calls: std::cell::RefCell::new(Vec::new()),
+            }
+        }
+    }
+
     impl LaunchAtLogin for FakeLaunchAtLogin {
+        fn is_enabled(&self) -> Result<bool, String> {
+            Ok(self.enabled.get())
+        }
+
         fn enable(&self) -> Result<(), String> {
+            self.enabled.set(true);
             self.calls.borrow_mut().push("enable");
             Ok(())
         }
 
         fn disable(&self) -> Result<(), String> {
+            self.enabled.set(false);
             self.calls.borrow_mut().push("disable");
             Ok(())
         }
@@ -2929,11 +2956,23 @@ mod tests {
 
     #[test]
     fn apply_launch_at_login_disables_login_startup_when_requested() {
-        let manager = FakeLaunchAtLogin::default();
+        let manager = FakeLaunchAtLogin::with_autostart_enabled();
 
         apply_launch_at_login(&manager, false).unwrap();
 
         assert_eq!(*manager.calls.borrow(), ["disable"]);
+    }
+
+    #[test]
+    fn apply_launch_at_login_skips_disable_when_autostart_already_off() {
+        let manager = FakeLaunchAtLogin::default();
+
+        apply_launch_at_login(&manager, false).unwrap();
+
+        assert!(
+            manager.calls.borrow().is_empty(),
+            "disabling an already-absent autostart entry must not be attempted"
+        );
     }
 
     #[test]
