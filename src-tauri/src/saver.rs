@@ -67,12 +67,12 @@ pub fn save_image_to_path(rgba: Vec<u8>, width: u32, height: u32, path: &Path) -
 }
 
 fn rgba_is_opaque(rgba: &[u8]) -> bool {
-    rgba.chunks_exact(4).all(|pixel| pixel[3] == 255)
+    rgba.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 255)
 }
 
 fn rgba_to_rgb(rgba: &[u8]) -> Vec<u8> {
     let mut rgb = Vec::with_capacity(rgba.len() / 4 * 3);
-    for pixel in rgba.chunks_exact(4) {
+    for pixel in rgba.as_chunks::<4>().0 {
         rgb.extend_from_slice(&pixel[..3]);
     }
     rgb

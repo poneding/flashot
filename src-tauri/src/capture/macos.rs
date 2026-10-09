@@ -76,7 +76,7 @@ fn capture_display_without_cursor(display_id: u32) -> Result<(Vec<u8>, u32, u32)
     for row in source.chunks_exact(bytes_per_row).take(height) {
         rgba.extend_from_slice(&row[..width * 4]);
     }
-    for bgra in rgba.chunks_exact_mut(4) {
+    for bgra in rgba.as_chunks_mut::<4>().0 {
         bgra.swap(0, 2);
     }
 

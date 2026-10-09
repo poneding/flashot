@@ -116,7 +116,7 @@ fn copy_image_dibv5(rgba: Vec<u8>, width: u32, height: u32) -> Result<()> {
             pixels.swap(a + i, b + i);
         }
     }
-    for px in pixels.chunks_exact_mut(4) {
+    for px in pixels.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
     }
 
@@ -202,7 +202,7 @@ mod tests {
                 pixels.swap(a + i, b + i);
             }
         }
-        for px in pixels.chunks_exact_mut(4) {
+        for px in pixels.as_chunks_mut::<4>().0 {
             px.swap(0, 2);
         }
         pixels

@@ -711,7 +711,9 @@ mod tests {
             let image = super::lucide_menu_icon(icon, super::MenuIconTheme::Light);
             let visible_pixels = image
                 .rgba()
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|pixel| pixel[3] > 0)
                 .count();
 
@@ -751,7 +753,9 @@ mod tests {
             let image = super::lucide_menu_icon(icon, super::MenuIconTheme::Light);
             let max_alpha = image
                 .rgba()
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|pixel| pixel[3])
                 .max()
                 .unwrap_or_default();
@@ -832,13 +836,26 @@ mod tests {
         let image = super::transparent_menu_icon();
 
         assert_eq!((image.width(), image.height()), (36, 36));
-        assert!(image.rgba().chunks_exact(4).all(|pixel| pixel[3] == 0));
+        assert!(
+            image
+                .rgba()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 0)
+        );
     }
 
     fn average_visible_luma(image: &tauri::image::Image<'_>) -> f32 {
         let mut total = 0.0;
         let mut count = 0;
-        for pixel in image.rgba().chunks_exact(4).filter(|pixel| pixel[3] > 0) {
+        for pixel in image
+            .rgba()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[3] > 0)
+        {
             total += pixel[0] as f32 * 0.2126 + pixel[1] as f32 * 0.7152 + pixel[2] as f32 * 0.0722;
             count += 1;
         }

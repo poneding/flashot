@@ -12,7 +12,7 @@ pub fn apply_image_adjustments(
         return;
     }
 
-    for px in rgba.chunks_exact_mut(4).take(pixel_count) {
+    for px in rgba.as_chunks_mut::<4>().0.iter_mut().take(pixel_count) {
         let mut r = px[0] as f32;
         let mut g = px[1] as f32;
         let mut b = px[2] as f32;
